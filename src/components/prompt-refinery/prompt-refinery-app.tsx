@@ -5,15 +5,54 @@ import { RefineryTab } from './refinery-tab';
 import { EvaluatorTab } from './evaluator-tab';
 import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
+import { Button } from '@/components/ui/button';
+import { loadStripe } from '@stripe/stripe-js';
+
+// Make sure to add your Stripe publishable key to your environment variables
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export function PromptRefineryApp() {
+
+  const handleCoffeeClick = async () => {
+    try {
+        const res = await fetch('/api/checkout_sessions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!res.ok) {
+            throw new Error('Failed to create checkout session');
+        }
+
+        const { id: sessionId } = await res.json();
+        const stripe = await stripePromise;
+        if (!stripe) {
+            throw new Error('Stripe.js has not loaded');
+        }
+        
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+        if (error) {
+            console.error('Stripe redirect error:', error);
+        }
+    } catch (error) {
+        console.error('Error handling coffee click:', error);
+    }
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto">
-        <header className="flex items-center justify-center gap-3 mb-8">
-            <Logo className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl md:text-5xl font-bold font-headline tracking-tight text-center">
-                The Prompt Refinery
-            </h1>
+        <header className="flex flex-col items-center justify-center gap-3 mb-8">
+            <div className="flex items-center gap-3">
+              <Logo className="h-10 w-10 text-primary" />
+              <h1 className="text-4xl md:text-5xl font-bold font-headline tracking-tight text-center">
+                  The Prompt Refinery
+              </h1>
+            </div>
+            <Button onClick={handleCoffeeClick} variant="link" className="text-lg text-amber-500 hover:text-amber-600">
+                Buy me a coffee😊!
+            </Button>
         </header>
         <p className="text-center text-lg text-muted-foreground mb-10 max-w-3xl mx-auto">
             A suite of tools to sharpen your prompts. Use the AI Council to refine your ideas or evaluate specific guidelines for better, more consistent results.
