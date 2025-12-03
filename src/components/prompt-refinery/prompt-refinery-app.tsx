@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { loadStripe } from '@stripe/stripe-js';
 
 // Make sure to add your Stripe publishable key to your environment variables
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
 export function PromptRefineryApp() {
 
@@ -50,9 +51,11 @@ export function PromptRefineryApp() {
                   The Prompt Refinery
               </h1>
             </div>
-            <Button onClick={handleCoffeeClick} variant="link" className="text-lg text-amber-500 hover:text-amber-600">
-                Buy me a coffee😊!
-            </Button>
+            {stripePromise && (
+              <Button onClick={handleCoffeeClick} variant="link" className="text-lg text-amber-500 hover:text-amber-600">
+                  Buy me a coffee😊!
+              </Button>
+            )}
         </header>
         <p className="text-center text-lg text-muted-foreground mb-10 max-w-3xl mx-auto">
             A suite of tools to sharpen your prompts. Use the AI Council to refine your ideas or evaluate specific guidelines for better, more consistent results.
