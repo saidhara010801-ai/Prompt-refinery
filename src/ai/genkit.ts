@@ -1,3 +1,6 @@
+import { config } from 'dotenv';
+config();
+
 import { genkit, type Genkit as GenkitType } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 
