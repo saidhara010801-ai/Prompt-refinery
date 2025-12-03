@@ -1,8 +1,3 @@
-# Firebase Studio
-
-This is a NextJS starter in Firebase Studio.
-
-To get started, take a look at src/app/page.tsx.
 ## Project Overview
 
 Firebase Studio is a powerful, opinionated starter kit designed to streamline the development of Next.js applications integrated with Firebase. It provides a robust foundation, combining the best practices of modern web development with the comprehensive backend services offered by Google Firebase. This tool aims to accelerate your development workflow, allowing you to focus on building unique features rather than wrestling with initial setup and configurations.
