@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,21 +18,18 @@ import { ApiKeyContext } from '@/context/api-key-context';
 
 export function SettingsDialog() {
   const { apiKey, setApiKey } = useContext(ApiKeyContext);
+  const [open, setOpen] = useState(false);
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newApiKey = formData.get('apiKey') as string;
     setApiKey(newApiKey);
-    // Find the closest dialog trigger and click it to close
-    const trigger = (e.currentTarget as HTMLElement).closest('[data-radix-dialog-content]')?.querySelector('[data-radix-dialog-close]');
-    if (trigger) {
-      (trigger as HTMLElement).click();
-    }
+    setOpen(false); // Close the dialog
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="icon">
           <Settings className="h-4 w-4" />
