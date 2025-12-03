@@ -6,6 +6,7 @@ import { LoginPage } from '@/components/auth/login-page';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
 import { getAuth, signOut } from 'firebase/auth';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 function AppContent() {
   const { user, isUserLoading } = useUser();
@@ -26,6 +27,8 @@ function AppContent() {
 }
 
 export default function Home() {
+  const { user } = useUser();
+
   const handleSignOut = () => {
     const auth = getAuth();
     signOut(auth);
@@ -33,12 +36,15 @@ export default function Home() {
 
   return (
     <FirebaseClientProvider>
-      <div className="min-h-screen bg-background text-foreground flex flex-col">
-        <header className="absolute top-4 right-4">
-            <Button variant="ghost" onClick={handleSignOut}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-            </Button>
+      <div className="min-h-screen bg-transparent text-foreground flex flex-col">
+        <header className="absolute top-4 right-4 flex items-center gap-2">
+            {user && (
+              <Button variant="ghost" onClick={handleSignOut}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sign Out
+              </Button>
+            )}
+            <ThemeToggle />
         </header>
         <main className="flex-1 container mx-auto px-4 py-8 md:py-12">
           <AppContent />
