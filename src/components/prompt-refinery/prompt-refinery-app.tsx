@@ -7,12 +7,14 @@ import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
 import { Button } from '@/components/ui/button';
 import { loadStripe } from '@stripe/stripe-js';
+import { useToast } from '@/hooks/use-toast';
 
 // Make sure to add your Stripe publishable key to your environment variables
 const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
 export function PromptRefineryApp() {
+  const { toast } = useToast();
 
   const handleCoffeeClick = async () => {
     try {
@@ -23,11 +25,13 @@ export function PromptRefineryApp() {
             },
         });
 
+        const data = await res.json();
+
         if (!res.ok) {
-            throw new Error('Failed to create checkout session');
+            throw new Error(data.error?.message || 'Failed to create checkout session');
         }
 
-        const { id: sessionId } = await res.json();
+        const { id: sessionId } = data;
         const stripe = await stripePromise;
         if (!stripe) {
             throw new Error('Stripe.js has not loaded');
@@ -36,9 +40,19 @@ export function PromptRefineryApp() {
         const { error } = await stripe.redirectToCheckout({ sessionId });
         if (error) {
             console.error('Stripe redirect error:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Stripe Error',
+                description: error.message,
+            });
         }
     } catch (error) {
         console.error('Error handling coffee click:', error);
+        toast({
+            variant: 'destructive',
+            title: 'Payment Error',
+            description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+        });
     }
   };
 

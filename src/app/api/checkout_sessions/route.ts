@@ -2,9 +2,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Make sure to add your Stripe secret key to your environment variables
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
 export async function POST(req: NextRequest) {
+  if (!stripeSecretKey) {
+    return NextResponse.json(
+      { error: { message: 'Stripe secret key is not set. Please add it to your .env file.' } },
+      { status: 500 }
+    );
+  }
+
+  const stripe = require('stripe')(stripeSecretKey);
+
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
