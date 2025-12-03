@@ -61,8 +61,10 @@ const refinePromptWithAICouncilPrompt = ai.definePrompt({
   """
   {{prompt}}
   """
+  
+  When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
-  Return the refined prompt.
+  Return ONLY the refined prompt.
 `,
 });
 
