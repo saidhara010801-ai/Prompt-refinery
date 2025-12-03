@@ -45,12 +45,13 @@ export type PromptTechnique = (typeof PROMPT_TECHNIQUES)[number]['value'];
 
 export const LLM_COUNCIL_GUIDELINES = [
     { value: 'Be specific and provide context', label: 'Be specific and provide context' },
-    { value: 'Use clear and concise language', label: 'Use clear and concise language' },
+    { value: 'Use delimiters', label: 'Use delimiters' },
     { value: 'Specify the desired output format', label: 'Specify the desired output format' },
-    { value: 'Use delimiters to separate different parts of the prompt', label: 'Use delimiters' },
-    { value: 'Provide examples (few-shot prompting)', label: 'Provide examples' },
+    { value: 'Provide examples (few-shot prompting)', label: 'Provide examples (few-shot)' },
     { value: 'Break down complex tasks into smaller steps', label: 'Break down complex tasks' },
     { value: 'Use a persona or role for the model', label: 'Use a persona/role' },
+    { value: 'Check your assumptions', label: 'Check your assumptions' },
+    { value: 'Iterate and refine', label: 'Iterate and refine' },
 ] as const;
   
 export type LlmCouncilGuideline = (typeof LLM_COUNCIL_GUIDELINES)[number]['value'];
