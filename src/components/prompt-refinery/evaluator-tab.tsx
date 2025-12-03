@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { LLM_COUNCIL_GUIDELINES, LlmCouncilGuideline } from '@/lib/constants';
 import { evaluateGuidelineAction } from '@/app/actions';
+import { ApiKeyContext } from '@/context/api-key-context';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -33,6 +34,7 @@ export function EvaluatorTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const { toast } = useToast();
+  const { apiKey } = useContext(ApiKeyContext);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -46,7 +48,7 @@ export function EvaluatorTab() {
     setIsLoading(true);
     setEvaluation(null);
     try {
-      const result = await evaluateGuidelineAction(data);
+      const result = await evaluateGuidelineAction({ ...data, apiKey: apiKey || undefined });
       setEvaluation(result);
     } catch (error) {
       toast({

@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
 import { getAuth, signOut } from 'firebase/auth';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { ApiKeyProvider } from '@/context/api-key-context';
+import { SettingsDialog } from '@/components/settings-dialog';
 
 function AppContent() {
   const { user, isUserLoading } = useUser();
@@ -37,6 +39,7 @@ function HomePageContent() {
   return (
     <div className="min-h-screen bg-transparent text-foreground flex flex-col">
       <header className="absolute top-4 right-4 flex items-center gap-2">
+        <SettingsDialog />
         {user && (
           <Button variant="ghost" onClick={handleSignOut}>
             <LogOut className="mr-2 h-4 w-4" />
@@ -56,7 +59,9 @@ function HomePageContent() {
 export default function Home() {
   return (
     <FirebaseClientProvider>
-      <HomePageContent />
+      <ApiKeyProvider>
+        <HomePageContent />
+      </ApiKeyProvider>
     </FirebaseClientProvider>
   );
 }

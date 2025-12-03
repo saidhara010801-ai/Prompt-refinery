@@ -7,13 +7,15 @@
  * - EvaluatePromptGuidelineInclusionOutput - The return type for the evaluatePromptGuidelineInclusion function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { genkit, generation, ai } from '@/ai/genkit';
+import { z } from 'genkit';
+import { googleAI } from '@genkit-ai/google-genai';
 
 const EvaluatePromptGuidelineInclusionInputSchema = z.object({
   prompt: z.string().describe('The current prompt being refined.'),
   guideline: z.string().describe('The specific LLM council guideline to evaluate for inclusion.'),
   userQuery: z.string().describe('The original user query that the prompt is intended to address.'),
+  apiKey: z.string().optional().describe('The user-provided Gemini API key.'),
 });
 export type EvaluatePromptGuidelineInclusionInput = z.infer<typeof EvaluatePromptGuidelineInclusionInputSchema>;
 
@@ -24,14 +26,18 @@ const EvaluatePromptGuidelineInclusionOutputSchema = z.object({
 export type EvaluatePromptGuidelineInclusionOutput = z.infer<typeof EvaluatePromptGuidelineInclusionOutputSchema>;
 
 export async function evaluatePromptGuidelineInclusion(input: EvaluatePromptGuidelineInclusionInput): Promise<EvaluatePromptGuidelineInclusionOutput> {
-  return evaluatePromptGuidelineInclusionFlow(input);
-}
-
-const evaluatePromptGuidelineInclusionPrompt = ai.definePrompt({
-  name: 'evaluatePromptGuidelineInclusionPrompt',
-  input: {schema: EvaluatePromptGuidelineInclusionInputSchema},
-  output: {schema: EvaluatePromptGuidelineInclusionOutputSchema},
-  prompt: `You are an expert prompt engineer, tasked with evaluating whether a specific guideline from the LLM council should be included in a prompt.
+  const runner = ai.defineFlow(
+    {
+      name: 'evaluatePromptGuidelineInclusionFlow',
+      inputSchema: EvaluatePromptGuidelineInclusionInputSchema,
+      outputSchema: EvaluatePromptGuidelineInclusionOutputSchema,
+    },
+    async (input) => {
+      const evaluatePromptGuidelineInclusionPrompt = ai.definePrompt({
+        name: 'evaluatePromptGuidelineInclusionPrompt',
+        input: { schema: EvaluatePromptGuidelineInclusionInputSchema },
+        output: { schema: EvaluatePromptGuidelineInclusionOutputSchema },
+        prompt: `You are an expert prompt engineer, tasked with evaluating whether a specific guideline from the LLM council should be included in a prompt.
   The goal is to determine if the guideline will improve the prompt's effectiveness in addressing the original user query.
 
   Original User Query: {{{userQuery}}}
@@ -46,16 +52,20 @@ const evaluatePromptGuidelineInclusionPrompt = ai.definePrompt({
     "shouldInclude": true/false,
     "reason": "Explanation of why the guideline should or should not be included."
   }`,
-});
+      });
 
-const evaluatePromptGuidelineInclusionFlow = ai.defineFlow(
-  {
-    name: 'evaluatePromptGuidelineInclusionFlow',
-    inputSchema: EvaluatePromptGuidelineInclusionInputSchema,
-    outputSchema: EvaluatePromptGuidelineInclusionOutputSchema,
-  },
-  async input => {
-    const {output} = await evaluatePromptGuidelineInclusionPrompt(input);
-    return output!;
+      const { output } = await evaluatePromptGuidelineInclusionPrompt(input);
+      return output!;
+    }
+  );
+
+  const plugins = [];
+  if (input.apiKey) {
+    plugins.push(googleAI({ apiKey: input.apiKey }));
+  } else {
+    plugins.push(googleAI());
   }
-);
+
+  const dynamicAI = genkit({ plugins, model: generation });
+  return dynamicAI.runFlow(runner, input);
+}

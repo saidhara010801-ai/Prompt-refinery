@@ -7,18 +7,19 @@ import { z } from "zod";
 const refineSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty."),
     promptType: z.enum([
-        'Zero-shot',
-        'Few-shot',
-        'Chain-of-thought',
-        'Tree-of-thoughts',
-        'Role / persona',
-        'Prompt chaining',
-        'ReAct',
-        'Meta / reflection',
+      'Zero-shot',
+      'Few-shot',
+      'Chain-of-thought',
+      'Tree-of-thoughts',
+      'Role / persona',
+      'Prompt chaining',
+      'ReAct',
+      'Meta / reflection',
     ]),
+    apiKey: z.string().optional(),
 });
 
-export async function refinePromptAction(data: RefinePromptWithAICouncilInput): Promise<RefinePromptWithAICouncilOutput> {
+export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
@@ -36,6 +37,7 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput): 
 const evaluateSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty."),
     guideline: z.string().min(1, "Guideline must be selected."),
+    apiKey: z.string().optional(),
 });
 
 export async function evaluateGuidelineAction(data: Omit<EvaluatePromptGuidelineInclusionInput, 'userQuery'>) {

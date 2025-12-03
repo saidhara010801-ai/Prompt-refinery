@@ -1,7 +1,11 @@
-import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/google-genai';
+import { genkit, type Genkit as GenkitType } from 'genkit';
+import { googleAI } from '@genkit-ai/google-genai';
 
-export const ai = genkit({
+const generation = 'googleai/gemini-2.5-flash';
+
+const ai: GenkitType = genkit({
   plugins: [googleAI()],
-  model: 'googleai/gemini-2.5-flash',
+  model: generation,
 });
+
+export { genkit, generation, ai };

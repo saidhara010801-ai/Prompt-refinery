@@ -8,8 +8,9 @@
  * - RefinePromptWithAICouncilOutput - The return type for the refinePromptWithAICouncil function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { genkit, generation, ai } from '@/ai/genkit';
+import { z } from 'genkit';
+import { googleAI } from '@genkit-ai/google-genai';
 
 const RefinePromptWithAICouncilInputSchema = z.object({
   prompt: z.string().describe('The prompt to be refined.'),
@@ -27,6 +28,7 @@ const RefinePromptWithAICouncilInputSchema = z.object({
     .describe(
       'The prompting technique to be applied by the AI council for refinement.'
     ),
+  apiKey: z.string().optional().describe('The user-provided Gemini API key.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
@@ -45,14 +47,18 @@ export type RefinePromptWithAICouncilOutput = z.infer<typeof RefinePromptWithAIC
 export async function refinePromptWithAICouncil(
   input: RefinePromptWithAICouncilInput
 ): Promise<RefinePromptWithAICouncilOutput> {
-  return refinePromptWithAICouncilFlow(input);
-}
-
-const refinePromptWithAICouncilPrompt = ai.definePrompt({
-  name: 'refinePromptWithAICouncilPrompt',
-  input: {schema: RefinePromptWithAICouncilInputSchema},
-  output: {schema: RefinePromptWithAICouncilOutputSchema},
-  prompt: `You are a council of three expert prompt engineers:
+  const runner = ai.defineFlow(
+    {
+      name: 'refinePromptWithAICouncilFlow',
+      inputSchema: RefinePromptWithAICouncilInputSchema,
+      outputSchema: RefinePromptWithAICouncilOutputSchema,
+    },
+    async (input) => {
+      const refinePromptWithAICouncilPrompt = ai.definePrompt({
+        name: 'refinePromptWithAICouncilPrompt',
+        input: { schema: RefinePromptWithAICouncilInputSchema },
+        output: { schema: RefinePromptWithAICouncilOutputSchema },
+        prompt: `You are a council of three expert prompt engineers:
 - "The Specifier": Focuses on clarity, specificity, and context. Ensures all constraints are articulated.
 - "The Simplifier": Breaks down complex tasks into simple, logical steps. Aims for a clear, sequential flow.
 - "The Stylist": Defines the persona, format, and tone. Ensures the output matches the desired style.
@@ -81,16 +87,20 @@ Then, synthesize the best ideas from all three members into a single, final refi
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").
 `,
-});
+      });
 
-const refinePromptWithAICouncilFlow = ai.defineFlow(
-  {
-    name: 'refinePromptWithAICouncilFlow',
-    inputSchema: RefinePromptWithAICouncilInputSchema,
-    outputSchema: RefinePromptWithAICouncilOutputSchema,
-  },
-  async input => {
-    const {output} = await refinePromptWithAICouncilPrompt(input);
-    return output!;
+      const { output } = await refinePromptWithAICouncilPrompt(input);
+      return output!;
+    }
+  );
+
+  const plugins = [];
+  if (input.apiKey) {
+    plugins.push(googleAI({ apiKey: input.apiKey }));
+  } else {
+    plugins.push(googleAI());
   }
-);
+
+  const dynamicAI = genkit({ plugins, model: generation });
+  return dynamicAI.runFlow(runner, input);
+}

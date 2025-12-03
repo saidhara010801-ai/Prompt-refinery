@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,6 +21,7 @@ import { useFirebase } from '@/firebase';
 import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { collection, serverTimestamp } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
+import { ApiKeyContext } from '@/context/api-key-context';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -41,6 +42,7 @@ export function RefineryTab() {
   const [refinements, setRefinements] = useState<Refinement[]>([]);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
+  const { apiKey } = useContext(ApiKeyContext);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -55,7 +57,7 @@ export function RefineryTab() {
     setRefinedPrompt(null);
     setRefinements([]);
     try {
-      const result = await refinePromptAction(data);
+      const result = await refinePromptAction({ ...data, apiKey: apiKey || undefined });
       setRefinedPrompt(result.refinedPrompt);
       setRefinements(result.refinements);
     } catch (error) {
