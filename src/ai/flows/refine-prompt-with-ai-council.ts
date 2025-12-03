@@ -8,7 +8,7 @@
  * - RefinePromptWithAICouncilOutput - The return type for the refinePromptWithAICouncil function.
  */
 
-import { ai, genkit } from '@/ai/genkit';
+import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 
@@ -95,7 +95,10 @@ export async function refinePromptWithAICouncil(
   input: RefinePromptWithAICouncilInput
 ): Promise<RefinePromptWithAICouncilOutput> {
   if (input.apiKey) {
-    const customAi = genkit({ plugins: [googleAI({ apiKey: input.apiKey })] });
+    const customAi = genkit({
+      plugins: [googleAI({ apiKey: input.apiKey })],
+      model: generation,
+    });
     const dynamicPrompt = customAi.definePrompt({
         name: 'refinePromptWithAICouncilPrompt',
         input: { schema: RefinePromptWithAICouncilInputSchema },

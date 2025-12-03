@@ -7,7 +7,7 @@
  * - EvaluatePromptGuidelineInclusionOutput - The return type for the evaluatePromptGuidelineInclusion function.
  */
 
-import { ai, genkit } from '@/ai/genkit';
+import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 
@@ -61,7 +61,10 @@ const evaluatePromptGuidelineInclusionFlow = ai.defineFlow(
 
 export async function evaluatePromptGuidelineInclusion(input: EvaluatePromptGuidelineInclusionInput): Promise<EvaluatePromptGuidelineInclusionOutput> {
   if (input.apiKey) {
-    const customAi = genkit({ plugins: [googleAI({ apiKey: input.apiKey })] });
+    const customAi = genkit({
+      plugins: [googleAI({ apiKey: input.apiKey })],
+      model: generation,
+    });
     const dynamicPrompt = customAi.definePrompt({
         name: 'evaluatePromptGuidelineInclusionPrompt',
         input: { schema: EvaluatePromptGuidelineInclusionInputSchema },
