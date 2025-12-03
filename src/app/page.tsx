@@ -26,7 +26,7 @@ function AppContent() {
   return <PromptRefineryApp />;
 }
 
-export default function Home() {
+function HomePageContent() {
   const { user } = useUser();
 
   const handleSignOut = () => {
@@ -35,21 +35,28 @@ export default function Home() {
   };
 
   return (
+    <div className="min-h-screen bg-transparent text-foreground flex flex-col">
+      <header className="absolute top-4 right-4 flex items-center gap-2">
+        {user && (
+          <Button variant="ghost" onClick={handleSignOut}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign Out
+          </Button>
+        )}
+        <ThemeToggle />
+      </header>
+      <main className="flex-1 container mx-auto px-4 py-8 md:py-12">
+        <AppContent />
+      </main>
+    </div>
+  );
+}
+
+
+export default function Home() {
+  return (
     <FirebaseClientProvider>
-      <div className="min-h-screen bg-transparent text-foreground flex flex-col">
-        <header className="absolute top-4 right-4 flex items-center gap-2">
-            {user && (
-              <Button variant="ghost" onClick={handleSignOut}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign Out
-              </Button>
-            )}
-            <ThemeToggle />
-        </header>
-        <main className="flex-1 container mx-auto px-4 py-8 md:py-12">
-          <AppContent />
-        </main>
-      </div>
+      <HomePageContent />
     </FirebaseClientProvider>
   );
 }
