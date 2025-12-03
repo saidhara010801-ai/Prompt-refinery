@@ -1,0 +1,176 @@
+/**
+ * This ruleset enforces a strict user-ownership model for the Prompt Refinery application.
+ * All user-generated content, including prompts, refinements, and saved prompts, is
+ * stored within a user-specific document tree, making authorization simple, secure,
+ * and performant.
+ *
+ * Core Philosophy:
+ * The security model is built on the principle that users can only access data
+ * that exists under their own unique user ID path (`/users/{userId}`). This prevents
+ * any user from accessing, or even knowing about, another user's data.
+ *
+ * Data Structure:
+ * - /users/{userId}: Stores the user's public profile.
+ * - /users/{userId}/prompts/{promptId}: Stores prompts created by the user.
+ * - /users/{userId}/prompts/{promptId}/refinements/{refinementId}: Stores AI-generated refinements for a prompt.
+ * - /users/{userId}/savedPrompts/{savedPromptId}: Stores a user's bookmarked prompts.
+ *
+ * Key Security Decisions:
+ * - No Public Access: All collections are locked down to the owner. There are no public or shared collections.
+ * - User Enumeration Disabled: Listing documents in the top-level `/users` collection is explicitly forbidden to protect user privacy.
+ * - Relational Integrity: On document creation, rules validate that the `userId` field within the document's data matches the `userId` in the path, ensuring data consistency. Key identifiers are immutable once set.
+ * - Flexible Schema: In this prototyping stage, the rules do not validate the specific shape or data types of documents, allowing for rapid iteration on the frontend. The focus is strictly on authorization.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------------
+    // Helper Functions
+    // ------------------------------------------------------------------------
+
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the currently authenticated user's UID matches the provided userId.
+     * This is the foundation of the ownership model.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * For update/delete operations, confirms the user is the owner AND the document exists.
+     * Prevents modifying or deleting non-existent documents.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
+    }
+
+    /**
+     * Validates required ownership fields when a new User document is created.
+     * Ensures the document's internal ID matches its path ID.
+     */
+    function hasValidUserDataOnCreate(userId) {
+      return request.resource.data.id == userId;
+    }
+    
+    /**
+     * Enforces immutability of critical fields for a User document on update.
+     */
+    function isUpdatingImmutableUserData() {
+      return request.resource.data.id == resource.data.id;
+    }
+
+    /**
+     * Validates required ownership fields when a new Prompt document is created.
+     */
+    function hasValidPromptDataOnCreate(userId) {
+      return request.resource.data.userId == userId;
+    }
+
+    /**
+     * Enforces immutability of critical fields for a Prompt document on update.
+     */
+    function isUpdatingImmutablePromptData() {
+      return request.resource.data.userId == resource.data.userId;
+    }
+    
+    /**
+     * Validates required relational fields when a new CouncilRefinement is created.
+     */
+    function hasValidRefinementDataOnCreate(promptId) {
+    	return request.resource.data.promptId == promptId;
+    }
+    
+    /**
+     * Enforces immutability of critical fields for a CouncilRefinement on update.
+     */
+    function isUpdatingImmutableRefinementData() {
+    	return request.resource.data.promptId == resource.data.promptId;
+    }
+
+    /**
+     * Validates required ownership fields when a new SavedPrompt document is created.
+     */
+    function hasValidSavedPromptDataOnCreate(userId) {
+      return request.resource.data.userId == userId;
+    }
+    
+    /**
+     * Enforces immutability of critical fields for a SavedPrompt document on update.
+     */
+    function isUpdatingImmutableSavedPromptData() {
+      return request.resource.data.userId == resource.data.userId;
+    }
+
+    // ------------------------------------------------------------------------
+    // Collection Rules
+    // ------------------------------------------------------------------------
+
+    /**
+     * @description Manages user profile documents.
+     * @path /users/{userId}
+     * @allow (create) An authenticated user creating their own profile document.
+     * @deny (list) Any user attempting to list all user profiles.
+     * @principle Restricts access to a user's own data tree and prevents user enumeration.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && hasValidUserDataOnCreate(userId);
+      allow update: if isExistingOwner(userId) && isUpdatingImmutableUserData();
+      allow delete: if false;
+    }
+
+    /**
+     * @description Manages prompts created by a user.
+     * @path /users/{userId}/prompts/{promptId}
+     * @allow (get, list, create, update, delete) A user performing any action on their own prompts.
+     * @deny (get) A user trying to read a prompt owned by another user.
+     * @principle Enforces strict ownership for all operations within a user's private subcollection.
+     */
+    match /users/{userId}/prompts/{promptId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && hasValidPromptDataOnCreate(userId);
+      allow update: if isExistingOwner(userId) && isUpdatingImmutablePromptData();
+      allow delete: if isExistingOwner(userId);
+    }
+    
+    /**
+     * @description Manages AI council refinements for a user's specific prompt.
+     * @path /users/{userId}/prompts/{promptId}/refinements/{refinementId}
+     * @allow (get, list) A user reading the refinements for one of their own prompts.
+     * @deny (create) Another user trying to add a refinement to someone else's prompt.
+     * @principle Inherits ownership from the path, ensuring that sub-collection data is as secure as its parent.
+     */
+    match /users/{userId}/prompts/{promptId}/refinements/{refinementId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && hasValidRefinementDataOnCreate(promptId);
+      allow update: if isExistingOwner(userId) && isUpdatingImmutableRefinementData();
+      allow delete: if isExistingOwner(userId);
+    }
+    
+    /**
+     * @description Manages prompts a user has saved for later.
+     * @path /users/{userId}/savedPrompts/{savedPromptId}
+     * @allow (get, list, create, update, delete) A user performing any action on their own saved prompts.
+     * @deny (list) A user trying to list the saved prompts of another user.
+     * @principle Enforces strict ownership for all operations within a user's private subcollection.
+     */
+    match /users/{userId}/savedPrompts/{savedPromptId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && hasValidSavedPromptDataOnCreate(userId);
+      allow update: if isExistingOwner(userId) && isUpdatingImmutableSavedPromptData();
+      allow delete: if isExistingOwner(userId);
+    }
+  }
+}
