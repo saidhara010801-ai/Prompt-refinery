@@ -31,21 +31,12 @@ export function PromptRefineryApp() {
             throw new Error(data.error?.message || 'Failed to create checkout session');
         }
 
-        const { id: sessionId } = data;
-        const stripe = await stripePromise;
-        if (!stripe) {
-            throw new Error('Stripe.js has not loaded');
+        if (data.url) {
+            window.open(data.url, '_blank');
+        } else {
+            throw new Error('Checkout URL not found.');
         }
-        
-        const { error } = await stripe.redirectToCheckout({ sessionId });
-        if (error) {
-            console.error('Stripe redirect error:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Stripe Error',
-                description: error.message,
-            });
-        }
+
     } catch (error) {
         console.error('Error handling coffee click:', error);
         toast({

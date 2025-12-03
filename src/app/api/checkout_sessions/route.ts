@@ -15,7 +15,9 @@ export async function POST(req: NextRequest) {
   const stripe = require('stripe')(stripeSecretKey);
 
   try {
+    const origin = req.headers.get('origin') || 'http://localhost:9002';
     const session = await stripe.checkout.sessions.create({
+      ui_mode: 'hosted',
       payment_method_types: ['card'],
       line_items: [
         {
@@ -31,11 +33,11 @@ export async function POST(req: NextRequest) {
         },
       ],
       mode: 'payment',
-      success_url: `${req.headers.get('origin')}/?success=true`,
-      cancel_url: `${req.headers.get('origin')}/`,
+      success_url: `${origin}/?success=true`,
+      cancel_url: `${origin}/`,
     });
 
-    return NextResponse.json({ id: session.id });
+    return NextResponse.json({ url: session.url });
   } catch (err: any) {
     return NextResponse.json({ error: { message: err.message } }, { status: 500 });
   }
