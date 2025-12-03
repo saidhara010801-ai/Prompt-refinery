@@ -1,6 +1,6 @@
 'use server';
 
-import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
+import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput, RefinePromptWithAICouncilOutput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
 import { z } from "zod";
 
@@ -18,7 +18,7 @@ const refineSchema = z.object({
     ]),
 });
 
-export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
+export async function refinePromptAction(data: RefinePromptWithAICouncilInput): Promise<RefinePromptWithAICouncilOutput> {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
