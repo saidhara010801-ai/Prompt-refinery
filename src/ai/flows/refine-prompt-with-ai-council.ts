@@ -44,21 +44,11 @@ const RefinePromptWithAICouncilOutputSchema = z.object({
 });
 export type RefinePromptWithAICouncilOutput = z.infer<typeof RefinePromptWithAICouncilOutputSchema>;
 
-export async function refinePromptWithAICouncil(
-  input: RefinePromptWithAICouncilInput
-): Promise<RefinePromptWithAICouncilOutput> {
-  const runner = ai.defineFlow(
-    {
-      name: 'refinePromptWithAICouncilFlow',
-      inputSchema: RefinePromptWithAICouncilInputSchema,
-      outputSchema: RefinePromptWithAICouncilOutputSchema,
-    },
-    async (input) => {
-      const refinePromptWithAICouncilPrompt = ai.definePrompt({
-        name: 'refinePromptWithAICouncilPrompt',
-        input: { schema: RefinePromptWithAICouncilInputSchema },
-        output: { schema: RefinePromptWithAICouncilOutputSchema },
-        prompt: `You are a council of three expert prompt engineers:
+const refinePromptWithAICouncilPrompt = ai.definePrompt({
+  name: 'refinePromptWithAICouncilPrompt',
+  input: { schema: RefinePromptWithAICouncilInputSchema },
+  output: { schema: RefinePromptWithAICouncilOutputSchema },
+  prompt: `You are a council of three expert prompt engineers:
 - "The Specifier": Focuses on clarity, specificity, and context. Ensures all constraints are articulated.
 - "The Simplifier": Breaks down complex tasks into simple, logical steps. Aims for a clear, sequential flow.
 - "The Stylist": Defines the persona, format, and tone. Ensures the output matches the desired style.
@@ -87,20 +77,27 @@ Then, synthesize the best ideas from all three members into a single, final refi
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").
 `,
-      });
+});
 
-      const { output } = await refinePromptWithAICouncilPrompt(input);
-      return output!;
-    }
-  );
+const refinePromptWithAICouncilFlow = ai.defineFlow(
+  {
+    name: 'refinePromptWithAICouncilFlow',
+    inputSchema: RefinePromptWithAICouncilInputSchema,
+    outputSchema: RefinePromptWithAICouncilOutputSchema,
+  },
+  async (input) => {
+    const { output } = await refinePromptWithAICouncilPrompt(input);
+    return output!;
+  }
+);
 
+export async function refinePromptWithAICouncil(
+  input: RefinePromptWithAICouncilInput
+): Promise<RefinePromptWithAICouncilOutput> {
   const plugins = [];
   if (input.apiKey) {
     plugins.push(googleAI({ apiKey: input.apiKey }));
-  } else {
-    plugins.push(googleAI());
   }
 
-  const dynamicAI = genkit({ plugins, model: generation });
-  return dynamicAI.runFlow(runner, input);
+  return refinePromptWithAICouncilFlow(input, { plugins });
 }

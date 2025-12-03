@@ -25,47 +25,45 @@ const EvaluatePromptGuidelineInclusionOutputSchema = z.object({
 });
 export type EvaluatePromptGuidelineInclusionOutput = z.infer<typeof EvaluatePromptGuidelineInclusionOutputSchema>;
 
-export async function evaluatePromptGuidelineInclusion(input: EvaluatePromptGuidelineInclusionInput): Promise<EvaluatePromptGuidelineInclusionOutput> {
-  const runner = ai.defineFlow(
-    {
-      name: 'evaluatePromptGuidelineInclusionFlow',
-      inputSchema: EvaluatePromptGuidelineInclusionInputSchema,
-      outputSchema: EvaluatePromptGuidelineInclusionOutputSchema,
-    },
-    async (input) => {
-      const evaluatePromptGuidelineInclusionPrompt = ai.definePrompt({
-        name: 'evaluatePromptGuidelineInclusionPrompt',
-        input: { schema: EvaluatePromptGuidelineInclusionInputSchema },
-        output: { schema: EvaluatePromptGuidelineInclusionOutputSchema },
-        prompt: `You are an expert prompt engineer, tasked with evaluating whether a specific guideline from the LLM council should be included in a prompt.
-  The goal is to determine if the guideline will improve the prompt's effectiveness in addressing the original user query.
+const evaluatePromptGuidelineInclusionPrompt = ai.definePrompt({
+  name: 'evaluatePromptGuidelineInclusionPrompt',
+  input: { schema: EvaluatePromptGuidelineInclusionInputSchema },
+  output: { schema: EvaluatePromptGuidelineInclusionOutputSchema },
+  prompt: `You are an expert prompt engineer, tasked with evaluating whether a specific guideline from the LLM council should be included in a prompt.
+The goal is to determine if the guideline will improve the prompt's effectiveness in addressing the original user query.
 
-  Original User Query: {{{userQuery}}}
-  Current Prompt: {{{prompt}}}
-  Guideline to Evaluate: {{{guideline}}}
+Original User Query: {{{userQuery}}}
+Current Prompt: {{{prompt}}}
+Guideline to Evaluate: {{{guideline}}}
 
-  First, reason step-by-step whether the guideline is relevant to the current prompt and user query. Consider the potential impact of the guideline on the prompt's clarity, focus, and overall quality.
-  Finally, based on your reasoning, determine whether the guideline should be included in the prompt.
+First, reason step-by-step whether the guideline is relevant to the current prompt and user query. Consider the potential impact of the guideline on the prompt's clarity, focus, and overall quality.
+Finally, based on your reasoning, determine whether the guideline should be included in the prompt.
 
-  Respond with a JSON object in the following format:
+Respond with a JSON object in the following format:
+{
+  "shouldInclude": true/false,
+  "reason": "Explanation of why the guideline should or should not be included."
+}`,
+});
+
+const evaluatePromptGuidelineInclusionFlow = ai.defineFlow(
   {
-    "shouldInclude": true/false,
-    "reason": "Explanation of why the guideline should or should not be included."
-  }`,
-      });
+    name: 'evaluatePromptGuidelineInclusionFlow',
+    inputSchema: EvaluatePromptGuidelineInclusionInputSchema,
+    outputSchema: EvaluatePromptGuidelineInclusionOutputSchema,
+  },
+  async (input) => {
+    const { output } = await evaluatePromptGuidelineInclusionPrompt(input);
+    return output!;
+  }
+);
 
-      const { output } = await evaluatePromptGuidelineInclusionPrompt(input);
-      return output!;
-    }
-  );
 
+export async function evaluatePromptGuidelineInclusion(input: EvaluatePromptGuidelineInclusionInput): Promise<EvaluatePromptGuidelineInclusionOutput> {
   const plugins = [];
   if (input.apiKey) {
     plugins.push(googleAI({ apiKey: input.apiKey }));
-  } else {
-    plugins.push(googleAI());
   }
 
-  const dynamicAI = genkit({ plugins, model: generation });
-  return dynamicAI.runFlow(runner, input);
+  return evaluatePromptGuidelineInclusionFlow(input, { plugins });
 }
