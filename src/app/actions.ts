@@ -1,6 +1,6 @@
 'use server';
 
-import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput, RefinePromptWithAICouncilOutput } from "@/ai/flows/refine-prompt-with-ai-council";
+import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
 import { z } from "zod";
 
@@ -30,7 +30,9 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
         return result;
     } catch (error) {
         console.error("Error refining prompt:", error);
-        throw new Error("Failed to refine prompt. Please try again.");
+        // Provide a more specific error message if possible
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        throw new Error(`Failed to refine prompt. Details: ${errorMessage}`);
     }
 }
 
@@ -38,22 +40,21 @@ const evaluateSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty."),
     guideline: z.string().min(1, "Guideline must be selected."),
     apiKey: z.string().optional(),
+    userQuery: z.string(),
 });
 
-export async function evaluateGuidelineAction(data: Omit<EvaluatePromptGuidelineInclusionInput, 'userQuery'>) {
+export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput) {
     const parsed = evaluateSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
     }
 
     try {
-        const result = await evaluatePromptGuidelineInclusion({
-            ...parsed.data,
-            userQuery: parsed.data.prompt, // Using the prompt as the user query
-        });
+        const result = await evaluatePromptGuidelineInclusion(parsed.data);
         return result;
     } catch (error) {
         console.error("Error evaluating guideline:", error);
-        throw new Error("Failed to evaluate guideline. Please try again.");
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        throw new Error(`Failed to evaluate guideline. Details: ${errorMessage}`);
     }
 }

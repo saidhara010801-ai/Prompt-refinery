@@ -7,7 +7,7 @@
  * - EvaluatePromptGuidelineInclusionOutput - The return type for the evaluatePromptGuidelineInclusion function.
  */
 
-import { ai } from '@/ai/genkit';
+import { ai, genkit } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 
@@ -60,6 +60,30 @@ const evaluatePromptGuidelineInclusionFlow = ai.defineFlow(
 
 
 export async function evaluatePromptGuidelineInclusion(input: EvaluatePromptGuidelineInclusionInput): Promise<EvaluatePromptGuidelineInclusionOutput> {
-  const flowOptions = input.apiKey ? { plugins: [googleAI({ apiKey: input.apiKey })] } : {};
-  return evaluatePromptGuidelineInclusionFlow(input, flowOptions);
+  if (input.apiKey) {
+    const customAi = genkit({ plugins: [googleAI({ apiKey: input.apiKey })] });
+    const dynamicPrompt = customAi.definePrompt({
+        name: 'evaluatePromptGuidelineInclusionPrompt',
+        input: { schema: EvaluatePromptGuidelineInclusionInputSchema },
+        output: { schema: EvaluatePromptGuidelineInclusionOutputSchema },
+        prompt: `You are an expert prompt engineer, tasked with evaluating whether a specific guideline from the LLM council should be included in a prompt.
+The goal is to determine if the guideline will improve the prompt's effectiveness in addressing the original user query.
+
+Original User Query: {{{userQuery}}}
+Current Prompt: {{{prompt}}}
+Guideline to Evaluate: {{{guideline}}}
+
+First, reason step-by-step whether the guideline is relevant to the current prompt and user query. Consider the potential impact of the guideline on the prompt's clarity, focus, and overall quality.
+Finally, based on your reasoning, determine whether the guideline should be included in the prompt.
+
+Respond with a JSON object in the following format:
+{
+  "shouldInclude": true/false,
+  "reason": "Explanation of why the guideline should or should not be included."
+}`,
+    });
+    const { output } = await dynamicPrompt(input);
+    return output!;
+  }
+  return evaluatePromptGuidelineInclusionFlow(input);
 }

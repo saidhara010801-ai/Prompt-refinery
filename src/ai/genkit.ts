@@ -7,13 +7,9 @@ import { googleAI } from '@genkit-ai/google-genai';
 const generation = 'googleai/gemini-2.5-flash';
 
 const plugins = [];
-if (process.env.GEMINI_API_KEY) {
-  plugins.push(googleAI({ apiKey: process.env.GEMINI_API_KEY }));
-} else {
-  // If no key is present, we can still initialize with an empty array.
-  // The flow will dynamically add the plugin if a key is provided at runtime.
-  plugins.push(googleAI());
-}
+// Always initialize googleAI. It will use the environment variable if available.
+// If not, it can be configured dynamically at the flow level.
+plugins.push(googleAI());
 
 const ai: GenkitType = genkit({
   plugins: plugins,
