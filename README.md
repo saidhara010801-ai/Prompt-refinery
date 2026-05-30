@@ -10,6 +10,7 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Eight refinement techniques: Zero-shot, Few-shot, Chain-of-thought, Tree-of-thoughts, Role/persona, Prompt chaining, ReAct, and Meta/reflection.
 - Guideline Evaluator for deciding whether a prompt should include one of the council guidelines.
 - Saved Prompts for authenticated users.
+- Projects & Memory for iterative, context-aware refinement across sessions.
 - Local Bring Your Own Key Gemini support.
 - OpenRouter support with configurable model IDs for each council member.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
@@ -113,7 +114,13 @@ The critical bug-fix phase is considered healthy when:
 
 ## Data Model
 
-The app currently stores saved prompts under each authenticated user path in Firestore. The product schema calls for user-owned saved prompts with fields for the original prompt, refined prompt, technique, title/name, timestamps, and future quality metadata. API keys must remain local-only and must never be stored in Firestore.
+The app stores user-owned data under each authenticated user path in Firestore:
+
+- `/users/{uid}/savedPrompts`
+- `/users/{uid}/projects`
+- `/users/{uid}/projects/{projectId}/projectSessions`
+
+Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. API keys must remain local-only or server env-only and must never be stored in Firestore.
 
 ## Development Notes
 

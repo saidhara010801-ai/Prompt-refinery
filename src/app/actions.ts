@@ -31,6 +31,7 @@ const refineSchema = z.object({
         simplifier: z.string().min(1),
         stylist: z.string().min(1),
     }).optional(),
+    projectMemory: z.string().optional(),
 });
 
 const tokenCounterSchema = z.object({

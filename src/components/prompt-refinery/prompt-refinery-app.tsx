@@ -1,10 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefineryTab } from './refinery-tab';
 import { EvaluatorTab } from './evaluator-tab';
 import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
+import { Project, ProjectsTab } from './projects-tab';
 import { Button } from '@/components/ui/button';
 import { loadStripe } from '@stripe/stripe-js';
 import { useToast } from '@/hooks/use-toast';
@@ -15,6 +17,7 @@ const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : 
 
 export function PromptRefineryApp() {
   const { toast } = useToast();
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   const handleCoffeeClick = async () => {
     try {
@@ -66,19 +69,26 @@ export function PromptRefineryApp() {
             A suite of tools to sharpen your prompts. Use the AI Council to refine your ideas or evaluate specific guidelines for better, more consistent results.
         </p>
       <Tabs defaultValue="refinery" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-2xl mx-auto">
+        <TabsList className="grid w-full grid-cols-4 max-w-3xl mx-auto">
           <TabsTrigger value="refinery">Refinery</TabsTrigger>
           <TabsTrigger value="evaluator">Guideline Evaluator</TabsTrigger>
           <TabsTrigger value="saved">Saved Prompts</TabsTrigger>
+          <TabsTrigger value="projects">Projects</TabsTrigger>
         </TabsList>
         <TabsContent value="refinery" className="mt-6">
-          <RefineryTab />
+          <RefineryTab selectedProject={selectedProject} />
         </TabsContent>
         <TabsContent value="evaluator" className="mt-6">
           <EvaluatorTab />
         </TabsContent>
         <TabsContent value="saved" className="mt-6">
           <SavedPromptsTab />
+        </TabsContent>
+        <TabsContent value="projects" className="mt-6">
+          <ProjectsTab
+            selectedProjectId={selectedProject?.id ?? null}
+            onSelectProject={setSelectedProject}
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -17,12 +17,13 @@ import { useToast } from '@/hooks/use-toast';
 import { PROMPT_TECHNIQUES, PromptTechnique } from '@/lib/constants';
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { CopyButton } from './copy-button';
-import { useFirebase } from '@/firebase';
-import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { collection, serverTimestamp } from 'firebase/firestore';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+import { collection, doc, limit, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
+import { Project } from './projects-tab';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -42,6 +43,44 @@ interface TokenCounts {
     openai: number;
     deepseek: number;
     qwen: number;
+}
+
+interface ProjectSessionMemory {
+    id: string;
+    rawPrompt: string;
+    refinedPrompt: string;
+    promptType: string;
+    llmResponse?: string;
+    timestamp?: {
+      seconds: number;
+      nanoseconds: number;
+    };
+}
+
+interface RefineryTabProps {
+  selectedProject: Project | null;
+}
+
+function buildProjectMemory(project: Project | null, sessions: ProjectSessionMemory[] | null): string | undefined {
+  if (!project) {
+    return undefined;
+  }
+
+  const memoryParts = [
+    `Project: ${project.name}`,
+    project.description ? `Project description: ${project.description}` : '',
+    ...(sessions ?? [])
+      .slice()
+      .reverse()
+      .map((session, index) => [
+        `Session ${index + 1} (${session.promptType})`,
+        `Raw prompt: ${session.rawPrompt}`,
+        `Refined prompt: ${session.refinedPrompt}`,
+        session.llmResponse ? `LLM response / notes: ${session.llmResponse}` : '',
+      ].filter(Boolean).join('\n')),
+  ].filter(Boolean);
+
+  return memoryParts.join('\n\n').slice(0, 6000);
 }
 
 function getErrorToast(error: unknown): { title: string; description: string } {
@@ -87,7 +126,7 @@ function getErrorToast(error: unknown): { title: string; description: string } {
   };
 }
 
-export function RefineryTab() {
+export function RefineryTab({ selectedProject }: RefineryTabProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isTokenizing, setIsTokenizing] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
@@ -97,6 +136,17 @@ export function RefineryTab() {
   const { firestore, user } = useFirebase();
   const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
   const { triggerAnimation } = useContext(SettingsContext);
+
+  const projectSessionsQuery = useMemoFirebase(() => {
+    if (!user || !firestore || !selectedProject) return null;
+    return query(
+      collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/projectSessions`),
+      orderBy('timestamp', 'desc'),
+      limit(5)
+    );
+  }, [user, firestore, selectedProject]);
+
+  const { data: projectSessions } = useCollection<ProjectSessionMemory>(projectSessionsQuery);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -137,15 +187,31 @@ export function RefineryTab() {
     setRefinements([]);
     setTokenCounts(null);
     try {
+      const projectMemory = buildProjectMemory(selectedProject, projectSessions);
       const result = await refinePromptAction({
         ...data,
         provider: aiProvider,
         apiKey: apiKey || undefined,
         openRouterApiKey: openRouterApiKey || undefined,
         openRouterModels,
+        projectMemory,
       });
       setRefinedPrompt(result.refinedPrompt);
       setRefinements(result.refinements);
+
+      if (user && firestore && selectedProject) {
+        const sessionsCol = collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/projectSessions`);
+        addDocumentNonBlocking(sessionsCol, {
+          projectId: selectedProject.id,
+          rawPrompt: data.prompt,
+          refinedPrompt: result.refinedPrompt,
+          promptType: data.promptType,
+          timestamp: serverTimestamp(),
+        });
+        updateDocumentNonBlocking(doc(firestore, `users/${user.uid}/projects`, selectedProject.id), {
+          updatedAt: serverTimestamp(),
+        });
+      }
     } catch (error) {
       const errorToast = getErrorToast(error);
       if (
@@ -197,6 +263,11 @@ export function RefineryTab() {
             <Wand2 className="text-primary" />
             <span>Refine your Prompt</span>
           </CardTitle>
+          {selectedProject && (
+            <p className="text-sm text-muted-foreground">
+              Using project memory from {selectedProject.name}
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <Form {...form}>

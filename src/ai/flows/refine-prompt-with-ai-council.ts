@@ -40,6 +40,7 @@ const RefinePromptWithAICouncilInputSchema = z.object({
   provider: z.enum(['gemini', 'openrouter']).optional().describe('The model provider used for refinement.'),
   openRouterApiKey: z.string().optional().describe('The user-provided OpenRouter API key.'),
   openRouterModels: OpenRouterModelsSchema.optional().describe('OpenRouter model IDs for each council member.'),
+  projectMemory: z.string().optional().describe('Recent project context from prior refinements and response notes.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
@@ -110,6 +111,14 @@ Prompt:
 """
 ${input.prompt}
 """
+${input.projectMemory ? `
+Recent project memory:
+"""
+${input.projectMemory}
+"""
+
+Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
+` : ''}
 
 Return a JSON object with exactly:
 {
@@ -148,6 +157,12 @@ async function synthesizeOpenRouterCouncilOutput(
 """
 ${input.prompt}
 """
+${input.projectMemory ? `
+Recent project memory:
+"""
+${input.projectMemory}
+"""
+` : ''}
 
 Technique: ${input.promptType}
 
@@ -205,6 +220,15 @@ Based on the prompt type "{{promptType}}", each of you will independently refine
 """
 {{prompt}}
 """
+{{#if projectMemory}}
+
+Recent project memory:
+"""
+{{projectMemory}}
+"""
+
+Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
+{{/if}}
 
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
@@ -264,6 +288,15 @@ Based on the prompt type "{{promptType}}", each of you will independently refine
 """
 {{prompt}}
 """
+{{#if projectMemory}}
+
+Recent project memory:
+"""
+{{projectMemory}}
+"""
+
+Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
+{{/if}}
 
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
