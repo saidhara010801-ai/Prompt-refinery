@@ -11,6 +11,7 @@
 import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
+import { requireFlowOutput } from './require-flow-output';
 
 const RefinePromptWithAICouncilInputSchema = z.object({
   prompt: z.string().describe('The prompt to be refined.'),
@@ -87,7 +88,7 @@ const refinePromptWithAICouncilFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await refinePromptWithAICouncilPrompt(input);
-    return output!;
+    return requireFlowOutput(output, 'AI council refinement');
   }
 );
 
@@ -134,7 +135,7 @@ Your response must be a JSON object with two keys: "refinedPrompt" (the final sy
 `,
     });
     const { output } = await dynamicPrompt(input);
-    return output!;
+    return requireFlowOutput(output, 'AI council refinement');
   }
   return refinePromptWithAICouncilFlow(input);
 }

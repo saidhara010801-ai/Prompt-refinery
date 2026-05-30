@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { LLM_COUNCIL_GUIDELINES, LlmCouncilGuideline } from '@/lib/constants';
 import { evaluateGuidelineAction } from '@/app/actions';
 import { ApiKeyContext } from '@/context/api-key-context';
+import { SettingsContext } from '@/context/settings-context';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -30,11 +31,43 @@ interface EvaluationResult {
   reason: string;
 }
 
+function getErrorToast(error: unknown): { title: string; description: string } {
+  const errorName = error instanceof Error ? error.name : '';
+  const errorMessage = error instanceof Error ? error.message : '';
+
+  if (errorName === 'ApiKeyMissingError' || errorMessage.includes('API key is missing')) {
+    return {
+      title: 'API Key Missing',
+      description: 'Add your Gemini API key in Settings, then try evaluating again.',
+    };
+  }
+
+  if (errorName === 'ApiKeyInvalidError' || errorMessage.includes('API key looks invalid')) {
+    return {
+      title: 'Invalid API Key',
+      description: 'Check your Gemini API key in Settings and save the corrected key.',
+    };
+  }
+
+  if (errorName === 'ApiQuotaError' || errorMessage.includes('quota')) {
+    return {
+      title: 'Gemini Quota Issue',
+      description: errorMessage || 'Gemini is rate limited or out of quota. Try again later.',
+    };
+  }
+
+  return {
+    title: 'An error occurred',
+    description: errorMessage || 'Please try again later.',
+  };
+}
+
 export function EvaluatorTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const { toast } = useToast();
   const { apiKey } = useContext(ApiKeyContext);
+  const { triggerAnimation } = useContext(SettingsContext);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -48,13 +81,17 @@ export function EvaluatorTab() {
     setIsLoading(true);
     setEvaluation(null);
     try {
-      const result = await evaluateGuidelineAction({ ...data, apiKey: apiKey || undefined });
+      const result = await evaluateGuidelineAction({ ...data, userQuery: data.prompt, apiKey: apiKey || undefined });
       setEvaluation(result);
     } catch (error) {
+      const errorToast = getErrorToast(error);
+      if (error instanceof Error && (error.name === 'ApiKeyMissingError' || error.name === 'ApiKeyInvalidError')) {
+        triggerAnimation();
+      }
       toast({
         variant: 'destructive',
-        title: 'An error occurred',
-        description: error instanceof Error ? error.message : 'Please try again later.',
+        title: errorToast.title,
+        description: errorToast.description,
       });
     } finally {
       setIsLoading(false);

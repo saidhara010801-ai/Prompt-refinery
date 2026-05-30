@@ -10,6 +10,7 @@
 import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
+import { requireFlowOutput } from './require-flow-output';
 
 const EvaluatePromptGuidelineInclusionInputSchema = z.object({
   prompt: z.string().describe('The current prompt being refined.'),
@@ -54,7 +55,7 @@ const evaluatePromptGuidelineInclusionFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await evaluatePromptGuidelineInclusionPrompt(input);
-    return output!;
+    return requireFlowOutput(output, 'Guideline evaluation');
   }
 );
 
@@ -86,7 +87,7 @@ Respond with a JSON object in the following format:
 }`,
     });
     const { output } = await dynamicPrompt(input);
-    return output!;
+    return requireFlowOutput(output, 'Guideline evaluation');
   }
   return evaluatePromptGuidelineInclusionFlow(input);
 }

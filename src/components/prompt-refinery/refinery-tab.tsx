@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Wand2, Sparkles, BookMarked, Save } from 'lucide-react';
+import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -15,13 +15,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { PROMPT_TECHNIQUES, PromptTechnique } from '@/lib/constants';
-import { refinePromptAction } from '@/app/actions';
+import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { CopyButton } from './copy-button';
 import { useFirebase } from '@/firebase';
 import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { collection, serverTimestamp } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { ApiKeyContext } from '@/context/api-key-context';
+import { SettingsContext } from '@/context/settings-context';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -36,13 +37,54 @@ interface Refinement {
     refinedText: string;
 }
 
+interface TokenCounts {
+    gemini: number;
+    openai: number;
+    deepseek: number;
+    qwen: number;
+}
+
+function getErrorToast(error: unknown): { title: string; description: string } {
+  const errorName = error instanceof Error ? error.name : '';
+  const errorMessage = error instanceof Error ? error.message : '';
+
+  if (errorName === 'ApiKeyMissingError' || errorMessage.includes('API key is missing')) {
+    return {
+      title: 'API Key Missing',
+      description: 'Add your Gemini API key in Settings, then try refining again.',
+    };
+  }
+
+  if (errorName === 'ApiKeyInvalidError' || errorMessage.includes('API key looks invalid')) {
+    return {
+      title: 'Invalid API Key',
+      description: 'Check your Gemini API key in Settings and save the corrected key.',
+    };
+  }
+
+  if (errorName === 'ApiQuotaError' || errorMessage.includes('quota')) {
+    return {
+      title: 'Gemini Quota Issue',
+      description: errorMessage || 'Gemini is rate limited or out of quota. Try again later.',
+    };
+  }
+
+  return {
+    title: 'An error occurred',
+    description: errorMessage || 'Please try again later.',
+  };
+}
+
 export function RefineryTab() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isTokenizing, setIsTokenizing] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
   const [refinements, setRefinements] = useState<Refinement[]>([]);
+  const [tokenCounts, setTokenCounts] = useState<TokenCounts | null>(null);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { apiKey } = useContext(ApiKeyContext);
+  const { triggerAnimation } = useContext(SettingsContext);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -52,19 +94,49 @@ export function RefineryTab() {
     },
   });
 
+  useEffect(() => {
+    if (!refinedPrompt) {
+      return;
+    }
+
+    const fetchTokenCounts = async () => {
+      setIsTokenizing(true);
+      try {
+        const counts = await getTokenCountsAction({ text: refinedPrompt });
+        setTokenCounts(counts);
+      } catch (error) {
+        console.error('Error getting token counts:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Could not estimate token counts',
+          description: 'The refined prompt is still ready to use.',
+        });
+      } finally {
+        setIsTokenizing(false);
+      }
+    };
+
+    fetchTokenCounts();
+  }, [refinedPrompt, toast]);
+
   const onSubmit = async (data: FormValues) => {
     setIsLoading(true);
     setRefinedPrompt(null);
     setRefinements([]);
+    setTokenCounts(null);
     try {
       const result = await refinePromptAction({ ...data, apiKey: apiKey || undefined });
       setRefinedPrompt(result.refinedPrompt);
       setRefinements(result.refinements);
     } catch (error) {
+      const errorToast = getErrorToast(error);
+      if (error instanceof Error && (error.name === 'ApiKeyMissingError' || error.name === 'ApiKeyInvalidError')) {
+        triggerAnimation();
+      }
       toast({
         variant: 'destructive',
-        title: 'An error occurred',
-        description: error instanceof Error ? error.message : 'Please try again later.',
+        title: errorToast.title,
+        description: errorToast.description,
       });
     } finally {
       setIsLoading(false);
@@ -199,6 +271,42 @@ export function RefineryTab() {
                     <code>{refinedPrompt}</code>
                   </pre>
                 </div>
+
+                {isTokenizing && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-5 w-1/3" />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                    </div>
+                  </div>
+                )}
+
+                {tokenCounts && (
+                  <div>
+                    <h4 className="font-semibold mb-2">Estimated Token Counts</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                      <div className="p-3 rounded-lg bg-muted">
+                        <p className="font-bold text-lg flex items-center justify-center gap-2"><BrainCircuit /> Gemini</p>
+                        <p className="text-sm">{tokenCounts.gemini}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-muted">
+                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Zap /> OpenAI</p>
+                        <p className="text-sm">{tokenCounts.openai}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-muted">
+                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Cpu /> DeepSeek</p>
+                        <p className="text-sm">{tokenCounts.deepseek}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-muted">
+                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Wind /> Qwen</p>
+                        <p className="text-sm">{tokenCounts.qwen}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 <Accordion type="single" collapsible className="w-full">
                   <AccordionItem value="item-1">

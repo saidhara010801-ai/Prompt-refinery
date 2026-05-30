@@ -2,6 +2,7 @@
 
 import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
+import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
 import { z } from "zod";
 
 const refineSchema = z.object({
@@ -19,6 +20,78 @@ const refineSchema = z.object({
     apiKey: z.string().optional(),
 });
 
+const tokenCounterSchema = z.object({
+    text: z.string(),
+    apiKey: z.string().optional(),
+});
+
+type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts";
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function isApiKeyMissingError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error);
+
+    return errorMessage.includes("GOOGLE_API_KEY") ||
+        errorMessage.includes("GEMINI_API_KEY") ||
+        errorMessage.includes("API key not found") ||
+        errorMessage.includes("FAILED_PRECONDITION");
+}
+
+function isApiKeyInvalidError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error).toLowerCase();
+
+    return errorMessage.includes("api key not valid") ||
+        errorMessage.includes("api_key_invalid") ||
+        errorMessage.includes("invalid api key") ||
+        errorMessage.includes("permission_denied");
+}
+
+function isQuotaError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error).toLowerCase();
+
+    return errorMessage.includes("quota") ||
+        errorMessage.includes("rate limit") ||
+        errorMessage.includes("resource_exhausted") ||
+        errorMessage.includes("too many requests");
+}
+
+function isEmptyOutputError(error: unknown): boolean {
+    return error instanceof Error && error.name === "EmptyAIOutputError";
+}
+
+function toUserFacingError(error: unknown, actionKind: ActionKind, hasApiKey: boolean): Error {
+    if (!hasApiKey || isApiKeyMissingError(error)) {
+        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
+        missingKeyError.name = "ApiKeyMissingError";
+        return missingKeyError;
+    }
+
+    if (isApiKeyInvalidError(error)) {
+        const invalidKeyError = new Error("Your Gemini API key looks invalid. Check the key in Settings and try again.");
+        invalidKeyError.name = "ApiKeyInvalidError";
+        return invalidKeyError;
+    }
+
+    if (isQuotaError(error)) {
+        const quotaError = new Error("Gemini is reporting a quota or rate-limit issue. Wait a bit or use a key with available quota.");
+        quotaError.name = "ApiQuotaError";
+        return quotaError;
+    }
+
+    if (isEmptyOutputError(error)) {
+        const emptyOutputError = new Error("Gemini did not return a usable structured response. Please try again.");
+        emptyOutputError.name = "EmptyAIOutputError";
+        return emptyOutputError;
+    }
+
+    const genericError = new Error(`Failed to ${actionKind}. Please try again in a moment.`);
+    genericError.name = "AIRequestError";
+    return genericError;
+}
+
 export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
@@ -30,9 +103,7 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
         return result;
     } catch (error) {
         console.error("Error refining prompt:", error);
-        // Provide a more specific error message if possible
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        throw new Error(`Failed to refine prompt. Details: ${errorMessage}`);
+        throw toUserFacingError(error, "refine prompt", Boolean(parsed.data.apiKey));
     }
 }
 
@@ -54,7 +125,20 @@ export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclu
         return result;
     } catch (error) {
         console.error("Error evaluating guideline:", error);
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        throw new Error(`Failed to evaluate guideline. Details: ${errorMessage}`);
+        throw toUserFacingError(error, "evaluate guideline", Boolean(parsed.data.apiKey));
+    }
+}
+
+export async function getTokenCountsAction(data: GetTokenCountsInput) {
+    const parsed = tokenCounterSchema.safeParse(data);
+    if (!parsed.success) {
+        throw new Error(parsed.error.errors.map(e => e.message).join(', '));
+    }
+
+    try {
+        return await getTokenCounts(parsed.data);
+    } catch (error) {
+        console.error("Error getting token counts:", error);
+        throw toUserFacingError(error, "get token counts", true);
     }
 }
