@@ -14,12 +14,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Settings } from 'lucide-react';
-import { ApiKeyContext } from '@/context/api-key-context';
+import { AIProvider, ApiKeyContext, DEFAULT_OPENROUTER_MODELS } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
 import { cn } from '@/lib/utils';
 
 export function SettingsDialog() {
-  const { apiKey, setApiKey } = useContext(ApiKeyContext);
+  const {
+    apiKey,
+    setApiKey,
+    openRouterApiKey,
+    setOpenRouterApiKey,
+    aiProvider,
+    setAiProvider,
+    openRouterModels,
+    setOpenRouterModels,
+  } = useContext(ApiKeyContext);
   const { animate, setAnimate } = useContext(SettingsContext);
   const [open, setOpen] = useState(false);
 
@@ -34,7 +43,16 @@ export function SettingsDialog() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newApiKey = formData.get('apiKey') as string;
+    const newOpenRouterApiKey = formData.get('openRouterApiKey') as string;
+    const newProvider = formData.get('aiProvider') as AIProvider;
     setApiKey(newApiKey);
+    setOpenRouterApiKey(newOpenRouterApiKey);
+    setAiProvider(newProvider === 'openrouter' ? 'openrouter' : 'gemini');
+    setOpenRouterModels({
+      specifier: (formData.get('openRouterSpecifierModel') as string) || DEFAULT_OPENROUTER_MODELS.specifier,
+      simplifier: (formData.get('openRouterSimplifierModel') as string) || DEFAULT_OPENROUTER_MODELS.simplifier,
+      stylist: (formData.get('openRouterStylistModel') as string) || DEFAULT_OPENROUTER_MODELS.stylist,
+    });
     handleOpenChange(false);
   };
 
@@ -50,12 +68,25 @@ export function SettingsDialog() {
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Manage your Gemini API key. Your key is saved locally in this browser.
+            Manage local AI provider settings. API keys are saved only in this browser.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSave}>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="aiProvider" className="text-right">
+                Provider
+              </Label>
+              <select
+                id="aiProvider"
+                name="aiProvider"
+                defaultValue={aiProvider}
+                className="col-span-3 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="gemini">Gemini</option>
+                <option value="openrouter">OpenRouter</option>
+              </select>
+
               <Label htmlFor="apiKey" className="text-right">
                 Gemini API Key
               </Label>
@@ -66,6 +97,51 @@ export function SettingsDialog() {
                 className="col-span-3"
                 type="password"
                 placeholder="Enter your Gemini API key"
+              />
+
+              <Label htmlFor="openRouterApiKey" className="text-right">
+                OpenRouter Key
+              </Label>
+              <Input
+                id="openRouterApiKey"
+                name="openRouterApiKey"
+                defaultValue={openRouterApiKey}
+                className="col-span-3"
+                type="password"
+                placeholder="Enter your OpenRouter API key"
+              />
+
+              <Label htmlFor="openRouterSpecifierModel" className="text-right">
+                Specifier Model
+              </Label>
+              <Input
+                id="openRouterSpecifierModel"
+                name="openRouterSpecifierModel"
+                defaultValue={openRouterModels.specifier}
+                className="col-span-3"
+                placeholder={DEFAULT_OPENROUTER_MODELS.specifier}
+              />
+
+              <Label htmlFor="openRouterSimplifierModel" className="text-right">
+                Simplifier Model
+              </Label>
+              <Input
+                id="openRouterSimplifierModel"
+                name="openRouterSimplifierModel"
+                defaultValue={openRouterModels.simplifier}
+                className="col-span-3"
+                placeholder={DEFAULT_OPENROUTER_MODELS.simplifier}
+              />
+
+              <Label htmlFor="openRouterStylistModel" className="text-right">
+                Stylist Model
+              </Label>
+              <Input
+                id="openRouterStylistModel"
+                name="openRouterStylistModel"
+                defaultValue={openRouterModels.stylist}
+                className="col-span-3"
+                placeholder={DEFAULT_OPENROUTER_MODELS.stylist}
               />
             </div>
           </div>

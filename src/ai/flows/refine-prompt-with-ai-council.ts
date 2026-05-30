@@ -12,24 +12,34 @@ import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 import { requireFlowOutput } from './require-flow-output';
+import { createOpenRouterChatCompletion, parseJsonObject } from './openrouter-client';
+
+const PromptTechniqueSchema = z.enum([
+  'Zero-shot',
+  'Few-shot',
+  'Chain-of-thought',
+  'Tree-of-thoughts',
+  'Role / persona',
+  'Prompt chaining',
+  'ReAct',
+  'Meta / reflection',
+]);
+
+const OpenRouterModelsSchema = z.object({
+  specifier: z.string().min(1),
+  simplifier: z.string().min(1),
+  stylist: z.string().min(1),
+});
 
 const RefinePromptWithAICouncilInputSchema = z.object({
   prompt: z.string().describe('The prompt to be refined.'),
-  promptType: z
-    .enum([
-      'Zero-shot',
-      'Few-shot',
-      'Chain-of-thought',
-      'Tree-of-thoughts',
-      'Role / persona',
-      'Prompt chaining',
-      'ReAct',
-      'Meta / reflection',
-    ])
-    .describe(
-      'The prompting technique to be applied by the AI council for refinement.'
-    ),
+  promptType: PromptTechniqueSchema.describe(
+    'The prompting technique to be applied by the AI council for refinement.'
+  ),
   apiKey: z.string().optional().describe('The user-provided Gemini API key.'),
+  provider: z.enum(['gemini', 'openrouter']).optional().describe('The model provider used for refinement.'),
+  openRouterApiKey: z.string().optional().describe('The user-provided OpenRouter API key.'),
+  openRouterModels: OpenRouterModelsSchema.optional().describe('OpenRouter model IDs for each council member.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
@@ -44,6 +54,131 @@ const RefinePromptWithAICouncilOutputSchema = z.object({
   refinements: z.array(CouncilMemberOutputSchema).describe('A list of refinements from each council member.')
 });
 export type RefinePromptWithAICouncilOutput = z.infer<typeof RefinePromptWithAICouncilOutputSchema>;
+
+type CouncilRole = 'specifier' | 'simplifier' | 'stylist';
+
+const councilRoleConfig: Record<CouncilRole, { name: string; focus: string }> = {
+  specifier: {
+    name: 'The Specifier',
+    focus: 'clarity, specificity, missing context, and explicit constraints',
+  },
+  simplifier: {
+    name: 'The Simplifier',
+    focus: 'decomposing complex work into simple, ordered, executable steps',
+  },
+  stylist: {
+    name: 'The Stylist',
+    focus: 'persona, tone, output format, and audience fit',
+  },
+};
+
+const OpenRouterCouncilMemberResponseSchema = z.object({
+  thoughtProcess: z.string(),
+  refinedText: z.string(),
+});
+
+async function runOpenRouterCouncilMember(input: RefinePromptWithAICouncilInput, role: CouncilRole) {
+  const models = OpenRouterModelsSchema.parse(input.openRouterModels);
+  const roleConfig = councilRoleConfig[role];
+  const model = models[role];
+
+  const content = await createOpenRouterChatCompletion({
+    apiKey: input.openRouterApiKey!,
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are ${roleConfig.name}, one member of an expert prompt-engineering council. Focus on ${roleConfig.focus}. Return only JSON.`,
+      },
+      {
+        role: 'user',
+        content: `Refine the prompt below using the "${input.promptType}" technique and the 8 golden rules of prompting.
+
+Golden rules:
+1. Be specific and provide context.
+2. Use delimiters.
+3. Specify the desired output format.
+4. Provide examples when useful.
+5. Break complex tasks into smaller steps.
+6. Use a persona or role when useful.
+7. Check assumptions.
+8. Iterate and refine.
+
+If the technique is ReAct, write a prompt that instructs another LLM to follow ReAct. Do not perform ReAct yourself.
+
+Prompt:
+"""
+${input.prompt}
+"""
+
+Return a JSON object with exactly:
+{
+  "thoughtProcess": "brief explanation of the refinement choices",
+  "refinedText": "your refined prompt version"
+}`,
+      },
+    ],
+  });
+
+  const parsed = parseJsonObject(content, OpenRouterCouncilMemberResponseSchema, roleConfig.name);
+
+  return {
+    councilMember: `${roleConfig.name} (${model})`,
+    thoughtProcess: parsed.thoughtProcess,
+    refinedText: parsed.refinedText,
+  };
+}
+
+async function synthesizeOpenRouterCouncilOutput(
+  input: RefinePromptWithAICouncilInput,
+  refinements: z.infer<typeof CouncilMemberOutputSchema>[]
+): Promise<RefinePromptWithAICouncilOutput> {
+  const models = OpenRouterModelsSchema.parse(input.openRouterModels);
+  const content = await createOpenRouterChatCompletion({
+    apiKey: input.openRouterApiKey!,
+    model: models.specifier,
+    messages: [
+      {
+        role: 'system',
+        content: 'You synthesize an AI prompt-engineering council into one final refined prompt. Return only JSON.',
+      },
+      {
+        role: 'user',
+        content: `Original prompt:
+"""
+${input.prompt}
+"""
+
+Technique: ${input.promptType}
+
+Council refinements:
+${JSON.stringify(refinements, null, 2)}
+
+Synthesize the best ideas into one final prompt. Return JSON with exactly:
+{
+  "refinedPrompt": "final prompt only"
+}`,
+      },
+    ],
+  });
+
+  const parsed = parseJsonObject(content, z.object({ refinedPrompt: z.string() }), 'OpenRouter synthesis');
+
+  return RefinePromptWithAICouncilOutputSchema.parse({
+    refinedPrompt: parsed.refinedPrompt,
+    refinements,
+  });
+}
+
+async function refinePromptWithOpenRouter(input: RefinePromptWithAICouncilInput): Promise<RefinePromptWithAICouncilOutput> {
+  const refinements = await Promise.all([
+    runOpenRouterCouncilMember(input, 'specifier'),
+    runOpenRouterCouncilMember(input, 'simplifier'),
+    runOpenRouterCouncilMember(input, 'stylist'),
+  ]);
+
+  return synthesizeOpenRouterCouncilOutput(input, refinements);
+}
 
 const refinePromptWithAICouncilPrompt = ai.definePrompt({
   name: 'refinePromptWithAICouncilPrompt',
@@ -95,6 +230,10 @@ const refinePromptWithAICouncilFlow = ai.defineFlow(
 export async function refinePromptWithAICouncil(
   input: RefinePromptWithAICouncilInput
 ): Promise<RefinePromptWithAICouncilOutput> {
+  if (input.provider === 'openrouter') {
+    return refinePromptWithOpenRouter(input);
+  }
+
   if (input.apiKey) {
     const customAi = genkit({
       plugins: [googleAI({ apiKey: input.apiKey })],

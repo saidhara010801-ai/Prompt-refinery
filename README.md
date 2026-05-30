@@ -11,6 +11,7 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Guideline Evaluator for deciding whether a prompt should include one of the council guidelines.
 - Saved Prompts for authenticated users.
 - Local Bring Your Own Key Gemini support.
+- OpenRouter support with configurable model IDs for each council member.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
 - Dark/light mode and responsive Next.js UI.
 
@@ -80,11 +81,13 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-Future roadmap:
+Optional for managed server-side OpenRouter fallback:
 
 ```env
 OPENROUTER_API_KEY=
 ```
+
+OpenRouter can also be used as a user-provided browser-local key from Settings. In that BYOK mode, each AI Council member can use a different OpenRouter model ID.
 
 ## Scripts
 

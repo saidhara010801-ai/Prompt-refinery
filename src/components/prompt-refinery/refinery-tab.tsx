@@ -48,21 +48,33 @@ function getErrorToast(error: unknown): { title: string; description: string } {
   const errorName = error instanceof Error ? error.name : '';
   const errorMessage = error instanceof Error ? error.message : '';
 
-  if (errorName === 'ApiKeyMissingError' || errorMessage.includes('API key is missing')) {
+  if (
+    errorName === 'ApiKeyMissingError' ||
+    errorName === 'OpenRouterApiKeyMissingError' ||
+    errorMessage.includes('API key is missing')
+  ) {
     return {
-      title: 'API Key Missing',
-      description: 'Add your Gemini API key in Settings, then try refining again.',
+      title: errorName === 'OpenRouterApiKeyMissingError' ? 'OpenRouter API Key Missing' : 'API Key Missing',
+      description: errorName === 'OpenRouterApiKeyMissingError'
+        ? 'Add your OpenRouter API key in Settings, then try refining again.'
+        : 'Add your Gemini API key in Settings, then try refining again.',
     };
   }
 
-  if (errorName === 'ApiKeyInvalidError' || errorMessage.includes('API key looks invalid')) {
+  if (
+    errorName === 'ApiKeyInvalidError' ||
+    errorName === 'OpenRouterApiKeyInvalidError' ||
+    errorMessage.includes('API key looks invalid')
+  ) {
     return {
-      title: 'Invalid API Key',
-      description: 'Check your Gemini API key in Settings and save the corrected key.',
+      title: errorName === 'OpenRouterApiKeyInvalidError' ? 'Invalid OpenRouter API Key' : 'Invalid API Key',
+      description: errorName === 'OpenRouterApiKeyInvalidError'
+        ? 'Check your OpenRouter API key in Settings and save the corrected key.'
+        : 'Check your Gemini API key in Settings and save the corrected key.',
     };
   }
 
-  if (errorName === 'ApiQuotaError' || errorMessage.includes('quota')) {
+  if (errorName === 'ApiQuotaError' || errorName === 'OpenRouterQuotaError' || errorMessage.includes('quota')) {
     return {
       title: 'Gemini Quota Issue',
       description: errorMessage || 'Gemini is rate limited or out of quota. Try again later.',
@@ -83,7 +95,7 @@ export function RefineryTab() {
   const [tokenCounts, setTokenCounts] = useState<TokenCounts | null>(null);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { apiKey } = useContext(ApiKeyContext);
+  const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
   const { triggerAnimation } = useContext(SettingsContext);
 
   const form = useForm<FormValues>({
@@ -125,12 +137,26 @@ export function RefineryTab() {
     setRefinements([]);
     setTokenCounts(null);
     try {
-      const result = await refinePromptAction({ ...data, apiKey: apiKey || undefined });
+      const result = await refinePromptAction({
+        ...data,
+        provider: aiProvider,
+        apiKey: apiKey || undefined,
+        openRouterApiKey: openRouterApiKey || undefined,
+        openRouterModels,
+      });
       setRefinedPrompt(result.refinedPrompt);
       setRefinements(result.refinements);
     } catch (error) {
       const errorToast = getErrorToast(error);
-      if (error instanceof Error && (error.name === 'ApiKeyMissingError' || error.name === 'ApiKeyInvalidError')) {
+      if (
+        error instanceof Error &&
+        (
+          error.name === 'ApiKeyMissingError' ||
+          error.name === 'ApiKeyInvalidError' ||
+          error.name === 'OpenRouterApiKeyMissingError' ||
+          error.name === 'OpenRouterApiKeyInvalidError'
+        )
+      ) {
         triggerAnimation();
       }
       toast({
