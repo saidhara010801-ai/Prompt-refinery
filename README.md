@@ -13,6 +13,8 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Projects & Memory for iterative, context-aware refinement across sessions.
 - Reference file context in the Refinery with Gemini Vision images and MarkItDown document conversion.
 - Before/after diff view for refined prompts.
+- Free and Pro segmentation with protected subscription tiers, daily managed-key limits, and server-enforced saved-prompt limits.
+- Stripe subscription Checkout and webhook fulfillment for Pro upgrades.
 - Local Bring Your Own Key Gemini support.
 - OpenRouter support with configurable model IDs for each council member.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
@@ -26,7 +28,7 @@ Planned roadmap items from the product docs include export options, Pro-tier lim
 - Tailwind CSS and Radix UI components
 - Google Genkit with `@genkit-ai/google-genai`
 - Firebase Auth and Firestore
-- Optional Stripe checkout endpoint for donations
+- Stripe subscription Checkout and webhook fulfillment
 
 ## Prerequisites
 
@@ -83,11 +85,18 @@ NEXT_PUBLIC_FIREBASE_APP_ID=
 NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
 ```
 
-Optional for the donation checkout button:
+Required for Stripe Pro subscription upgrades:
 
 ```env
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_SECRET_KEY=
+STRIPE_PRO_PRICE_ID=
+STRIPE_WEBHOOK_SECRET=
+```
+
+Outside Firebase App Hosting, server-side tier enforcement also needs Firebase Admin application-default credentials:
+
+```env
+GOOGLE_APPLICATION_CREDENTIALS=
 ```
 
 Optional for managed server-side OpenRouter fallback:
@@ -135,6 +144,10 @@ The app stores user-owned data under each authenticated user path in Firestore:
 - `/users/{uid}/savedPrompts`
 - `/users/{uid}/projects`
 - `/users/{uid}/projects/{projectId}/projectSessions`
+
+User profiles store `subscriptionTier`, the server-maintained `savedPromptCount`, and managed-refinement usage metadata. Free accounts can save up to 10 prompts and use up to 5 managed-key refinements per day. BYOK refinements do not consume managed usage. Pro accounts unlock all eight techniques, Projects & Memory, unlimited saved prompts, and unlimited managed-key refinements.
+
+Saved-prompt writes and Stripe tier changes run through server-side Firebase Admin code. Browser clients may read their own tier but cannot self-promote or bypass saved-prompt limits.
 
 Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. API keys must remain local-only or server env-only and must never be stored in Firestore.
 

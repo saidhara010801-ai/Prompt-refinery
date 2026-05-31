@@ -25,6 +25,9 @@ import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
 import { Project } from './projects-tab';
 import { Badge } from '../ui/badge';
+import { SubscriptionContext } from '@/context/subscription-context';
+import { isFreeTechnique } from '@/lib/subscription';
+import { savePromptAction } from '@/app/subscription-actions';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -136,6 +139,27 @@ function getErrorToast(error: unknown): { title: string; description: string } {
     };
   }
 
+  if (errorName === 'ProFeatureRequiredError') {
+    return {
+      title: 'Pro Feature',
+      description: errorMessage,
+    };
+  }
+
+  if (errorName === 'ManagedRateLimitError') {
+    return {
+      title: 'Daily Limit Reached',
+      description: errorMessage,
+    };
+  }
+
+  if (errorName === 'AuthenticationRequiredError') {
+    return {
+      title: 'Sign In Again',
+      description: errorMessage,
+    };
+  }
+
   return {
     title: 'An error occurred',
     description: errorMessage || 'Please try again later.',
@@ -231,6 +255,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
   const { firestore, user } = useFirebase();
   const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
   const { triggerAnimation } = useContext(SettingsContext);
+  const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
 
   const projectSessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProject) return null;
@@ -284,6 +309,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
     setTokenCounts(null);
     try {
       const projectMemory = buildProjectMemory(selectedProject, projectSessions);
+      const firebaseIdToken = await user?.getIdToken();
       const result = await refinePromptAction({
         ...data,
         provider: aiProvider,
@@ -292,6 +318,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
         openRouterModels,
         projectMemory,
         attachments,
+        firebaseIdToken,
       });
       setRefinedPrompt(result.refinedPrompt);
       setRawPromptAtResult(data.prompt);
@@ -405,7 +432,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
     setAttachments((current) => current.filter((attachment) => attachment.name !== name));
   };
 
-  const handleSavePrompt = () => {
+  const handleSavePrompt = async () => {
     if (!user || !firestore || !refinedPrompt) return;
 
     const rawPrompt = form.getValues('prompt');
@@ -421,24 +448,32 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
         }];
     const latestVersion = versions.at(-1)?.version ?? 1;
 
-    const savedPromptsCol = collection(firestore, `users/${user.uid}/savedPrompts`);
-    addDocumentNonBlocking(savedPromptsCol, {
+    try {
+      const firebaseIdToken = await user.getIdToken();
+      await savePromptAction({
+        firebaseIdToken,
+        prompt: {
         name: `Refined: ${rawPrompt.substring(0, 30)}...`,
-        userId: user.uid,
         originalPrompt: rawPrompt,
         refinedPrompt,
         promptType,
         latestVersion,
         versionCount: versions.length,
         versions,
-        creationTimestamp: serverTimestamp(),
-        saveTimestamp: serverTimestamp(),
-    });
+        },
+      });
 
-    toast({
-        title: 'Prompt Saved!',
-        description: 'You can view your saved prompts in the "Saved Prompts" tab.',
-    });
+      toast({
+          title: 'Prompt Saved!',
+          description: 'You can view your saved prompts in the "Saved Prompts" tab.',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: error instanceof Error && error.name === 'SavedPromptLimitError' ? 'Saved Prompt Limit Reached' : 'Could Not Save Prompt',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
   const diffTokens = rawPromptAtResult && refinedPrompt
@@ -493,8 +528,8 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                       </FormControl>
                       <SelectContent>
                         {PROMPT_TECHNIQUES.map((tech) => (
-                          <SelectItem key={tech.value} value={tech.value}>
-                            {tech.label}
+                          <SelectItem key={tech.value} value={tech.value} disabled={!isPro && !isFreeTechnique(tech.value)}>
+                            {tech.label}{!isPro && !isFreeTechnique(tech.value) ? ' (Pro)' : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -543,6 +578,11 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
               <Button type="submit" disabled={isLoading} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : 'Refine with AI Council'}
               </Button>
+              {!isPro && (
+                <p className="text-xs text-muted-foreground">
+                  Free includes three techniques and up to {savedPromptLimit} saved prompts. You currently have {savedPromptCount}.
+                </p>
+              )}
             </form>
           </Form>
         </CardContent>

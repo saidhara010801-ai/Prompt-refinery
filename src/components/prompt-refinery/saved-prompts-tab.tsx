@@ -1,16 +1,18 @@
 'use client';
 
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, doc } from 'firebase/firestore';
+import { collection, query, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
 import { CopyButton } from './copy-button';
 import { Skeleton } from '../ui/skeleton';
-import { deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '../ui/badge';
+import { deleteSavedPromptAction } from '@/app/subscription-actions';
+import { SubscriptionContext } from '@/context/subscription-context';
+import { useContext } from 'react';
 
 interface PromptVersion {
   version: number;
@@ -54,6 +56,7 @@ function getPromptVersions(prompt: SavedPrompt): PromptVersion[] {
 export function SavedPromptsTab() {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
+  const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
 
   const savedPromptsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
@@ -65,20 +68,33 @@ export function SavedPromptsTab() {
 
   const { data: savedPrompts, isLoading } = useCollection<SavedPrompt>(savedPromptsQuery);
   
-  const handleDelete = (promptId: string) => {
+  const handleDelete = async (promptId: string) => {
     if (!user || !firestore) return;
-    const docRef = doc(firestore, `users/${user.uid}/savedPrompts`, promptId);
-    deleteDocumentNonBlocking(docRef);
-    toast({
-        title: "Prompt Deleted",
-        description: "The saved prompt has been removed.",
-    })
+    try {
+      await deleteSavedPromptAction({
+        firebaseIdToken: await user.getIdToken(),
+        promptId,
+      });
+      toast({
+          title: "Prompt Deleted",
+          description: "The saved prompt has been removed.",
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Could Not Delete Prompt',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your Saved Prompts</CardTitle>
+        <CardTitle className="flex items-center justify-between gap-3">
+          <span>Your Saved Prompts</span>
+          <Badge variant="outline">{savedPromptCount}/{isPro ? 'unlimited' : savedPromptLimit}</Badge>
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && (

@@ -10,6 +10,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { ApiKeyProvider } from '@/context/api-key-context';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { SettingsProvider } from '@/context/settings-context';
+import { SubscriptionProvider } from '@/context/subscription-context';
 
 function AppContent() {
   const { user, isUserLoading } = useUser();
@@ -61,9 +62,11 @@ export default function Home() {
   return (
     <FirebaseClientProvider>
       <ApiKeyProvider>
-        <SettingsProvider>
-          <HomePageContent />
-        </SettingsProvider>
+        <SubscriptionProvider>
+          <SettingsProvider>
+            <HomePageContent />
+          </SettingsProvider>
+        </SubscriptionProvider>
       </ApiKeyProvider>
     </FirebaseClientProvider>
   );

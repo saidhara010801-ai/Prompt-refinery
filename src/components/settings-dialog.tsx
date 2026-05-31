@@ -17,6 +17,7 @@ import { Settings } from 'lucide-react';
 import { AIProvider, ApiKeyContext, DEFAULT_OPENROUTER_MODELS } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
 import { cn } from '@/lib/utils';
+import { SubscriptionContext } from '@/context/subscription-context';
 
 export function SettingsDialog() {
   const {
@@ -30,6 +31,7 @@ export function SettingsDialog() {
     setOpenRouterModels,
   } = useContext(ApiKeyContext);
   const { animate, setAnimate } = useContext(SettingsContext);
+  const { isPro } = useContext(SubscriptionContext);
   const [open, setOpen] = useState(false);
 
   const handleOpenChange = (isOpen: boolean) => {
@@ -71,6 +73,7 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
             Manage local AI provider settings. API keys are saved only in this browser.
+            {!isPro && ' Upgrade to Pro to customize the five OpenRouter council models.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSave}>
@@ -122,6 +125,7 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.specifier}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.specifier}
+                disabled={!isPro}
               />
 
               <Label htmlFor="openRouterSimplifierModel" className="text-right">
@@ -133,6 +137,7 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.simplifier}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.simplifier}
+                disabled={!isPro}
               />
 
               <Label htmlFor="openRouterStylistModel" className="text-right">
@@ -144,6 +149,7 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.stylist}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.stylist}
+                disabled={!isPro}
               />
 
               <Label htmlFor="openRouterCriticModel" className="text-right">
@@ -155,6 +161,7 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.critic}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.critic}
+                disabled={!isPro}
               />
 
               <Label htmlFor="openRouterFormatterModel" className="text-right">
@@ -166,6 +173,7 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.formatter}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.formatter}
+                disabled={!isPro}
               />
             </div>
           </div>

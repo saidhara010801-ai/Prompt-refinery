@@ -1,48 +1,62 @@
-'use server';
 import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
-// Make sure to add your Stripe secret key to your environment variables
+import { getAdminAuth } from '@/lib/server/firebase-admin';
+import { getVerifiedUserProfile } from '@/lib/server/account-service';
+
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
 
-export async function POST(req: NextRequest) {
-  if (!stripeSecretKey) {
+function getBearerToken(request: NextRequest): string | undefined {
+  const authorization = request.headers.get('authorization');
+  return authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+}
+
+export async function POST(request: NextRequest) {
+  if (!stripeSecretKey || !stripeProPriceId) {
     return NextResponse.json(
-      { error: { message: 'Stripe secret key is not set. Please add it to your .env file.' } },
-      { status: 500 }
+      { error: { message: 'Stripe Pro checkout is not configured on this server.' } },
+      { status: 503 }
     );
   }
 
-  const stripe = require('stripe')(stripeSecretKey);
+  const firebaseIdToken = getBearerToken(request);
+  if (!firebaseIdToken) {
+    return NextResponse.json({ error: { message: 'Sign in to upgrade to Pro.' } }, { status: 401 });
+  }
 
   try {
-    const origin = req.headers.get('origin') || 'http://localhost:9002';
+    const decodedToken = await getAdminAuth().verifyIdToken(firebaseIdToken);
+    await getVerifiedUserProfile(firebaseIdToken);
+
+    const origin = request.headers.get('origin') || 'http://localhost:9002';
+    const stripe = new Stripe(stripeSecretKey);
     const session = await stripe.checkout.sessions.create({
-      ui_mode: 'hosted',
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: 'A coffee for the developer',
-              images: ['https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png'],
-            },
-            unit_amount: 500, // $5.00
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      success_url: `${origin}/?success=true`,
-      cancel_url: `${origin}/`,
+      mode: 'subscription',
+      client_reference_id: decodedToken.uid,
+      customer_email: decodedToken.email,
+      line_items: [{ price: stripeProPriceId, quantity: 1 }],
+      metadata: { firebaseUid: decodedToken.uid },
+      subscription_data: {
+        metadata: { firebaseUid: decodedToken.uid },
+      },
+      success_url: `${origin}/?upgrade=success`,
+      cancel_url: `${origin}/?upgrade=cancelled`,
     });
 
     return NextResponse.json({ url: session.url });
-  } catch (err: any) {
-    return NextResponse.json({ error: { message: err.message } }, { status: 500 });
+  } catch (error) {
+    console.error('Could not create Stripe subscription checkout:', error);
+    return NextResponse.json(
+      { error: { message: 'Could not start Pro checkout. Please sign in again and retry.' } },
+      { status: 500 }
+    );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ message: "Hello World!" });
+  return NextResponse.json({
+    configured: Boolean(stripeSecretKey && stripeProPriceId),
+    product: 'Prompt Refinery Pro',
+  });
 }

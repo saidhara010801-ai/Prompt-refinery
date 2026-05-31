@@ -46,6 +46,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isProUser(userId) {
+      return isOwner(userId) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.subscriptionTier in ['pro', 'pro-max'];
+    }
+
     /**
      * For update/delete operations, confirms the user is the owner AND the document exists.
      * Prevents modifying or deleting non-existent documents.
@@ -59,14 +64,26 @@ service cloud.firestore {
      * Ensures the document's internal ID matches its path ID.
      */
     function hasValidUserDataOnCreate(userId) {
-      return request.resource.data.id == userId;
+      return request.resource.data.id == userId &&
+        request.resource.data.subscriptionTier == 'free' &&
+        request.resource.data.savedPromptCount == 0 &&
+        request.resource.data.managedRefinementsUsedToday == 0;
     }
     
     /**
      * Enforces immutability of critical fields for a User document on update.
      */
     function isUpdatingImmutableUserData() {
-      return request.resource.data.id == resource.data.id;
+      return request.resource.data.id == resource.data.id &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'subscriptionTier',
+          'subscriptionStatus',
+          'stripeCustomerId',
+          'stripeSubscriptionId',
+          'savedPromptCount',
+          'managedRefinementsDate',
+          'managedRefinementsUsedToday'
+        ]);
     }
 
     /**
@@ -198,9 +215,8 @@ service cloud.firestore {
     match /users/{userId}/savedPrompts/{savedPromptId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && hasValidSavedPromptDataOnCreate(userId);
-      allow update: if isExistingOwner(userId) && isUpdatingImmutableSavedPromptData();
-      allow delete: if isExistingOwner(userId);
+      // Writes are performed by authenticated server actions so the Free limit cannot be bypassed.
+      allow create, update, delete: if false;
     }
 
     /**
@@ -209,11 +225,11 @@ service cloud.firestore {
      * @principle Keeps project memory under the authenticated user's private data tree.
      */
     match /users/{userId}/projects/{projectId} {
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && hasValidProjectDataOnCreate(userId);
-      allow update: if isExistingOwner(userId) && isUpdatingImmutableProjectData();
-      allow delete: if isExistingOwner(userId);
+      allow get: if isProUser(userId);
+      allow list: if isProUser(userId);
+      allow create: if isProUser(userId) && hasValidProjectDataOnCreate(userId);
+      allow update: if isProUser(userId) && isUpdatingImmutableProjectData();
+      allow delete: if isProUser(userId);
     }
 
     /**
@@ -222,11 +238,11 @@ service cloud.firestore {
      * @principle Inherits ownership from the project path and validates the parent project id.
      */
     match /users/{userId}/projects/{projectId}/projectSessions/{sessionId} {
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && hasValidProjectSessionDataOnCreate(projectId);
-      allow update: if isExistingOwner(userId) && isUpdatingImmutableProjectSessionData();
-      allow delete: if isExistingOwner(userId);
+      allow get: if isProUser(userId);
+      allow list: if isProUser(userId);
+      allow create: if isProUser(userId) && hasValidProjectSessionDataOnCreate(projectId);
+      allow update: if isProUser(userId) && isUpdatingImmutableProjectSessionData();
+      allow delete: if isProUser(userId);
     }
   }
 }

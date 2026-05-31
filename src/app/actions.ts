@@ -3,6 +3,7 @@
 import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
 import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
+import { assertProFeatureAccess, assertRefinementAccess, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
 import { z } from "zod";
 
 const DEFAULT_OPENROUTER_MODELS = {
@@ -36,6 +37,7 @@ const refineSchema = z.object({
         formatter: z.string().min(1).optional(),
     }).optional(),
     projectMemory: z.string().optional(),
+    firebaseIdToken: z.string().optional(),
     attachments: z.array(z.object({
         name: z.string(),
         mimeType: z.string(),
@@ -155,31 +157,65 @@ function toProviderError(error: unknown, actionKind: ActionKind, provider: "gemi
     return toUserFacingError(error, actionKind, true);
 }
 
-export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
+export async function refinePromptAction(data: RefinePromptWithAICouncilInput & { firebaseIdToken?: string }) {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
     }
 
+    const provider = parsed.data.provider ?? "gemini";
+    const usesManagedProvider = provider === "openrouter"
+        ? !parsed.data.openRouterApiKey && Boolean(process.env.OPENROUTER_API_KEY)
+        : !parsed.data.apiKey && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+    let managedReservation: { uid: string; usageDate: string } | null = null;
+
     try {
-        const provider = parsed.data.provider ?? "gemini";
+        await assertRefinementAccess(parsed.data.firebaseIdToken, parsed.data.promptType, Boolean(parsed.data.projectMemory));
+        const usesCustomOpenRouterModels = provider === "openrouter" && parsed.data.openRouterModels && (
+            parsed.data.openRouterModels.specifier !== DEFAULT_OPENROUTER_MODELS.specifier ||
+            parsed.data.openRouterModels.simplifier !== DEFAULT_OPENROUTER_MODELS.simplifier ||
+            parsed.data.openRouterModels.stylist !== DEFAULT_OPENROUTER_MODELS.stylist ||
+            parsed.data.openRouterModels.critic !== DEFAULT_OPENROUTER_MODELS.critic ||
+            parsed.data.openRouterModels.formatter !== DEFAULT_OPENROUTER_MODELS.formatter
+        );
+        if (usesCustomOpenRouterModels) {
+            await assertProFeatureAccess(
+                parsed.data.firebaseIdToken,
+                "Custom OpenRouter council routing is available on Pro. Upgrade or restore the default model IDs."
+            );
+        }
+        if (usesManagedProvider) {
+            managedReservation = await reserveManagedRefinement(parsed.data.firebaseIdToken);
+        }
+
+        const { firebaseIdToken: _firebaseIdToken, ...flowData } = parsed.data;
         const input = provider === "openrouter"
             ? {
-                ...parsed.data,
+                ...flowData,
                 openRouterApiKey: parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY,
                 openRouterModels: {
                     ...DEFAULT_OPENROUTER_MODELS,
                     ...parsed.data.openRouterModels,
                 },
             }
-            : parsed.data;
+            : flowData;
 
         const result = await refinePromptWithAICouncil(input);
         return result;
     } catch (error) {
         console.error("Error refining prompt:", error);
-        const provider = parsed.data.provider ?? "gemini";
+        if (managedReservation) {
+            await releaseManagedRefinement(managedReservation.uid, managedReservation.usageDate)
+                .catch((releaseError) => console.error("Error releasing managed refinement reservation:", releaseError));
+        }
         const hasApiKey = provider === "openrouter" ? Boolean(parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY) : Boolean(parsed.data.apiKey);
+        if (error instanceof Error && (
+            error.name === "ProFeatureRequiredError" ||
+            error.name === "ManagedRateLimitError" ||
+            error.name === "AuthenticationRequiredError"
+        )) {
+            throw error;
+        }
         throw toProviderError(error, "refine prompt", provider, hasApiKey);
     }
 }
