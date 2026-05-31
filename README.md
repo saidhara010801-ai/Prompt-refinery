@@ -2,21 +2,23 @@
 
 Refine raw prompts with an AI Council of expert agents for dramatically better LLM outputs.
 
-The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a three-agent council, Firebase Auth/Firestore, Google Genkit, and a user-provided Gemini API key stored locally in the browser.
+The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, OpenRouter routing, and user-provided API keys stored locally in the browser.
 
 ## Current Product Scope
 
-- AI Council prompt refinement with The Specifier, The Simplifier, and The Stylist.
+- AI Council prompt refinement with The Specifier, The Simplifier, The Stylist, The Critic, and The Formatter.
 - Eight refinement techniques: Zero-shot, Few-shot, Chain-of-thought, Tree-of-thoughts, Role/persona, Prompt chaining, ReAct, and Meta/reflection.
-- Guideline Evaluator for deciding whether a prompt should include one of the council guidelines.
-- Saved Prompts for authenticated users.
+- Guideline Evaluator with overall and sub-dimension quality scores.
+- Saved Prompts for authenticated users, including version-history metadata for new saves.
 - Projects & Memory for iterative, context-aware refinement across sessions.
+- Reference file context in the Refinery with Gemini Vision images and MarkItDown document conversion.
+- Before/after diff view for refined prompts.
 - Local Bring Your Own Key Gemini support.
 - OpenRouter support with configurable model IDs for each council member.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
 - Dark/light mode and responsive Next.js UI.
 
-Planned roadmap items from the product docs include OpenRouter model routing, Projects & Memory, multimodal/format conversion, prompt versioning, export options, Pro-tier limits, and richer evaluator scoring.
+Planned roadmap items from the product docs include export options, Pro-tier limits, and production billing enforcement.
 
 ## Tech Stack
 
@@ -53,13 +55,19 @@ Planned roadmap items from the product docs include OpenRouter model routing, Pr
 
    Firebase client config is required for auth and saved prompts. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
 
-4. Start the app:
+4. Optional: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
+
+   ```powershell
+   pip install -r requirements-markitdown.txt
+   ```
+
+5. Start the app:
 
    ```powershell
    npm run dev
    ```
 
-5. Open [http://localhost:9002](http://localhost:9002).
+6. Open [http://localhost:9002](http://localhost:9002).
 
 ## Environment Variables
 
@@ -89,6 +97,14 @@ OPENROUTER_API_KEY=
 ```
 
 OpenRouter can also be used as a user-provided browser-local key from Settings. In that BYOK mode, each AI Council member can use a different OpenRouter model ID.
+
+Optional for document conversion when the MarkItDown CLI is not discoverable as `markitdown`:
+
+```env
+MARKITDOWN_COMMAND=
+```
+
+With the Gemini provider, image uploads are sent as inline data URIs for Vision-aware refinement. Text files are read in the browser. PDF and Office attachments use the server-side Microsoft MarkItDown CLI when installed, with a metadata-only fallback when conversion is unavailable.
 
 ## Scripts
 

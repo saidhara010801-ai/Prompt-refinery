@@ -9,6 +9,8 @@ const DEFAULT_OPENROUTER_MODELS = {
     specifier: "openai/gpt-4o-mini",
     simplifier: "anthropic/claude-3.5-haiku",
     stylist: "google/gemini-2.0-flash-001",
+    critic: "anthropic/claude-3.5-haiku",
+    formatter: "openai/gpt-4o-mini",
 };
 
 const refineSchema = z.object({
@@ -30,8 +32,16 @@ const refineSchema = z.object({
         specifier: z.string().min(1),
         simplifier: z.string().min(1),
         stylist: z.string().min(1),
+        critic: z.string().min(1).optional(),
+        formatter: z.string().min(1).optional(),
     }).optional(),
     projectMemory: z.string().optional(),
+    attachments: z.array(z.object({
+        name: z.string(),
+        mimeType: z.string(),
+        content: z.string(),
+        dataUri: z.string().optional(),
+    })).optional(),
 });
 
 const tokenCounterSchema = z.object({

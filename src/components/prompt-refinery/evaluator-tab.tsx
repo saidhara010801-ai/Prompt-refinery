@@ -4,7 +4,7 @@ import { useState, useContext } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Scale, Lightbulb, CheckCircle, XCircle } from 'lucide-react';
+import { Scale, Lightbulb, CheckCircle, XCircle, Gauge } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { LLM_COUNCIL_GUIDELINES, LlmCouncilGuideline } from '@/lib/constants';
 import { evaluateGuidelineAction } from '@/app/actions';
 import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
+import { Progress } from '@/components/ui/progress';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -29,7 +30,22 @@ type FormValues = z.infer<typeof formSchema>;
 interface EvaluationResult {
   shouldInclude: boolean;
   reason: string;
+  score: number;
+  dimensionScores: {
+    clarity: number;
+    context: number;
+    structure: number;
+    specificity: number;
+  };
+  recommendations: string[];
 }
+
+const dimensionLabels: Record<keyof EvaluationResult['dimensionScores'], string> = {
+  clarity: 'Clarity',
+  context: 'Context',
+  structure: 'Structure',
+  specificity: 'Specificity',
+};
 
 function getErrorToast(error: unknown): { title: string; description: string } {
   const errorName = error instanceof Error ? error.name : '';
@@ -195,10 +211,44 @@ export function EvaluatorTab() {
                     {evaluation.shouldInclude ? 'Recommended to Include' : 'Not Recommended to Include'}
                   </span>
                 </div>
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <Gauge className="h-4 w-4 text-primary" />
+                      <span>Prompt Quality Score</span>
+                    </div>
+                    <span className="text-2xl font-bold">{evaluation.score}</span>
+                  </div>
+                  <Progress value={evaluation.score} />
+                </div>
+                <div className="space-y-3">
+                  <h3 className="font-semibold">Sub-Dimension Scores</h3>
+                  {Object.entries(evaluation.dimensionScores).map(([dimension, score]) => (
+                    <div key={dimension} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{dimensionLabels[dimension as keyof EvaluationResult['dimensionScores']]}</span>
+                        <span className="font-medium">{score}</span>
+                      </div>
+                      <Progress value={score} className="h-2" />
+                    </div>
+                  ))}
+                </div>
                 <div>
                     <h3 className="font-semibold mb-2">Reasoning:</h3>
                     <p className="text-muted-foreground">{evaluation.reason}</p>
                 </div>
+                {evaluation.recommendations.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2">Recommendations:</h3>
+                    <ul className="space-y-2 text-sm text-muted-foreground">
+                      {evaluation.recommendations.map((recommendation, index) => (
+                        <li key={`${recommendation}-${index}`} className="rounded-md border bg-background p-3">
+                          {recommendation}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </motion.div>
             )}
             {!isLoading && !evaluation && (

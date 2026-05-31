@@ -23,6 +23,14 @@ export type EvaluatePromptGuidelineInclusionInput = z.infer<typeof EvaluatePromp
 const EvaluatePromptGuidelineInclusionOutputSchema = z.object({
   shouldInclude: z.boolean().describe('Whether the guideline should be included in the prompt.'),
   reason: z.string().describe('The reason for the decision, explaining why the guideline is relevant or irrelevant.'),
+  score: z.number().min(0).max(100).describe('Overall prompt quality score for this guideline.'),
+  dimensionScores: z.object({
+    clarity: z.number().min(0).max(100),
+    context: z.number().min(0).max(100),
+    structure: z.number().min(0).max(100),
+    specificity: z.number().min(0).max(100),
+  }).describe('Sub-dimension scores for prompt quality.'),
+  recommendations: z.array(z.string()).describe('Concrete prompt improvements.'),
 });
 export type EvaluatePromptGuidelineInclusionOutput = z.infer<typeof EvaluatePromptGuidelineInclusionOutputSchema>;
 
@@ -43,7 +51,15 @@ Finally, based on your reasoning, determine whether the guideline should be incl
 Respond with a JSON object in the following format:
 {
   "shouldInclude": true/false,
-  "reason": "Explanation of why the guideline should or should not be included."
+  "reason": "Explanation of why the guideline should or should not be included.",
+  "score": 0-100,
+  "dimensionScores": {
+    "clarity": 0-100,
+    "context": 0-100,
+    "structure": 0-100,
+    "specificity": 0-100
+  },
+  "recommendations": ["Concrete improvement 1", "Concrete improvement 2"]
 }`,
 });
 
@@ -83,7 +99,15 @@ Finally, based on your reasoning, determine whether the guideline should be incl
 Respond with a JSON object in the following format:
 {
   "shouldInclude": true/false,
-  "reason": "Explanation of why the guideline should or should not be included."
+  "reason": "Explanation of why the guideline should or should not be included.",
+  "score": 0-100,
+  "dimensionScores": {
+    "clarity": 0-100,
+    "context": 0-100,
+    "structure": 0-100,
+    "specificity": 0-100
+  },
+  "recommendations": ["Concrete improvement 1", "Concrete improvement 2"]
 }`,
     });
     const { output } = await dynamicPrompt(input);

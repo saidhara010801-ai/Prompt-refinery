@@ -52,6 +52,8 @@ export function SettingsDialog() {
       specifier: (formData.get('openRouterSpecifierModel') as string) || DEFAULT_OPENROUTER_MODELS.specifier,
       simplifier: (formData.get('openRouterSimplifierModel') as string) || DEFAULT_OPENROUTER_MODELS.simplifier,
       stylist: (formData.get('openRouterStylistModel') as string) || DEFAULT_OPENROUTER_MODELS.stylist,
+      critic: (formData.get('openRouterCriticModel') as string) || DEFAULT_OPENROUTER_MODELS.critic,
+      formatter: (formData.get('openRouterFormatterModel') as string) || DEFAULT_OPENROUTER_MODELS.formatter,
     });
     handleOpenChange(false);
   };
@@ -142,6 +144,28 @@ export function SettingsDialog() {
                 defaultValue={openRouterModels.stylist}
                 className="col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.stylist}
+              />
+
+              <Label htmlFor="openRouterCriticModel" className="text-right">
+                Critic Model
+              </Label>
+              <Input
+                id="openRouterCriticModel"
+                name="openRouterCriticModel"
+                defaultValue={openRouterModels.critic}
+                className="col-span-3"
+                placeholder={DEFAULT_OPENROUTER_MODELS.critic}
+              />
+
+              <Label htmlFor="openRouterFormatterModel" className="text-right">
+                Formatter Model
+              </Label>
+              <Input
+                id="openRouterFormatterModel"
+                name="openRouterFormatterModel"
+                defaultValue={openRouterModels.formatter}
+                className="col-span-3"
+                placeholder={DEFAULT_OPENROUTER_MODELS.formatter}
               />
             </div>
           </div>

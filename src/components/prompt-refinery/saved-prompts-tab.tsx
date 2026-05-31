@@ -1,8 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, orderBy, doc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
@@ -11,6 +10,15 @@ import { CopyButton } from './copy-button';
 import { Skeleton } from '../ui/skeleton';
 import { deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '../ui/badge';
+
+interface PromptVersion {
+  version: number;
+  rawPrompt: string;
+  refinedPrompt: string;
+  promptType: string;
+  createdAt: string;
+}
 
 interface SavedPrompt {
   id: string;
@@ -18,10 +26,29 @@ interface SavedPrompt {
   originalPrompt: string;
   refinedPrompt: string;
   promptType: string;
+  latestVersion?: number;
+  versionCount?: number;
+  versions?: PromptVersion[];
   saveTimestamp: {
     seconds: number;
     nanoseconds: number;
   };
+}
+
+function getPromptVersions(prompt: SavedPrompt): PromptVersion[] {
+  if (prompt.versions?.length) {
+    return prompt.versions;
+  }
+
+  return [{
+    version: 1,
+    rawPrompt: prompt.originalPrompt,
+    refinedPrompt: prompt.refinedPrompt,
+    promptType: prompt.promptType,
+    createdAt: prompt.saveTimestamp?.seconds
+      ? new Date(prompt.saveTimestamp.seconds * 1000).toISOString()
+      : new Date().toISOString(),
+  }];
 }
 
 export function SavedPromptsTab() {
@@ -68,7 +95,8 @@ export function SavedPromptsTab() {
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex justify-between items-center w-full">
                     <span className="font-semibold text-left">{prompt.name}</span>
-                    <span className="text-sm text-muted-foreground pr-4">
+                    <span className="flex items-center gap-2 text-sm text-muted-foreground pr-4">
+                        <Badge variant="outline">v{prompt.latestVersion ?? prompt.versionCount ?? 1}</Badge>
                         {new Date(prompt.saveTimestamp.seconds * 1000).toLocaleDateString()}
                     </span>
                   </div>
@@ -93,6 +121,35 @@ export function SavedPromptsTab() {
                             <span className="sr-only">Delete prompt</span>
                         </Button>
                     </div>
+                    <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value={`${prompt.id}-versions`}>
+                        <AccordionTrigger>Version History</AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-3">
+                            {getPromptVersions(prompt).map((version) => (
+                              <div key={`${prompt.id}-${version.version}`} className="rounded-md border bg-background p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <Badge variant="secondary">Version {version.version}</Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(version.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <h5 className="font-semibold text-xs mb-1">Raw Prompt</h5>
+                                  <p className="text-xs text-muted-foreground">{version.rawPrompt}</p>
+                                </div>
+                                <div>
+                                  <h5 className="font-semibold text-xs mb-1">Refined Prompt</h5>
+                                  <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-2 rounded-md">
+                                    <code>{version.refinedPrompt}</code>
+                                  </pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
                 </AccordionContent>
               </AccordionItem>

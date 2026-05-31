@@ -36,6 +36,7 @@ interface ProjectSession {
   rawPrompt: string;
   refinedPrompt: string;
   promptType: string;
+  version?: number;
   llmResponse?: string;
   timestamp?: {
     seconds: number;
@@ -248,7 +249,7 @@ export function ProjectsTab({ selectedProjectId, onSelectProject }: ProjectsTabP
                 <div key={session.id} className="rounded-lg border p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-1 rounded-full">
-                      {session.promptType}
+                      {session.promptType} · v{session.version ?? 1}
                     </span>
                     <span className="text-xs text-muted-foreground">{formatDate(session.timestamp)}</span>
                   </div>

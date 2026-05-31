@@ -29,6 +29,15 @@ const OpenRouterModelsSchema = z.object({
   specifier: z.string().min(1),
   simplifier: z.string().min(1),
   stylist: z.string().min(1),
+  critic: z.string().min(1).optional(),
+  formatter: z.string().min(1).optional(),
+});
+
+const AttachmentContextSchema = z.object({
+  name: z.string(),
+  mimeType: z.string(),
+  content: z.string(),
+  dataUri: z.string().optional(),
 });
 
 const RefinePromptWithAICouncilInputSchema = z.object({
@@ -41,6 +50,7 @@ const RefinePromptWithAICouncilInputSchema = z.object({
   openRouterApiKey: z.string().optional().describe('The user-provided OpenRouter API key.'),
   openRouterModels: OpenRouterModelsSchema.optional().describe('OpenRouter model IDs for each council member.'),
   projectMemory: z.string().optional().describe('Recent project context from prior refinements and response notes.'),
+  attachments: z.array(AttachmentContextSchema).optional().describe('Uploaded file context converted into text or metadata for refinement.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
@@ -56,7 +66,7 @@ const RefinePromptWithAICouncilOutputSchema = z.object({
 });
 export type RefinePromptWithAICouncilOutput = z.infer<typeof RefinePromptWithAICouncilOutputSchema>;
 
-type CouncilRole = 'specifier' | 'simplifier' | 'stylist';
+type CouncilRole = 'specifier' | 'simplifier' | 'stylist' | 'critic' | 'formatter';
 
 const councilRoleConfig: Record<CouncilRole, { name: string; focus: string }> = {
   specifier: {
@@ -71,6 +81,14 @@ const councilRoleConfig: Record<CouncilRole, { name: string; focus: string }> = 
     name: 'The Stylist',
     focus: 'persona, tone, output format, and audience fit',
   },
+  critic: {
+    name: 'The Critic',
+    focus: 'quality risks, missing requirements, ambiguity, safety, and likely failure modes',
+  },
+  formatter: {
+    name: 'The Formatter',
+    focus: 'final structure, sections, delimiters, reusable formatting, and copy-ready presentation',
+  },
 };
 
 const OpenRouterCouncilMemberResponseSchema = z.object({
@@ -78,10 +96,20 @@ const OpenRouterCouncilMemberResponseSchema = z.object({
   refinedText: z.string(),
 });
 
+function formatAttachmentContext(attachments?: z.infer<typeof AttachmentContextSchema>[]): string {
+  if (!attachments?.length) {
+    return '';
+  }
+
+  return `\nUploaded attachment context:\n${attachments
+    .map((attachment) => `- ${attachment.name} (${attachment.mimeType}):\n"""\n${attachment.content}\n"""`)
+    .join('\n\n')}\n`;
+}
+
 async function runOpenRouterCouncilMember(input: RefinePromptWithAICouncilInput, role: CouncilRole) {
   const models = OpenRouterModelsSchema.parse(input.openRouterModels);
   const roleConfig = councilRoleConfig[role];
-  const model = models[role];
+  const model = models[role] ?? models.specifier;
 
   const content = await createOpenRouterChatCompletion({
     apiKey: input.openRouterApiKey!,
@@ -119,6 +147,7 @@ ${input.projectMemory}
 
 Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
 ` : ''}
+${formatAttachmentContext(input.attachments)}
 
 Return a JSON object with exactly:
 {
@@ -145,7 +174,7 @@ async function synthesizeOpenRouterCouncilOutput(
   const models = OpenRouterModelsSchema.parse(input.openRouterModels);
   const content = await createOpenRouterChatCompletion({
     apiKey: input.openRouterApiKey!,
-    model: models.specifier,
+    model: models.formatter ?? models.specifier,
     messages: [
       {
         role: 'system',
@@ -163,6 +192,7 @@ Recent project memory:
 ${input.projectMemory}
 """
 ` : ''}
+${formatAttachmentContext(input.attachments)}
 
 Technique: ${input.promptType}
 
@@ -190,6 +220,8 @@ async function refinePromptWithOpenRouter(input: RefinePromptWithAICouncilInput)
     runOpenRouterCouncilMember(input, 'specifier'),
     runOpenRouterCouncilMember(input, 'simplifier'),
     runOpenRouterCouncilMember(input, 'stylist'),
+    runOpenRouterCouncilMember(input, 'critic'),
+    runOpenRouterCouncilMember(input, 'formatter'),
   ]);
 
   return synthesizeOpenRouterCouncilOutput(input, refinements);
@@ -199,10 +231,12 @@ const refinePromptWithAICouncilPrompt = ai.definePrompt({
   name: 'refinePromptWithAICouncilPrompt',
   input: { schema: RefinePromptWithAICouncilInputSchema },
   output: { schema: RefinePromptWithAICouncilOutputSchema },
-  prompt: `You are a council of three expert prompt engineers:
+  prompt: `You are a council of five expert prompt engineers:
 - "The Specifier": Focuses on clarity, specificity, and context. Ensures all constraints are articulated.
 - "The Simplifier": Breaks down complex tasks into simple, logical steps. Aims for a clear, sequential flow.
 - "The Stylist": Defines the persona, format, and tone. Ensures the output matches the desired style.
+- "The Critic": Finds gaps, ambiguity, risks, missing requirements, and likely failure modes.
+- "The Formatter": Turns the final prompt into a copy-ready structure with clear delimiters and sections.
 
 Your goal is to refine the user-provided prompt using the specified prompting technique, which is "{{promptType}}", while applying the 8 golden rules of prompting.
 
@@ -229,11 +263,24 @@ Recent project memory:
 
 Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
 {{/if}}
+{{#if attachments}}
+
+Uploaded attachment context:
+{{#each attachments}}
+- {{name}} ({{mimeType}}):
+"""
+{{content}}
+"""
+{{#if dataUri}}
+{{media url=dataUri}}
+{{/if}}
+{{/each}}
+{{/if}}
 
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
 First, each council member will provide their thought process and their refined version of the prompt, incorporating their specialty and the 8 golden rules.
-Then, synthesize the best ideas from all three members into a single, final refined prompt.
+Then, synthesize the best ideas from all five members into a single, final refined prompt.
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").
 `,
@@ -267,10 +314,12 @@ export async function refinePromptWithAICouncil(
         name: 'refinePromptWithAICouncilPrompt',
         input: { schema: RefinePromptWithAICouncilInputSchema },
         output: { schema: RefinePromptWithAICouncilOutputSchema },
-        prompt: `You are a council of three expert prompt engineers:
+        prompt: `You are a council of five expert prompt engineers:
 - "The Specifier": Focuses on clarity, specificity, and context. Ensures all constraints are articulated.
 - "The Simplifier": Breaks down complex tasks into simple, logical steps. Aims for a clear, sequential flow.
 - "The Stylist": Defines the persona, format, and tone. Ensures the output matches the desired style.
+- "The Critic": Finds gaps, ambiguity, risks, missing requirements, and likely failure modes.
+- "The Formatter": Turns the final prompt into a copy-ready structure with clear delimiters and sections.
 
 Your goal is to refine the user-provided prompt using the specified prompting technique, which is "{{promptType}}", while applying the 8 golden rules of prompting.
 
@@ -297,11 +346,24 @@ Recent project memory:
 
 Use this memory only when it is relevant to the new prompt. Do not expose private notes unless they improve the final prompt.
 {{/if}}
+{{#if attachments}}
+
+Uploaded attachment context:
+{{#each attachments}}
+- {{name}} ({{mimeType}}):
+"""
+{{content}}
+"""
+{{#if dataUri}}
+{{media url=dataUri}}
+{{/if}}
+{{/each}}
+{{/if}}
 
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
 First, each council member will provide their thought process and their refined version of the prompt, incorporating their specialty and the 8 golden rules.
-Then, synthesize the best ideas from all three members into a single, final refined prompt.
+Then, synthesize the best ideas from all five members into a single, final refined prompt.
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").
 `,
