@@ -32,7 +32,13 @@ function safeExtension(filename: string): string {
 }
 
 export async function POST(request: Request) {
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.json({ error: 'Choose a file to convert.' }, { status: 400 });
+  }
+
   const file = formData.get('file');
 
   if (!(file instanceof File)) {

@@ -35,6 +35,10 @@ export class OpenRouterError extends Error {
 }
 
 export async function createOpenRouterChatCompletion(input: OpenRouterChatInput): Promise<string> {
+  if (!input.apiKey?.trim()) {
+    throw new OpenRouterError('OpenRouter API key is missing.');
+  }
+
   const response = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
     method: 'POST',
     headers: {
