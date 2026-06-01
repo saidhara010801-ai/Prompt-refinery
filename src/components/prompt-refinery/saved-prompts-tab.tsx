@@ -109,9 +109,9 @@ export function SavedPromptsTab() {
             {savedPrompts.map((prompt) => (
               <AccordionItem value={prompt.id} key={prompt.id} className="border rounded-lg px-4">
                 <AccordionTrigger className="hover:no-underline">
-                  <div className="flex justify-between items-center w-full">
-                    <span className="font-semibold text-left">{prompt.name}</span>
-                    <span className="flex items-center gap-2 text-sm text-muted-foreground pr-4">
+                  <div className="flex min-w-0 flex-1 flex-col items-start gap-2 pr-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="max-w-full truncate font-semibold text-left">{prompt.name}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                         <Badge variant="outline">v{prompt.latestVersion ?? prompt.versionCount ?? 1}</Badge>
                         {new Date(prompt.saveTimestamp.seconds * 1000).toLocaleDateString()}
                     </span>

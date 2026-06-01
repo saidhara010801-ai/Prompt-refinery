@@ -68,7 +68,7 @@ export function SettingsDialog() {
           <span className="sr-only">Settings</span>
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
@@ -78,100 +78,100 @@ export function SettingsDialog() {
         </DialogHeader>
         <form onSubmit={handleSave}>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="aiProvider" className="text-right">
+            <div className="grid gap-3 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="aiProvider" className="sm:text-right">
                 Provider
               </Label>
               <select
                 id="aiProvider"
                 name="aiProvider"
                 defaultValue={aiProvider}
-                className="col-span-3 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-3"
               >
                 <option value="gemini">Gemini</option>
                 <option value="openrouter">OpenRouter</option>
               </select>
 
-              <Label htmlFor="apiKey" className="text-right">
+              <Label htmlFor="apiKey" className="sm:text-right">
                 Gemini API Key
               </Label>
               <Input
                 id="apiKey"
                 name="apiKey"
                 defaultValue={apiKey}
-                className="col-span-3"
+                className="sm:col-span-3"
                 type="password"
                 placeholder="Enter your Gemini API key"
               />
 
-              <Label htmlFor="openRouterApiKey" className="text-right">
+              <Label htmlFor="openRouterApiKey" className="sm:text-right">
                 OpenRouter Key
               </Label>
               <Input
                 id="openRouterApiKey"
                 name="openRouterApiKey"
                 defaultValue={openRouterApiKey}
-                className="col-span-3"
+                className="sm:col-span-3"
                 type="password"
                 placeholder="Enter your OpenRouter API key"
               />
 
-              <Label htmlFor="openRouterSpecifierModel" className="text-right">
+              <Label htmlFor="openRouterSpecifierModel" className="sm:text-right">
                 Specifier Model
               </Label>
               <Input
                 id="openRouterSpecifierModel"
                 name="openRouterSpecifierModel"
                 defaultValue={openRouterModels.specifier}
-                className="col-span-3"
+                className="sm:col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.specifier}
                 disabled={!isPro}
               />
 
-              <Label htmlFor="openRouterSimplifierModel" className="text-right">
+              <Label htmlFor="openRouterSimplifierModel" className="sm:text-right">
                 Simplifier Model
               </Label>
               <Input
                 id="openRouterSimplifierModel"
                 name="openRouterSimplifierModel"
                 defaultValue={openRouterModels.simplifier}
-                className="col-span-3"
+                className="sm:col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.simplifier}
                 disabled={!isPro}
               />
 
-              <Label htmlFor="openRouterStylistModel" className="text-right">
+              <Label htmlFor="openRouterStylistModel" className="sm:text-right">
                 Stylist Model
               </Label>
               <Input
                 id="openRouterStylistModel"
                 name="openRouterStylistModel"
                 defaultValue={openRouterModels.stylist}
-                className="col-span-3"
+                className="sm:col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.stylist}
                 disabled={!isPro}
               />
 
-              <Label htmlFor="openRouterCriticModel" className="text-right">
+              <Label htmlFor="openRouterCriticModel" className="sm:text-right">
                 Critic Model
               </Label>
               <Input
                 id="openRouterCriticModel"
                 name="openRouterCriticModel"
                 defaultValue={openRouterModels.critic}
-                className="col-span-3"
+                className="sm:col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.critic}
                 disabled={!isPro}
               />
 
-              <Label htmlFor="openRouterFormatterModel" className="text-right">
+              <Label htmlFor="openRouterFormatterModel" className="sm:text-right">
                 Formatter Model
               </Label>
               <Input
                 id="openRouterFormatterModel"
                 name="openRouterFormatterModel"
                 defaultValue={openRouterModels.formatter}
-                className="col-span-3"
+                className="sm:col-span-3"
                 placeholder={DEFAULT_OPENROUTER_MODELS.formatter}
                 disabled={!isPro}
               />

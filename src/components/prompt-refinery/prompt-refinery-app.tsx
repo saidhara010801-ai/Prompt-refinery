@@ -7,9 +7,10 @@ import { EvaluatorTab } from './evaluator-tab';
 import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
 import { Project, ProjectsTab } from './projects-tab';
+import { ConverterTab } from './converter-tab';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Crown } from 'lucide-react';
+import { Crown, FileText, FolderKanban, Gauge, Library, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { useFirebase } from '@/firebase';
@@ -65,7 +66,7 @@ export function PromptRefineryApp() {
         <header className="flex flex-col items-center justify-center gap-3 mb-8">
             <div className="flex items-center gap-3">
               <Logo className="h-10 w-10 text-primary" />
-              <h1 className="text-4xl md:text-5xl font-bold font-headline tracking-tight text-center">
+              <h1 className="text-3xl md:text-5xl font-bold font-headline tracking-tight text-center">
                   The Prompt Refinery
               </h1>
             </div>
@@ -91,17 +92,36 @@ export function PromptRefineryApp() {
           <span>Managed refinements today: {managedRefinementsUsedToday}/{managedRefinementLimit ?? 'unlimited'}</span>
         </div>
       <Tabs defaultValue="refinery" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-3xl mx-auto">
-          <TabsTrigger value="refinery">Refinery</TabsTrigger>
-          <TabsTrigger value="evaluator">Guideline Evaluator</TabsTrigger>
-          <TabsTrigger value="saved">Saved Prompts</TabsTrigger>
-          <TabsTrigger value="projects" disabled={!isPro}>Projects {!isPro && '(Pro)'}</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-5 gap-1 max-w-4xl mx-auto">
+          <TabsTrigger value="refinery" className="gap-1 px-2" aria-label="Refinery">
+            <Wand2 className="h-4 w-4" />
+            <span className="hidden md:inline">Refinery</span>
+          </TabsTrigger>
+          <TabsTrigger value="evaluator" className="gap-1 px-2" aria-label="Guideline Evaluator">
+            <Gauge className="h-4 w-4" />
+            <span className="hidden md:inline">Evaluator</span>
+          </TabsTrigger>
+          <TabsTrigger value="converter" className="gap-1 px-2" aria-label="Format Converter">
+            <FileText className="h-4 w-4" />
+            <span className="hidden md:inline">Converter</span>
+          </TabsTrigger>
+          <TabsTrigger value="saved" className="gap-1 px-2" aria-label="Saved Prompts">
+            <Library className="h-4 w-4" />
+            <span className="hidden md:inline">Saved</span>
+          </TabsTrigger>
+          <TabsTrigger value="projects" className="gap-1 px-2" aria-label={isPro ? 'Projects' : 'Projects, Pro feature'} disabled={!isPro}>
+            <FolderKanban className="h-4 w-4" />
+            <span className="hidden md:inline">Projects {!isPro && '(Pro)'}</span>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="refinery" className="mt-6">
           <RefineryTab selectedProject={isPro ? selectedProject : null} />
         </TabsContent>
         <TabsContent value="evaluator" className="mt-6">
           <EvaluatorTab />
+        </TabsContent>
+        <TabsContent value="converter" className="mt-6">
+          <ConverterTab />
         </TabsContent>
         <TabsContent value="saved" className="mt-6">
           <SavedPromptsTab />

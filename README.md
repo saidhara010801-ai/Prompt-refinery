@@ -12,7 +12,9 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Saved Prompts for authenticated users, including version-history metadata for new saves.
 - Projects & Memory for iterative, context-aware refinement across sessions.
 - Reference file context in the Refinery with Gemini Vision images and MarkItDown document conversion.
+- Dedicated format converter for reusable Markdown output from supported documents.
 - Before/after diff view for refined prompts.
+- Prompt templates, explanation mode, styled copy actions, and TXT/Markdown/JSON exports.
 - Free and Pro segmentation with protected subscription tiers, daily managed-key limits, and server-enforced saved-prompt limits.
 - Stripe subscription Checkout and webhook fulfillment for Pro upgrades.
 - Local Bring Your Own Key Gemini support.
@@ -20,7 +22,7 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
 - Dark/light mode and responsive Next.js UI.
 
-Planned roadmap items from the product docs include export options, Pro-tier limits, and production billing enforcement.
+The remaining roadmap work is Phase 8 testing, deployment hardening, and production monitoring.
 
 ## Tech Stack
 

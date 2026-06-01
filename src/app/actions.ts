@@ -37,6 +37,7 @@ const refineSchema = z.object({
         formatter: z.string().min(1).optional(),
     }).optional(),
     projectMemory: z.string().optional(),
+    explanationMode: z.boolean().optional(),
     firebaseIdToken: z.string().optional(),
     attachments: z.array(z.object({
         name: z.string(),

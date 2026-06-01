@@ -50,6 +50,7 @@ const RefinePromptWithAICouncilInputSchema = z.object({
   openRouterApiKey: z.string().optional().describe('The user-provided OpenRouter API key.'),
   openRouterModels: OpenRouterModelsSchema.optional().describe('OpenRouter model IDs for each council member.'),
   projectMemory: z.string().optional().describe('Recent project context from prior refinements and response notes.'),
+  explanationMode: z.boolean().optional().describe('Whether to include clear user-facing explanations of refinement decisions.'),
   attachments: z.array(AttachmentContextSchema).optional().describe('Uploaded file context converted into text or metadata for refinement.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
@@ -151,7 +152,7 @@ ${formatAttachmentContext(input.attachments)}
 
 Return a JSON object with exactly:
 {
-  "thoughtProcess": "brief explanation of the refinement choices",
+  "thoughtProcess": "${input.explanationMode ? 'concise user-facing explanation of the most important refinement choices' : 'one short summary sentence'}",
   "refinedText": "your refined prompt version"
 }`,
       },
@@ -280,6 +281,11 @@ Uploaded attachment context:
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
 First, each council member will provide their thought process and their refined version of the prompt, incorporating their specialty and the 8 golden rules.
+{{#if explanationMode}}
+Use each thoughtProcess field for a concise, user-facing explanation of the most important refinement decisions.
+{{else}}
+Keep each thoughtProcess field to one short summary sentence.
+{{/if}}
 Then, synthesize the best ideas from all five members into a single, final refined prompt.
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").
@@ -363,6 +369,11 @@ Uploaded attachment context:
 When the promptType is 'ReAct', your output should be a refined prompt that instructs the LLM to follow the ReAct process. Do not output the ReAct process itself. Instead, create a prompt that would cause another LLM to perform that process.
 
 First, each council member will provide their thought process and their refined version of the prompt, incorporating their specialty and the 8 golden rules.
+{{#if explanationMode}}
+Use each thoughtProcess field for a concise, user-facing explanation of the most important refinement decisions.
+{{else}}
+Keep each thoughtProcess field to one short summary sentence.
+{{/if}}
 Then, synthesize the best ideas from all five members into a single, final refined prompt.
 
 Your response must be a JSON object with two keys: "refinedPrompt" (the final synthesized prompt) and "refinements" (an array of objects, where each object represents a council member's contribution with "councilMember", "thoughtProcess", and "refinedText").

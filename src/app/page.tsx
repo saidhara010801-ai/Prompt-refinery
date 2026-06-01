@@ -40,7 +40,7 @@ function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-transparent text-foreground flex flex-col">
-      <header className="absolute top-4 right-4 flex items-center gap-2">
+      <header className="flex items-center justify-end gap-2 px-4 pt-4">
         <SettingsDialog />
         {user && (
           <Button variant="ghost" onClick={handleSignOut}>
@@ -50,7 +50,7 @@ function HomePageContent() {
         )}
         <ThemeToggle />
       </header>
-      <main className="flex-1 container mx-auto px-4 py-8 md:py-12">
+      <main className="flex-1 container mx-auto px-4 py-6 md:py-10">
         <AppContent />
       </main>
     </div>

@@ -43,6 +43,78 @@ export const PROMPT_TECHNIQUES = [
 
 export type PromptTechnique = (typeof PROMPT_TECHNIQUES)[number]['value'];
 
+export const PROMPT_TEMPLATES = [
+  {
+    id: 'content-brief',
+    name: 'Content brief',
+    description: 'Plan a focused article for a defined audience.',
+    promptType: 'Role / persona',
+    prompt: `Act as a senior content strategist. Create a detailed content brief for an article about [topic].
+
+Audience: [target audience]
+Primary goal: [goal]
+Tone: [tone]
+
+Include a recommended title, search intent, key points, supporting evidence to gather, an outline, and a clear call to action.`,
+  },
+  {
+    id: 'data-analysis',
+    name: 'Data analysis',
+    description: 'Turn a dataset question into a structured analysis request.',
+    promptType: 'Zero-shot',
+    prompt: `Analyze the provided dataset to answer: [business question].
+
+Context: [describe the dataset and business decision]
+Important fields: [list columns or metrics]
+
+Return the key findings, notable trends, possible data-quality issues, and three recommended next actions. Use a concise table where useful.`,
+  },
+  {
+    id: 'product-requirements',
+    name: 'Product requirements',
+    description: 'Draft a practical product feature specification.',
+    promptType: 'Role / persona',
+    prompt: `Act as a product manager. Draft a product requirements document for [feature].
+
+User problem: [problem]
+Target user: [user]
+Constraints: [constraints]
+
+Include goals, non-goals, user stories, acceptance criteria, edge cases, analytics events, and open questions.`,
+  },
+  {
+    id: 'research-plan',
+    name: 'Research plan',
+    description: 'Build a clear research workflow with deliverables.',
+    promptType: 'Few-shot',
+    prompt: `Create a research plan for: [research question].
+
+Audience: [audience]
+Scope: [scope]
+Deadline: [deadline]
+
+Break the work into ordered steps. For each step, include the purpose, suggested sources, validation checks, and expected deliverable. End with a synthesis outline.`,
+  },
+  {
+    id: 'code-review',
+    name: 'Code review',
+    description: 'Ask for a risk-focused engineering review.',
+    promptType: 'Role / persona',
+    prompt: `Act as a senior software engineer. Review the following code change for correctness and production risk.
+
+Context: [describe the feature or bug fix]
+Code: [paste code or attach files]
+
+Prioritize bugs, security issues, regressions, and missing tests. List findings by severity with precise references, then summarize residual risk.`,
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  name: string;
+  description: string;
+  promptType: PromptTechnique;
+  prompt: string;
+}>;
+
 export const LLM_COUNCIL_GUIDELINES = [
     { value: 'Be specific and provide context', label: 'Be specific and provide context' },
     { value: 'Use delimiters', label: 'Use delimiters' },

@@ -4,7 +4,7 @@ import { ChangeEvent, useState, useContext, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows } from 'lucide-react';
+import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -13,10 +13,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { PROMPT_TECHNIQUES, PromptTechnique } from '@/lib/constants';
+import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
-import { CopyButton } from './copy-button';
+import { OutputActions } from './output-actions';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { collection, doc, limit, orderBy, query, serverTimestamp } from 'firebase/firestore';
@@ -251,6 +253,8 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
   const [tokenCounts, setTokenCounts] = useState<TokenCounts | null>(null);
   const [attachments, setAttachments] = useState<RefinementAttachment[]>([]);
   const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [explanationMode, setExplanationMode] = useState(true);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
@@ -317,6 +321,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
         openRouterApiKey: openRouterApiKey || undefined,
         openRouterModels,
         projectMemory,
+        explanationMode,
         attachments,
         firebaseIdToken,
       });
@@ -432,6 +437,16 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
     setAttachments((current) => current.filter((attachment) => attachment.name !== name));
   };
 
+  const handleLoadTemplate = () => {
+    const template = PROMPT_TEMPLATES.find((candidate) => candidate.id === selectedTemplateId);
+    if (!template) {
+      return;
+    }
+
+    form.setValue('prompt', template.prompt, { shouldDirty: true, shouldValidate: true });
+    form.setValue('promptType', template.promptType, { shouldDirty: true });
+  };
+
   const handleSavePrompt = async () => {
     if (!user || !firestore || !refinedPrompt) return;
 
@@ -497,6 +512,33 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <div className="space-y-3 rounded-md border bg-muted/40 p-3">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-primary" />
+                  <Label htmlFor="prompt-template">Prompt Template</Label>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    id="prompt-template"
+                    value={selectedTemplateId}
+                    onChange={(event) => setSelectedTemplateId(event.target.value)}
+                    className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Choose a starting point</option>
+                    {PROMPT_TEMPLATES.map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                  </select>
+                  <Button type="button" variant="outline" onClick={handleLoadTemplate} disabled={!selectedTemplateId}>
+                    Load Template
+                  </Button>
+                </div>
+                {selectedTemplateId && (
+                  <p className="text-xs text-muted-foreground">
+                    {PROMPT_TEMPLATES.find((template) => template.id === selectedTemplateId)?.description}
+                  </p>
+                )}
+              </div>
               <FormField
                 control={form.control}
                 name="prompt"
@@ -543,7 +585,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
               />
               <div className="space-y-3">
                 <FormLabel htmlFor="attachment-upload">Reference Files</FormLabel>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button type="button" variant="outline" asChild>
                     <label htmlFor="attachment-upload" className="cursor-pointer">
                       <Paperclip className="h-4 w-4" />
@@ -575,6 +617,18 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                   </div>
                 )}
               </div>
+              <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="explanation-mode" className="flex items-center gap-2">
+                    <MessageSquareText className="h-4 w-4 text-primary" />
+                    Explanation Mode
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Ask the council for clear, user-facing explanations of its refinement decisions.
+                  </p>
+                </div>
+                <Switch id="explanation-mode" checked={explanationMode} onCheckedChange={setExplanationMode} />
+              </div>
               <Button type="submit" disabled={isLoading} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : 'Refine with AI Council'}
               </Button>
@@ -590,7 +644,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
 
       <Card>
         <CardHeader>
-            <CardTitle className="flex items-center justify-between">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                     <Sparkles className="text-primary" />
                     <span>Refined Output</span>
@@ -627,8 +681,14 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-6"
               >
-                <div className="relative">
-                  <CopyButton textToCopy={refinedPrompt} className="absolute top-0 right-0 z-10" />
+                <div className="space-y-3">
+                  <div className="flex justify-end">
+                    <OutputActions
+                      prompt={refinedPrompt}
+                      originalPrompt={rawPromptAtResult ?? undefined}
+                      promptType={form.getValues('promptType')}
+                    />
+                  </div>
                   <pre className="whitespace-pre-wrap font-code text-sm bg-muted p-4 rounded-md">
                     <code>{refinedPrompt}</code>
                   </pre>
@@ -705,22 +765,24 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                   </div>
                 )}
                 
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="item-1">
-                    <AccordionTrigger>View Council's Thoughts</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-4">
-                        {refinements.map((refinement, index) => (
-                          <div key={index} className="p-4 bg-background rounded-lg border">
-                            <h4 className="font-semibold text-primary">{refinement.councilMember}</h4>
-                            <p className="text-sm text-muted-foreground mt-1 mb-2 italic">"{refinement.thoughtProcess}"</p>
-                            <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-3 rounded-md"><code>{refinement.refinedText}</code></pre>
-                          </div>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+                {explanationMode && (
+                  <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="item-1">
+                      <AccordionTrigger>View Council Explanations</AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-4">
+                          {refinements.map((refinement, index) => (
+                            <div key={index} className="p-4 bg-background rounded-lg border">
+                              <h4 className="font-semibold text-primary">{refinement.councilMember}</h4>
+                              <p className="text-sm text-muted-foreground mt-1 mb-2 italic">"{refinement.thoughtProcess}"</p>
+                              <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-3 rounded-md"><code>{refinement.refinedText}</code></pre>
+                            </div>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                )}
                 
               </motion.div>
             )}
