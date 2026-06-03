@@ -1,11 +1,10 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { collection, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { collection, orderBy, query } from 'firebase/firestore';
 import { FolderKanban, Plus, Trash2 } from 'lucide-react';
 
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,6 +13,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import {
+  createProjectAction,
+  deleteProjectAction,
+  updateProjectSessionResponseAction,
+} from '@/app/project-actions';
 
 export interface Project {
   id: string;
@@ -85,65 +89,86 @@ export function ProjectsTab({ selectedProjectId, onSelectProject }: ProjectsTabP
 
   const { data: sessions, isLoading: isLoadingSessions } = useCollection<ProjectSession>(sessionsQuery);
 
-  const handleCreateProject = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!user || !firestore || !name.trim()) return;
 
-    const projectsCol = collection(firestore, `users/${user.uid}/projects`);
-    addDocumentNonBlocking(projectsCol, {
-      userId: user.uid,
-      name: name.trim(),
-      description: description.trim(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }).then((docRef) => {
-      if (docRef) {
-        onSelectProject({
-          id: docRef.id,
-          userId: user.uid,
-          name: name.trim(),
-          description: description.trim(),
-        });
-      }
-    });
-
-    setName('');
-    setDescription('');
-    toast({
-      title: 'Project Created',
-      description: 'New refinements can now use this project memory.',
-    });
+    try {
+      const result = await createProjectAction({
+        firebaseIdToken: await user.getIdToken(),
+        name: name.trim(),
+        description: description.trim(),
+      });
+      onSelectProject({
+        id: result.id,
+        userId: user.uid,
+        name: name.trim(),
+        description: description.trim(),
+      });
+      setName('');
+      setDescription('');
+      toast({
+        title: 'Project Created',
+        description: 'New refinements can now use this project memory.',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Could Not Create Project',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
-  const handleDeleteProject = (project: Project) => {
+  const handleDeleteProject = async (project: Project) => {
     if (!user || !firestore) return;
 
-    deleteDocumentNonBlocking(doc(firestore, `users/${user.uid}/projects`, project.id));
-    if (selectedProjectId === project.id) {
-      onSelectProject(null);
-    }
+    try {
+      await deleteProjectAction({
+        firebaseIdToken: await user.getIdToken(),
+        projectId: project.id,
+      });
+      if (selectedProjectId === project.id) {
+        onSelectProject(null);
+      }
 
-    toast({
-      title: 'Project Deleted',
-      description: 'The project shell was removed. Existing nested session cleanup may require a backend job.',
-    });
+      toast({
+        title: 'Project Deleted',
+        description: 'The project and its memory sessions have been removed.',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Could Not Delete Project',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
-  const handleSaveResponse = (session: ProjectSession) => {
+  const handleSaveResponse = async (session: ProjectSession) => {
     if (!user || !firestore || !selectedProjectId) return;
 
     const llmResponse = responseDrafts[session.id] ?? session.llmResponse ?? '';
-    const sessionRef = doc(firestore, `users/${user.uid}/projects/${selectedProjectId}/projectSessions`, session.id);
-    updateDocumentNonBlocking(sessionRef, { llmResponse });
-    updateDocumentNonBlocking(doc(firestore, `users/${user.uid}/projects`, selectedProjectId), {
-      updatedAt: serverTimestamp(),
-    });
 
-    toast({
-      title: 'Project Memory Updated',
-      description: 'This response note will be available to future refinements.',
-    });
+    try {
+      await updateProjectSessionResponseAction({
+        firebaseIdToken: await user.getIdToken(),
+        projectId: selectedProjectId,
+        sessionId: session.id,
+        llmResponse,
+      });
+      toast({
+        title: 'Project Memory Updated',
+        description: 'This response note will be available to future refinements.',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Could Not Update Project Memory',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
   return (

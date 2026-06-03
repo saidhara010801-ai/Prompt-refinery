@@ -24,7 +24,13 @@ export function PromptRefineryApp() {
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
 
   const handleUpgradeClick = async () => {
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: 'Sign In Required',
+        description: 'Sign in before upgrading to Pro.',
+      });
+      return;
+    }
 
     setIsStartingCheckout(true);
     try {

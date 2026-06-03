@@ -128,34 +128,6 @@ service cloud.firestore {
       return request.resource.data.userId == resource.data.userId;
     }
 
-    /**
-     * Validates required ownership fields when a new Project document is created.
-     */
-    function hasValidProjectDataOnCreate(userId) {
-      return request.resource.data.userId == userId;
-    }
-
-    /**
-     * Enforces immutability of critical fields for a Project document on update.
-     */
-    function isUpdatingImmutableProjectData() {
-      return request.resource.data.userId == resource.data.userId;
-    }
-
-    /**
-     * Validates required relational fields when a new ProjectSession document is created.
-     */
-    function hasValidProjectSessionDataOnCreate(projectId) {
-      return request.resource.data.projectId == projectId;
-    }
-
-    /**
-     * Enforces immutability of critical fields for a ProjectSession document on update.
-     */
-    function isUpdatingImmutableProjectSessionData() {
-      return request.resource.data.projectId == resource.data.projectId;
-    }
-
     // ------------------------------------------------------------------------
     // Collection Rules
     // ------------------------------------------------------------------------
@@ -227,9 +199,9 @@ service cloud.firestore {
     match /users/{userId}/projects/{projectId} {
       allow get: if isProUser(userId);
       allow list: if isProUser(userId);
-      allow create: if isProUser(userId) && hasValidProjectDataOnCreate(userId);
-      allow update: if isProUser(userId) && isUpdatingImmutableProjectData();
-      allow delete: if isProUser(userId);
+      // Writes are performed by authenticated server actions so Pro checks and
+      // recursive memory cleanup cannot be bypassed from the browser.
+      allow create, update, delete: if false;
     }
 
     /**
@@ -240,9 +212,8 @@ service cloud.firestore {
     match /users/{userId}/projects/{projectId}/projectSessions/{sessionId} {
       allow get: if isProUser(userId);
       allow list: if isProUser(userId);
-      allow create: if isProUser(userId) && hasValidProjectSessionDataOnCreate(projectId);
-      allow update: if isProUser(userId) && isUpdatingImmutableProjectSessionData();
-      allow delete: if isProUser(userId);
+      // Session writes are server-managed with verified ownership and tier checks.
+      allow create, update, delete: if false;
     }
   }
 }

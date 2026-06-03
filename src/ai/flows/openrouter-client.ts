@@ -1,6 +1,7 @@
 import { z } from 'genkit';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const MAX_OPENROUTER_RESPONSE_CHARACTERS = 300000;
 
 const OpenRouterChatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
@@ -56,6 +57,9 @@ export async function createOpenRouterChatCompletion(input: OpenRouterChatInput)
   });
 
   const responseText = await response.text();
+  if (responseText.length > MAX_OPENROUTER_RESPONSE_CHARACTERS) {
+    throw new OpenRouterError('OpenRouter returned a response that was too large.', response.status);
+  }
 
   if (!response.ok) {
     throw new OpenRouterError(responseText || `OpenRouter request failed with status ${response.status}.`, response.status);

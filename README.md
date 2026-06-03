@@ -20,9 +20,12 @@ The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, resea
 - Local Bring Your Own Key Gemini support.
 - OpenRouter support with configurable model IDs for each council member.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
+- Optional max-character target for refined output.
+- Email, Google, and guest sign-in through Firebase Authentication.
+- Signed-out BYOK refinement, evaluation, conversion, and template browsing; authentication remains required for saved prompts, Projects, managed-key usage, and Pro checkout.
 - Dark/light mode and responsive Next.js UI.
 
-The remaining roadmap work is Phase 8 testing, deployment hardening, and production monitoring.
+Production-readiness tooling includes regression tests, CI, route throttles, a redacted health endpoint, and an operator runbook.
 
 ## Tech Stack
 
@@ -34,7 +37,7 @@ The remaining roadmap work is Phase 8 testing, deployment hardening, and product
 
 ## Prerequisites
 
-- Node.js LTS
+- Node.js 20.19+ LTS
 - npm
 - Firebase project with Auth and Firestore configured
 - Gemini API key for AI refinement and evaluation
@@ -57,7 +60,7 @@ The remaining roadmap work is Phase 8 testing, deployment hardening, and product
 
 3. Fill in Firebase values in `.env.local`.
 
-   Firebase client config is required for auth and saved prompts. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
+   Firebase client config is required for auth and saved prompts. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
 
 4. Optional: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
 
@@ -93,7 +96,10 @@ Required for Stripe Pro subscription upgrades:
 STRIPE_SECRET_KEY=
 STRIPE_PRO_PRICE_ID=
 STRIPE_WEBHOOK_SECRET=
+APP_BASE_URL=https://your-production-host.example
 ```
+
+`APP_BASE_URL` is the trusted public origin used for Stripe Checkout success and cancellation redirects. Keep it explicit in production rather than deriving it from request headers.
 
 Outside Firebase App Hosting, server-side tier enforcement also needs Firebase Admin application-default credentials:
 
@@ -121,12 +127,14 @@ With the Gemini provider, image uploads are sent as inline data URIs for Vision-
 
 ```powershell
 npm run dev          # Start Next.js on port 9002
+npm run lint         # Run Next.js ESLint checks
 npm run typecheck    # Run TypeScript validation
+npm test             # Run automated regression coverage
 npm run build        # Create a production Next.js build
+npm run verify       # Run lint, typecheck, regression tests, and production build
+npm run check:production-env # Validate required production environment values
 npm run genkit:dev   # Start Genkit dev flow runner
 ```
-
-`npm run lint` currently invokes Next.js' interactive ESLint setup because this repository does not yet include an ESLint config.
 
 ## Phase 1 Verification
 
@@ -149,7 +157,15 @@ The app stores user-owned data under each authenticated user path in Firestore:
 
 User profiles store `subscriptionTier`, the server-maintained `savedPromptCount`, and managed-refinement usage metadata. Free accounts can save up to 10 prompts and use up to 5 managed-key refinements per day. BYOK refinements do not consume managed usage. Pro accounts unlock all eight techniques, Projects & Memory, unlimited saved prompts, and unlimited managed-key refinements.
 
-Saved-prompt writes and Stripe tier changes run through server-side Firebase Admin code. Browser clients may read their own tier but cannot self-promote or bypass saved-prompt limits.
+Saved-prompt writes, project-memory writes, recursive project deletion, and Stripe tier changes run through server-side Firebase Admin code. Browser clients may read their own tier and Pro project memory but cannot self-promote or bypass server enforcement.
+
+## Production Operations
+
+The app exposes `GET /api/health` for liveness monitoring and `GET /api/health?ready=1` for readiness monitoring. Both responses report redacted configuration checks only.
+
+Firestore transactions enforce the Free managed-key quota. Checkout and document conversion also use per-instance request throttles as a best-effort abuse guard. Multi-instance production deployments should complement these with platform or edge rate limits.
+
+See [docs/production-runbook.md](docs/production-runbook.md) for Firebase App Hosting secrets, Stripe webhook registration, alerting, release gates, and manual promotion checks.
 
 Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. API keys must remain local-only or server env-only and must never be stored in Firestore.
 

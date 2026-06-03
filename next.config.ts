@@ -2,11 +2,20 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   /* config options here */
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
+  webpack: (config, { webpack }) => {
+    // Genkit telemetry optionally loads Jaeger and runtime instrumentation plugins.
+    // This deployment does not configure Jaeger; keep the bundle warning-free.
+    config.plugins.push(new webpack.IgnorePlugin({
+      resourceRegExp: /^@opentelemetry\/exporter-jaeger$/,
+    }));
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      {
+        module: /@opentelemetry\/instrumentation/,
+        message: /the request of a dependency is an expression/i,
+      },
+    ];
+    return config;
   },
   images: {
     remotePatterns: [

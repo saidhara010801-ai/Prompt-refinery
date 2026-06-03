@@ -13,6 +13,18 @@ import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 import { requireFlowOutput } from './require-flow-output';
 import { createOpenRouterChatCompletion, parseJsonObject } from './openrouter-client';
+import {
+  MAX_API_KEY_CHARACTERS,
+  MAX_ATTACHMENT_DATA_URI_CHARACTERS,
+  MAX_ATTACHMENT_MIME_TYPE_CHARACTERS,
+  MAX_ATTACHMENT_NAME_CHARACTERS,
+  MAX_ATTACHMENT_TEXT_CHARACTERS,
+  MAX_ATTACHMENTS,
+  MAX_MODEL_ID_CHARACTERS,
+  MAX_PROJECT_MEMORY_CHARACTERS,
+  MAX_PROMPT_CHARACTERS,
+  MAX_REFINED_PROMPT_CHARACTERS,
+} from '@/lib/input-limits';
 
 const PromptTechniqueSchema = z.enum([
   'Zero-shot',
@@ -26,43 +38,44 @@ const PromptTechniqueSchema = z.enum([
 ]);
 
 const OpenRouterModelsSchema = z.object({
-  specifier: z.string().min(1),
-  simplifier: z.string().min(1),
-  stylist: z.string().min(1),
-  critic: z.string().min(1).optional(),
-  formatter: z.string().min(1).optional(),
+  specifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+  simplifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+  stylist: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+  critic: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
+  formatter: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
 });
 
 const AttachmentContextSchema = z.object({
-  name: z.string(),
-  mimeType: z.string(),
-  content: z.string(),
-  dataUri: z.string().optional(),
+  name: z.string().max(MAX_ATTACHMENT_NAME_CHARACTERS),
+  mimeType: z.string().max(MAX_ATTACHMENT_MIME_TYPE_CHARACTERS),
+  content: z.string().max(MAX_ATTACHMENT_TEXT_CHARACTERS),
+  dataUri: z.string().max(MAX_ATTACHMENT_DATA_URI_CHARACTERS).optional(),
 });
 
 const RefinePromptWithAICouncilInputSchema = z.object({
-  prompt: z.string().describe('The prompt to be refined.'),
+  prompt: z.string().max(MAX_PROMPT_CHARACTERS).describe('The prompt to be refined.'),
   promptType: PromptTechniqueSchema.describe(
     'The prompting technique to be applied by the AI council for refinement.'
   ),
-  apiKey: z.string().optional().describe('The user-provided Gemini API key.'),
+  apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional().describe('The user-provided Gemini API key.'),
   provider: z.enum(['gemini', 'openrouter']).optional().describe('The model provider used for refinement.'),
-  openRouterApiKey: z.string().optional().describe('The user-provided OpenRouter API key.'),
+  openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional().describe('The user-provided OpenRouter API key.'),
   openRouterModels: OpenRouterModelsSchema.optional().describe('OpenRouter model IDs for each council member.'),
-  projectMemory: z.string().optional().describe('Recent project context from prior refinements and response notes.'),
+  projectMemory: z.string().max(MAX_PROJECT_MEMORY_CHARACTERS).optional().describe('Recent project context from prior refinements and response notes.'),
   explanationMode: z.boolean().optional().describe('Whether to include clear user-facing explanations of refinement decisions.'),
-  attachments: z.array(AttachmentContextSchema).optional().describe('Uploaded file context converted into text or metadata for refinement.'),
+  maxCharacters: z.number().int().min(100).max(MAX_REFINED_PROMPT_CHARACTERS).optional().describe('Optional maximum character target for the final refined prompt.'),
+  attachments: z.array(AttachmentContextSchema).max(MAX_ATTACHMENTS).optional().describe('Uploaded file context converted into text or metadata for refinement.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
 const CouncilMemberOutputSchema = z.object({
-  councilMember: z.string().describe('The name or identifier of the AI Council member providing the refinement.'),
-  thoughtProcess: z.string().describe('The thought process or reasoning of the council member during the refinement.'),
-  refinedText: z.string().describe('The refined text or suggestion provided by the council member.'),
+  councilMember: z.string().max(160).describe('The name or identifier of the AI Council member providing the refinement.'),
+  thoughtProcess: z.string().max(4000).describe('The thought process or reasoning of the council member during the refinement.'),
+  refinedText: z.string().max(MAX_REFINED_PROMPT_CHARACTERS).describe('The refined text or suggestion provided by the council member.'),
 });
 
 const RefinePromptWithAICouncilOutputSchema = z.object({
-  refinedPrompt: z.string().describe('The final, most refined prompt after considering all council member inputs.'),
+  refinedPrompt: z.string().max(MAX_REFINED_PROMPT_CHARACTERS).describe('The final, most refined prompt after considering all council member inputs.'),
   refinements: z.array(CouncilMemberOutputSchema).describe('A list of refinements from each council member.')
 });
 export type RefinePromptWithAICouncilOutput = z.infer<typeof RefinePromptWithAICouncilOutputSchema>;
@@ -93,8 +106,8 @@ const councilRoleConfig: Record<CouncilRole, { name: string; focus: string }> = 
 };
 
 const OpenRouterCouncilMemberResponseSchema = z.object({
-  thoughtProcess: z.string(),
-  refinedText: z.string(),
+  thoughtProcess: z.string().max(4000),
+  refinedText: z.string().max(MAX_REFINED_PROMPT_CHARACTERS),
 });
 
 function formatAttachmentContext(attachments?: z.infer<typeof AttachmentContextSchema>[]): string {
@@ -107,13 +120,21 @@ function formatAttachmentContext(attachments?: z.infer<typeof AttachmentContextS
     .join('\n\n')}\n`;
 }
 
+function requireOpenRouterApiKey(input: RefinePromptWithAICouncilInput): string {
+  if (!input.openRouterApiKey?.trim()) {
+    throw new Error('OpenRouter API key is missing.');
+  }
+
+  return input.openRouterApiKey;
+}
+
 async function runOpenRouterCouncilMember(input: RefinePromptWithAICouncilInput, role: CouncilRole) {
   const models = OpenRouterModelsSchema.parse(input.openRouterModels);
   const roleConfig = councilRoleConfig[role];
   const model = models[role] ?? models.specifier;
 
   const content = await createOpenRouterChatCompletion({
-    apiKey: input.openRouterApiKey!,
+    apiKey: requireOpenRouterApiKey(input),
     model,
     messages: [
       {
@@ -140,6 +161,7 @@ Prompt:
 """
 ${input.prompt}
 """
+${input.maxCharacters ? `\nKeep the refined prompt at or below ${input.maxCharacters} characters.\n` : ''}
 ${input.projectMemory ? `
 Recent project memory:
 """
@@ -174,7 +196,7 @@ async function synthesizeOpenRouterCouncilOutput(
 ): Promise<RefinePromptWithAICouncilOutput> {
   const models = OpenRouterModelsSchema.parse(input.openRouterModels);
   const content = await createOpenRouterChatCompletion({
-    apiKey: input.openRouterApiKey!,
+    apiKey: requireOpenRouterApiKey(input),
     model: models.formatter ?? models.specifier,
     messages: [
       {
@@ -196,6 +218,7 @@ ${input.projectMemory}
 ${formatAttachmentContext(input.attachments)}
 
 Technique: ${input.promptType}
+${input.maxCharacters ? `\nFinal refined prompt maximum: ${input.maxCharacters} characters.\n` : ''}
 
 Council refinements:
 ${JSON.stringify(refinements, null, 2)}
@@ -208,7 +231,11 @@ Synthesize the best ideas into one final prompt. Return JSON with exactly:
     ],
   });
 
-  const parsed = parseJsonObject(content, z.object({ refinedPrompt: z.string() }), 'OpenRouter synthesis');
+  const parsed = parseJsonObject(
+    content,
+    z.object({ refinedPrompt: z.string().max(MAX_REFINED_PROMPT_CHARACTERS) }),
+    'OpenRouter synthesis'
+  );
 
   return RefinePromptWithAICouncilOutputSchema.parse({
     refinedPrompt: parsed.refinedPrompt,
@@ -255,6 +282,10 @@ Based on the prompt type "{{promptType}}", each of you will independently refine
 """
 {{prompt}}
 """
+{{#if maxCharacters}}
+
+Keep the final refined prompt at or below {{maxCharacters}} characters.
+{{/if}}
 {{#if projectMemory}}
 
 Recent project memory:
@@ -343,6 +374,10 @@ Based on the prompt type "{{promptType}}", each of you will independently refine
 """
 {{prompt}}
 """
+{{#if maxCharacters}}
+
+Keep the final refined prompt at or below {{maxCharacters}} characters.
+{{/if}}
 {{#if projectMemory}}
 
 Recent project memory:

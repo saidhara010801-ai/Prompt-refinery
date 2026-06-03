@@ -11,18 +11,23 @@ import { ai, genkit, generation } from '@/ai/genkit';
 import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 import { requireFlowOutput } from './require-flow-output';
+import {
+  MAX_API_KEY_CHARACTERS,
+  MAX_GUIDELINE_CHARACTERS,
+  MAX_PROMPT_CHARACTERS,
+} from '@/lib/input-limits';
 
 const EvaluatePromptGuidelineInclusionInputSchema = z.object({
-  prompt: z.string().describe('The current prompt being refined.'),
-  guideline: z.string().describe('The specific LLM council guideline to evaluate for inclusion.'),
-  userQuery: z.string().describe('The original user query that the prompt is intended to address.'),
-  apiKey: z.string().optional().describe('The user-provided Gemini API key.'),
+  prompt: z.string().max(MAX_PROMPT_CHARACTERS).describe('The current prompt being refined.'),
+  guideline: z.string().max(MAX_GUIDELINE_CHARACTERS).describe('The specific LLM council guideline to evaluate for inclusion.'),
+  userQuery: z.string().max(MAX_PROMPT_CHARACTERS).describe('The original user query that the prompt is intended to address.'),
+  apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional().describe('The user-provided Gemini API key.'),
 });
 export type EvaluatePromptGuidelineInclusionInput = z.infer<typeof EvaluatePromptGuidelineInclusionInputSchema>;
 
 const EvaluatePromptGuidelineInclusionOutputSchema = z.object({
   shouldInclude: z.boolean().describe('Whether the guideline should be included in the prompt.'),
-  reason: z.string().describe('The reason for the decision, explaining why the guideline is relevant or irrelevant.'),
+  reason: z.string().max(4000).describe('The reason for the decision, explaining why the guideline is relevant or irrelevant.'),
   score: z.number().min(0).max(100).describe('Overall prompt quality score for this guideline.'),
   dimensionScores: z.object({
     clarity: z.number().min(0).max(100),
@@ -30,7 +35,7 @@ const EvaluatePromptGuidelineInclusionOutputSchema = z.object({
     structure: z.number().min(0).max(100),
     specificity: z.number().min(0).max(100),
   }).describe('Sub-dimension scores for prompt quality.'),
-  recommendations: z.array(z.string()).describe('Concrete prompt improvements.'),
+  recommendations: z.array(z.string().max(2000)).max(10).describe('Concrete prompt improvements.'),
 });
 export type EvaluatePromptGuidelineInclusionOutput = z.infer<typeof EvaluatePromptGuidelineInclusionOutputSchema>;
 

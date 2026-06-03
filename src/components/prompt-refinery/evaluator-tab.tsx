@@ -253,7 +253,7 @@ export function EvaluatorTab() {
             )}
             {!isLoading && !evaluation && (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <p>The AI's evaluation will appear here.</p>
+                <p>{`The AI's evaluation will appear here.`}</p>
               </div>
             )}
           </AnimatePresence>

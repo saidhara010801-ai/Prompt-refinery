@@ -3,6 +3,8 @@ import Stripe from 'stripe';
 
 import { getAdminAuth } from '@/lib/server/firebase-admin';
 import { getVerifiedUserProfile } from '@/lib/server/account-service';
+import { getCheckoutReturnOrigin } from '@/lib/server/checkout-origin';
+import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
@@ -13,6 +15,19 @@ function getBearerToken(request: NextRequest): string | undefined {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = consumeRequestLimit({
+    bucket: 'stripe-checkout',
+    key: getClientIp(request),
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: { message: 'Too many checkout attempts. Wait a while and try again.' } },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   if (!stripeSecretKey || !stripeProPriceId) {
     return NextResponse.json(
       { error: { message: 'Stripe Pro checkout is not configured on this server.' } },
@@ -29,7 +44,7 @@ export async function POST(request: NextRequest) {
     const decodedToken = await getAdminAuth().verifyIdToken(firebaseIdToken);
     await getVerifiedUserProfile(firebaseIdToken);
 
-    const origin = request.headers.get('origin') || 'http://localhost:9002';
+    const origin = getCheckoutReturnOrigin(request.url);
     const stripe = new Stripe(stripeSecretKey);
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',

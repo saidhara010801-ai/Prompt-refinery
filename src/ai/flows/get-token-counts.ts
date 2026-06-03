@@ -8,10 +8,14 @@
  */
 
 import { z } from 'genkit';
+import {
+  MAX_API_KEY_CHARACTERS,
+  MAX_TOKEN_ESTIMATE_CHARACTERS,
+} from '@/lib/input-limits';
 
 const GetTokenCountsInputSchema = z.object({
-  text: z.string().describe('The text to be tokenized.'),
-  apiKey: z.string().optional().describe('Ignored for deterministic token estimation.'),
+  text: z.string().max(MAX_TOKEN_ESTIMATE_CHARACTERS).describe('The text to be tokenized.'),
+  apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional().describe('Ignored for deterministic token estimation.'),
 });
 export type GetTokenCountsInput = z.infer<typeof GetTokenCountsInputSchema>;
 

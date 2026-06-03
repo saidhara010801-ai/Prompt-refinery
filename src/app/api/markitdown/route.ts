@@ -5,10 +5,13 @@ import { extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { NextResponse } from 'next/server';
 
+import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
+
 export const runtime = 'nodejs';
 
 const execFileAsync = promisify(execFile);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 11 * 1024 * 1024;
 const MAX_MARKDOWN_CHARACTERS = 12000;
 const SUPPORTED_EXTENSIONS = new Set([
   '.csv',
@@ -32,6 +35,24 @@ function safeExtension(filename: string): string {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = consumeRequestLimit({
+    bucket: 'markitdown',
+    key: getClientIp(request),
+    limit: 10,
+    windowMs: 60 * 1000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: 'Too many conversion requests. Wait a minute and try again.' }, {
+      status: 429,
+      headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+    });
+  }
+
+  const contentLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: 'Files must be 10 MB or smaller.' }, { status: 413 });
+  }
+
   let formData: FormData;
   try {
     formData = await request.formData();

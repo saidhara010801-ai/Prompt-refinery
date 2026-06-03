@@ -4,6 +4,21 @@ import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
 import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
 import { assertProFeatureAccess, assertRefinementAccess, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
+import {
+    MAX_API_KEY_CHARACTERS,
+    MAX_ATTACHMENT_DATA_URI_CHARACTERS,
+    MAX_ATTACHMENT_MIME_TYPE_CHARACTERS,
+    MAX_ATTACHMENT_NAME_CHARACTERS,
+    MAX_ATTACHMENT_TEXT_CHARACTERS,
+    MAX_ATTACHMENTS,
+    MAX_FIREBASE_ID_TOKEN_CHARACTERS,
+    MAX_GUIDELINE_CHARACTERS,
+    MAX_MODEL_ID_CHARACTERS,
+    MAX_PROJECT_MEMORY_CHARACTERS,
+    MAX_PROMPT_CHARACTERS,
+    MAX_REFINED_PROMPT_CHARACTERS,
+    MAX_TOKEN_ESTIMATE_CHARACTERS,
+} from "@/lib/input-limits";
 import { z } from "zod";
 
 const DEFAULT_OPENROUTER_MODELS = {
@@ -15,7 +30,7 @@ const DEFAULT_OPENROUTER_MODELS = {
 };
 
 const refineSchema = z.object({
-    prompt: z.string().min(1, "Prompt cannot be empty."),
+    prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS, `Prompt must be ${MAX_PROMPT_CHARACTERS} characters or fewer.`),
     promptType: z.enum([
       'Zero-shot',
       'Few-shot',
@@ -26,30 +41,31 @@ const refineSchema = z.object({
       'ReAct',
       'Meta / reflection',
     ]),
-    apiKey: z.string().optional(),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     provider: z.enum(["gemini", "openrouter"]).optional(),
-    openRouterApiKey: z.string().optional(),
+    openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     openRouterModels: z.object({
-        specifier: z.string().min(1),
-        simplifier: z.string().min(1),
-        stylist: z.string().min(1),
-        critic: z.string().min(1).optional(),
-        formatter: z.string().min(1).optional(),
+        specifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        simplifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        stylist: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        critic: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
+        formatter: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
     }).optional(),
-    projectMemory: z.string().optional(),
+    projectMemory: z.string().max(MAX_PROJECT_MEMORY_CHARACTERS).optional(),
     explanationMode: z.boolean().optional(),
-    firebaseIdToken: z.string().optional(),
+    maxCharacters: z.number().int().min(100).max(MAX_REFINED_PROMPT_CHARACTERS).optional(),
+    firebaseIdToken: z.string().max(MAX_FIREBASE_ID_TOKEN_CHARACTERS).optional(),
     attachments: z.array(z.object({
-        name: z.string(),
-        mimeType: z.string(),
-        content: z.string(),
-        dataUri: z.string().optional(),
-    })).optional(),
+        name: z.string().max(MAX_ATTACHMENT_NAME_CHARACTERS),
+        mimeType: z.string().max(MAX_ATTACHMENT_MIME_TYPE_CHARACTERS),
+        content: z.string().max(MAX_ATTACHMENT_TEXT_CHARACTERS),
+        dataUri: z.string().max(MAX_ATTACHMENT_DATA_URI_CHARACTERS).optional(),
+    })).max(MAX_ATTACHMENTS).optional(),
 });
 
 const tokenCounterSchema = z.object({
-    text: z.string(),
-    apiKey: z.string().optional(),
+    text: z.string().max(MAX_TOKEN_ESTIMATE_CHARACTERS),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
 });
 
 type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts";
@@ -222,10 +238,10 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
 }
 
 const evaluateSchema = z.object({
-    prompt: z.string().min(1, "Prompt cannot be empty."),
-    guideline: z.string().min(1, "Guideline must be selected."),
-    apiKey: z.string().optional(),
-    userQuery: z.string(),
+    prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS),
+    guideline: z.string().min(1, "Guideline must be selected.").max(MAX_GUIDELINE_CHARACTERS),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    userQuery: z.string().max(MAX_PROMPT_CHARACTERS),
 });
 
 export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput) {
@@ -247,6 +263,12 @@ export async function getTokenCountsAction(data: GetTokenCountsInput) {
     const parsed = tokenCounterSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
+    }
+
+    if (!parsed.data.apiKey) {
+        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
+        missingKeyError.name = "ApiKeyMissingError";
+        throw missingKeyError;
     }
 
     try {

@@ -2,6 +2,23 @@
 # https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
+  cpu: 1
+  memoryMiB: 1024
+  concurrency: 40
+  maxInstances: 10
+
+# Create these with `firebase apphosting:secrets:set`.
+# Configure APP_BASE_URL and the public NEXT_PUBLIC_FIREBASE_* values for the backend environment.
+env:
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+    availability:
+      - RUNTIME
+  - variable: STRIPE_PRO_PRICE_ID
+    secret: STRIPE_PRO_PRICE_ID
+    availability:
+      - RUNTIME
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+    availability:
+      - RUNTIME

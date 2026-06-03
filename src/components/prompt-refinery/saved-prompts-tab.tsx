@@ -174,8 +174,8 @@ export function SavedPromptsTab() {
         )}
         {!isLoading && (!savedPrompts || savedPrompts.length === 0) && (
             <div className="text-center text-muted-foreground py-12">
-                <p>You haven't saved any prompts yet.</p>
-                <p>Refine a prompt in the "Refinery" tab and save it to see it here.</p>
+                <p>{`You haven't saved any prompts yet.`}</p>
+                <p>Refine a prompt in the &quot;Refinery&quot; tab and save it to see it here.</p>
             </div>
         )}
       </CardContent>

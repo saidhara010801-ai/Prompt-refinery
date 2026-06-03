@@ -3,25 +3,31 @@
 import { z } from 'zod';
 
 import { deleteSavedPromptForUser, savePromptForUser } from '@/lib/server/account-service';
+import {
+  MAX_FIREBASE_ID_TOKEN_CHARACTERS,
+  MAX_PROMPT_CHARACTERS,
+  MAX_PROMPT_VERSIONS,
+  MAX_REFINED_PROMPT_CHARACTERS,
+} from '@/lib/input-limits';
 
 const promptVersionSchema = z.object({
   version: z.number().int().positive(),
-  rawPrompt: z.string(),
-  refinedPrompt: z.string(),
-  promptType: z.string(),
-  createdAt: z.string(),
+  rawPrompt: z.string().max(MAX_PROMPT_CHARACTERS),
+  refinedPrompt: z.string().max(MAX_REFINED_PROMPT_CHARACTERS),
+  promptType: z.string().max(80),
+  createdAt: z.string().max(80),
 });
 
 const savePromptSchema = z.object({
-  firebaseIdToken: z.string().min(1),
+  firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
   prompt: z.object({
-    name: z.string().min(1),
-    originalPrompt: z.string().min(1),
-    refinedPrompt: z.string().min(1),
-    promptType: z.string().min(1),
+    name: z.string().min(1).max(160),
+    originalPrompt: z.string().min(1).max(MAX_PROMPT_CHARACTERS),
+    refinedPrompt: z.string().min(1).max(MAX_REFINED_PROMPT_CHARACTERS),
+    promptType: z.string().min(1).max(80),
     latestVersion: z.number().int().positive(),
     versionCount: z.number().int().positive(),
-    versions: z.array(promptVersionSchema).min(1),
+    versions: z.array(promptVersionSchema).min(1).max(MAX_PROMPT_VERSIONS),
   }),
 });
 
@@ -32,8 +38,8 @@ export async function savePromptAction(data: z.infer<typeof savePromptSchema>) {
 
 export async function deleteSavedPromptAction(data: { firebaseIdToken: string; promptId: string }) {
   const parsed = z.object({
-    firebaseIdToken: z.string().min(1),
-    promptId: z.string().min(1),
+    firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
+    promptId: z.string().min(1).max(200),
   }).parse(data);
 
   return deleteSavedPromptForUser(parsed.firebaseIdToken, parsed.promptId);

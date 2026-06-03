@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -20,8 +21,7 @@ import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/cons
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { OutputActions } from './output-actions';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { collection, doc, limit, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { collection, limit, orderBy, query } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
@@ -30,6 +30,7 @@ import { Badge } from '../ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { isFreeTechnique } from '@/lib/subscription';
 import { savePromptAction } from '@/app/subscription-actions';
+import { addProjectSessionAction } from '@/app/project-actions';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -136,7 +137,7 @@ function getErrorToast(error: unknown): { title: string; description: string } {
 
   if (errorName === 'ApiQuotaError' || errorName === 'OpenRouterQuotaError' || errorMessage.includes('quota')) {
     return {
-      title: 'Gemini Quota Issue',
+      title: errorName === 'OpenRouterQuotaError' ? 'OpenRouter Quota Issue' : 'Gemini Quota Issue',
       description: errorMessage || 'Gemini is rate limited or out of quota. Try again later.',
     };
   }
@@ -255,6 +256,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
   const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [explanationMode, setExplanationMode] = useState(true);
+  const [maxCharacters, setMaxCharacters] = useState('');
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
@@ -322,6 +324,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
         openRouterModels,
         projectMemory,
         explanationMode,
+        maxCharacters: maxCharacters ? Number(maxCharacters) : undefined,
         attachments,
         firebaseIdToken,
       });
@@ -341,18 +344,23 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
       setPromptVersions(nextVersions);
 
       if (user && firestore && selectedProject) {
-        const sessionsCol = collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/projectSessions`);
-        addDocumentNonBlocking(sessionsCol, {
+        addProjectSessionAction({
+          firebaseIdToken: firebaseIdToken ?? await user.getIdToken(),
           projectId: selectedProject.id,
-          rawPrompt: data.prompt,
-          refinedPrompt: result.refinedPrompt,
-          promptType: data.promptType,
-          version: nextVersion.version,
-          versions: nextVersions,
-          timestamp: serverTimestamp(),
-        });
-        updateDocumentNonBlocking(doc(firestore, `users/${user.uid}/projects`, selectedProject.id), {
-          updatedAt: serverTimestamp(),
+          session: {
+            rawPrompt: data.prompt,
+            refinedPrompt: result.refinedPrompt,
+            promptType: data.promptType,
+            version: nextVersion.version,
+            versions: nextVersions,
+          },
+        }).catch((error) => {
+          console.error('Could not store project session:', error);
+          toast({
+            variant: 'destructive',
+            title: 'Project Memory Not Saved',
+            description: 'The refined prompt is ready, but this session could not be added to project memory.',
+          });
         });
       }
     } catch (error) {
@@ -629,6 +637,19 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                 </div>
                 <Switch id="explanation-mode" checked={explanationMode} onCheckedChange={setExplanationMode} />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="max-characters">Maximum Output Characters <span className="text-muted-foreground">(optional)</span></Label>
+                <Input
+                  id="max-characters"
+                  type="number"
+                  min={100}
+                  max={50000}
+                  step={100}
+                  value={maxCharacters}
+                  onChange={(event) => setMaxCharacters(event.target.value)}
+                  placeholder="e.g., 2000"
+                />
+              </div>
               <Button type="submit" disabled={isLoading} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : 'Refine with AI Council'}
               </Button>
@@ -774,7 +795,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
                           {refinements.map((refinement, index) => (
                             <div key={index} className="p-4 bg-background rounded-lg border">
                               <h4 className="font-semibold text-primary">{refinement.councilMember}</h4>
-                              <p className="text-sm text-muted-foreground mt-1 mb-2 italic">"{refinement.thoughtProcess}"</p>
+                              <p className="text-sm text-muted-foreground mt-1 mb-2 italic">&quot;{refinement.thoughtProcess}&quot;</p>
                               <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-3 rounded-md"><code>{refinement.refinedText}</code></pre>
                             </div>
                           ))}

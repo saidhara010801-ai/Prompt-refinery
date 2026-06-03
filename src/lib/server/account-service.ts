@@ -34,6 +34,20 @@ interface SavedPromptInput {
   }>;
 }
 
+interface ProjectSessionInput {
+  rawPrompt: string;
+  refinedPrompt: string;
+  promptType: string;
+  version: number;
+  versions: Array<{
+    version: number;
+    rawPrompt: string;
+    refinedPrompt: string;
+    promptType: string;
+    createdAt: string;
+  }>;
+}
+
 export class TierEnforcementError extends Error {
   constructor(message: string, name = 'ProFeatureRequiredError') {
     super(message);
@@ -232,4 +246,97 @@ export async function deleteSavedPromptForUser(firebaseIdToken: string | undefin
       updatedAt: Timestamp.now(),
     }, { merge: true });
   });
+}
+
+export async function deleteProjectForUser(firebaseIdToken: string | undefined, projectId: string) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+
+  if (!isProTier(profile.subscriptionTier)) {
+    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to manage project context.');
+  }
+
+  const firestore = getAdminFirestore();
+  await firestore.recursiveDelete(firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`));
+}
+
+export async function createProjectForUser(
+  firebaseIdToken: string | undefined,
+  project: { name: string; description: string }
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+
+  if (!isProTier(profile.subscriptionTier)) {
+    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to create a project.');
+  }
+
+  const firestore = getAdminFirestore();
+  const projectRef = firestore.collection(`users/${decodedToken.uid}/projects`).doc();
+  const now = Timestamp.now();
+  await projectRef.create({
+    userId: decodedToken.uid,
+    name: project.name,
+    description: project.description,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { id: projectRef.id };
+}
+
+export async function addProjectSessionForUser(
+  firebaseIdToken: string | undefined,
+  projectId: string,
+  session: ProjectSessionInput
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+
+  if (!isProTier(profile.subscriptionTier)) {
+    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to store project sessions.');
+  }
+
+  const firestore = getAdminFirestore();
+  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const projectSnapshot = await projectRef.get();
+  if (!projectSnapshot.exists) {
+    throw new Error('The selected project no longer exists.');
+  }
+
+  const sessionRef = projectRef.collection('projectSessions').doc();
+  const now = Timestamp.now();
+  const batch = firestore.batch();
+  batch.create(sessionRef, {
+    ...session,
+    projectId,
+    timestamp: now,
+  });
+  batch.update(projectRef, { updatedAt: now });
+  await batch.commit();
+
+  return { id: sessionRef.id };
+}
+
+export async function updateProjectSessionResponseForUser(
+  firebaseIdToken: string | undefined,
+  projectId: string,
+  sessionId: string,
+  llmResponse: string
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+
+  if (!isProTier(profile.subscriptionTier)) {
+    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to update project memory.');
+  }
+
+  const firestore = getAdminFirestore();
+  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const sessionRef = projectRef.collection('projectSessions').doc(sessionId);
+  const sessionSnapshot = await sessionRef.get();
+  if (!sessionSnapshot.exists) {
+    throw new Error('The selected project session no longer exists.');
+  }
+
+  const batch = firestore.batch();
+  batch.update(sessionRef, { llmResponse });
+  batch.update(projectRef, { updatedAt: Timestamp.now() });
+  await batch.commit();
 }
