@@ -2,10 +2,35 @@
 
 import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
+import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
+import { assertProFeatureAccess, assertRefinementAccess, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
+import {
+    MAX_API_KEY_CHARACTERS,
+    MAX_ATTACHMENT_DATA_URI_CHARACTERS,
+    MAX_ATTACHMENT_MIME_TYPE_CHARACTERS,
+    MAX_ATTACHMENT_NAME_CHARACTERS,
+    MAX_ATTACHMENT_TEXT_CHARACTERS,
+    MAX_ATTACHMENTS,
+    MAX_FIREBASE_ID_TOKEN_CHARACTERS,
+    MAX_GUIDELINE_CHARACTERS,
+    MAX_MODEL_ID_CHARACTERS,
+    MAX_PROJECT_MEMORY_CHARACTERS,
+    MAX_PROMPT_CHARACTERS,
+    MAX_REFINED_PROMPT_CHARACTERS,
+    MAX_TOKEN_ESTIMATE_CHARACTERS,
+} from "@/lib/input-limits";
 import { z } from "zod";
 
+const DEFAULT_OPENROUTER_MODELS = {
+    specifier: "openai/gpt-4o-mini",
+    simplifier: "anthropic/claude-3.5-haiku",
+    stylist: "google/gemini-2.0-flash-001",
+    critic: "anthropic/claude-3.5-haiku",
+    formatter: "openai/gpt-4o-mini",
+};
+
 const refineSchema = z.object({
-    prompt: z.string().min(1, "Prompt cannot be empty."),
+    prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS, `Prompt must be ${MAX_PROMPT_CHARACTERS} characters or fewer.`),
     promptType: z.enum([
       'Zero-shot',
       'Few-shot',
@@ -16,31 +41,207 @@ const refineSchema = z.object({
       'ReAct',
       'Meta / reflection',
     ]),
-    apiKey: z.string().optional(),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    provider: z.enum(["gemini", "openrouter"]).optional(),
+    openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    openRouterModels: z.object({
+        specifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        simplifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        stylist: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
+        critic: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
+        formatter: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS).optional(),
+    }).optional(),
+    projectMemory: z.string().max(MAX_PROJECT_MEMORY_CHARACTERS).optional(),
+    explanationMode: z.boolean().optional(),
+    maxCharacters: z.number().int().min(100).max(MAX_REFINED_PROMPT_CHARACTERS).optional(),
+    firebaseIdToken: z.string().max(MAX_FIREBASE_ID_TOKEN_CHARACTERS).optional(),
+    attachments: z.array(z.object({
+        name: z.string().max(MAX_ATTACHMENT_NAME_CHARACTERS),
+        mimeType: z.string().max(MAX_ATTACHMENT_MIME_TYPE_CHARACTERS),
+        content: z.string().max(MAX_ATTACHMENT_TEXT_CHARACTERS),
+        dataUri: z.string().max(MAX_ATTACHMENT_DATA_URI_CHARACTERS).optional(),
+    })).max(MAX_ATTACHMENTS).optional(),
 });
 
-export async function refinePromptAction(data: RefinePromptWithAICouncilInput) {
+const tokenCounterSchema = z.object({
+    text: z.string().max(MAX_TOKEN_ESTIMATE_CHARACTERS),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+});
+
+type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts";
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function isApiKeyMissingError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error);
+
+    return errorMessage.includes("GOOGLE_API_KEY") ||
+        errorMessage.includes("GEMINI_API_KEY") ||
+        errorMessage.includes("API key not found") ||
+        errorMessage.includes("FAILED_PRECONDITION");
+}
+
+function isOpenRouterError(error: unknown): boolean {
+    return error instanceof Error && error.name === "OpenRouterError";
+}
+
+function isApiKeyInvalidError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error).toLowerCase();
+
+    return errorMessage.includes("api key not valid") ||
+        errorMessage.includes("api_key_invalid") ||
+        errorMessage.includes("invalid api key") ||
+        errorMessage.includes("permission_denied") ||
+        errorMessage.includes("no auth credentials found") ||
+        errorMessage.includes("unauthorized") ||
+        errorMessage.includes("\"code\":401");
+}
+
+function isQuotaError(error: unknown): boolean {
+    const errorMessage = getErrorMessage(error).toLowerCase();
+
+    return errorMessage.includes("quota") ||
+        errorMessage.includes("rate limit") ||
+        errorMessage.includes("resource_exhausted") ||
+        errorMessage.includes("too many requests");
+}
+
+function isEmptyOutputError(error: unknown): boolean {
+    return error instanceof Error && error.name === "EmptyAIOutputError";
+}
+
+function toUserFacingError(error: unknown, actionKind: ActionKind, hasApiKey: boolean): Error {
+    if (!hasApiKey || isApiKeyMissingError(error)) {
+        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
+        missingKeyError.name = "ApiKeyMissingError";
+        return missingKeyError;
+    }
+
+    if (isApiKeyInvalidError(error)) {
+        const invalidKeyError = new Error("Your Gemini API key looks invalid. Check the key in Settings and try again.");
+        invalidKeyError.name = "ApiKeyInvalidError";
+        return invalidKeyError;
+    }
+
+    if (isQuotaError(error)) {
+        const quotaError = new Error("Gemini is reporting a quota or rate-limit issue. Wait a bit or use a key with available quota.");
+        quotaError.name = "ApiQuotaError";
+        return quotaError;
+    }
+
+    if (isEmptyOutputError(error)) {
+        const emptyOutputError = new Error("Gemini did not return a usable structured response. Please try again.");
+        emptyOutputError.name = "EmptyAIOutputError";
+        return emptyOutputError;
+    }
+
+    const genericError = new Error(`Failed to ${actionKind}. Please try again in a moment.`);
+    genericError.name = "AIRequestError";
+    return genericError;
+}
+
+function toProviderError(error: unknown, actionKind: ActionKind, provider: "gemini" | "openrouter", hasApiKey: boolean): Error {
+    if (provider === "gemini") {
+        return toUserFacingError(error, actionKind, hasApiKey);
+    }
+
+    if (!hasApiKey) {
+        const missingKeyError = new Error("Your OpenRouter API key is missing. Add it in Settings, then try again.");
+        missingKeyError.name = "OpenRouterApiKeyMissingError";
+        return missingKeyError;
+    }
+
+    if (isApiKeyInvalidError(error)) {
+        const invalidKeyError = new Error("Your OpenRouter API key looks invalid. Check the key in Settings and try again.");
+        invalidKeyError.name = "OpenRouterApiKeyInvalidError";
+        return invalidKeyError;
+    }
+
+    if (isQuotaError(error)) {
+        const quotaError = new Error("OpenRouter is reporting a quota or rate-limit issue. Wait a bit or use a key with available credits.");
+        quotaError.name = "OpenRouterQuotaError";
+        return quotaError;
+    }
+
+    if (isOpenRouterError(error)) {
+        const openRouterError = new Error(`OpenRouter could not ${actionKind}. Check your selected model IDs and try again.`);
+        openRouterError.name = "OpenRouterRequestError";
+        return openRouterError;
+    }
+
+    return toUserFacingError(error, actionKind, true);
+}
+
+export async function refinePromptAction(data: RefinePromptWithAICouncilInput & { firebaseIdToken?: string }) {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
     }
 
+    const provider = parsed.data.provider ?? "gemini";
+    const usesManagedProvider = provider === "openrouter"
+        ? !parsed.data.openRouterApiKey && Boolean(process.env.OPENROUTER_API_KEY)
+        : !parsed.data.apiKey && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+    let managedReservation: { uid: string; usageDate: string } | null = null;
+
     try {
-        const result = await refinePromptWithAICouncil(parsed.data);
+        await assertRefinementAccess(parsed.data.firebaseIdToken, parsed.data.promptType, Boolean(parsed.data.projectMemory));
+        const usesCustomOpenRouterModels = provider === "openrouter" && parsed.data.openRouterModels && (
+            parsed.data.openRouterModels.specifier !== DEFAULT_OPENROUTER_MODELS.specifier ||
+            parsed.data.openRouterModels.simplifier !== DEFAULT_OPENROUTER_MODELS.simplifier ||
+            parsed.data.openRouterModels.stylist !== DEFAULT_OPENROUTER_MODELS.stylist ||
+            parsed.data.openRouterModels.critic !== DEFAULT_OPENROUTER_MODELS.critic ||
+            parsed.data.openRouterModels.formatter !== DEFAULT_OPENROUTER_MODELS.formatter
+        );
+        if (usesCustomOpenRouterModels) {
+            await assertProFeatureAccess(
+                parsed.data.firebaseIdToken,
+                "Custom OpenRouter council routing is available on Pro. Upgrade or restore the default model IDs."
+            );
+        }
+        if (usesManagedProvider) {
+            managedReservation = await reserveManagedRefinement(parsed.data.firebaseIdToken);
+        }
+
+        const { firebaseIdToken: _firebaseIdToken, ...flowData } = parsed.data;
+        const input = provider === "openrouter"
+            ? {
+                ...flowData,
+                openRouterApiKey: parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY,
+                openRouterModels: {
+                    ...DEFAULT_OPENROUTER_MODELS,
+                    ...parsed.data.openRouterModels,
+                },
+            }
+            : flowData;
+
+        const result = await refinePromptWithAICouncil(input);
         return result;
     } catch (error) {
         console.error("Error refining prompt:", error);
-        // Provide a more specific error message if possible
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        throw new Error(`Failed to refine prompt. Details: ${errorMessage}`);
+        if (managedReservation) {
+            await releaseManagedRefinement(managedReservation.uid, managedReservation.usageDate)
+                .catch((releaseError) => console.error("Error releasing managed refinement reservation:", releaseError));
+        }
+        const hasApiKey = provider === "openrouter" ? Boolean(parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY) : Boolean(parsed.data.apiKey);
+        if (error instanceof Error && (
+            error.name === "ProFeatureRequiredError" ||
+            error.name === "ManagedRateLimitError" ||
+            error.name === "AuthenticationRequiredError"
+        )) {
+            throw error;
+        }
+        throw toProviderError(error, "refine prompt", provider, hasApiKey);
     }
 }
 
 const evaluateSchema = z.object({
-    prompt: z.string().min(1, "Prompt cannot be empty."),
-    guideline: z.string().min(1, "Guideline must be selected."),
-    apiKey: z.string().optional(),
-    userQuery: z.string(),
+    prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS),
+    guideline: z.string().min(1, "Guideline must be selected.").max(MAX_GUIDELINE_CHARACTERS),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    userQuery: z.string().max(MAX_PROMPT_CHARACTERS),
 });
 
 export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput) {
@@ -54,7 +255,26 @@ export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclu
         return result;
     } catch (error) {
         console.error("Error evaluating guideline:", error);
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        throw new Error(`Failed to evaluate guideline. Details: ${errorMessage}`);
+        throw toUserFacingError(error, "evaluate guideline", Boolean(parsed.data.apiKey));
+    }
+}
+
+export async function getTokenCountsAction(data: GetTokenCountsInput) {
+    const parsed = tokenCounterSchema.safeParse(data);
+    if (!parsed.success) {
+        throw new Error(parsed.error.errors.map(e => e.message).join(', '));
+    }
+
+    if (!parsed.data.apiKey) {
+        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
+        missingKeyError.name = "ApiKeyMissingError";
+        throw missingKeyError;
+    }
+
+    try {
+        return await getTokenCounts(parsed.data);
+    } catch (error) {
+        console.error("Error getting token counts:", error);
+        throw toUserFacingError(error, "get token counts", true);
     }
 }

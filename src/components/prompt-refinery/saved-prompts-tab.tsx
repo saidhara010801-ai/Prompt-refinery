@@ -1,16 +1,26 @@
 'use client';
 
-import { useMemo } from 'react';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
 import { CopyButton } from './copy-button';
 import { Skeleton } from '../ui/skeleton';
-import { deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '../ui/badge';
+import { deleteSavedPromptAction } from '@/app/subscription-actions';
+import { SubscriptionContext } from '@/context/subscription-context';
+import { useContext } from 'react';
+
+interface PromptVersion {
+  version: number;
+  rawPrompt: string;
+  refinedPrompt: string;
+  promptType: string;
+  createdAt: string;
+}
 
 interface SavedPrompt {
   id: string;
@@ -18,15 +28,35 @@ interface SavedPrompt {
   originalPrompt: string;
   refinedPrompt: string;
   promptType: string;
+  latestVersion?: number;
+  versionCount?: number;
+  versions?: PromptVersion[];
   saveTimestamp: {
     seconds: number;
     nanoseconds: number;
   };
 }
 
+function getPromptVersions(prompt: SavedPrompt): PromptVersion[] {
+  if (prompt.versions?.length) {
+    return prompt.versions;
+  }
+
+  return [{
+    version: 1,
+    rawPrompt: prompt.originalPrompt,
+    refinedPrompt: prompt.refinedPrompt,
+    promptType: prompt.promptType,
+    createdAt: prompt.saveTimestamp?.seconds
+      ? new Date(prompt.saveTimestamp.seconds * 1000).toISOString()
+      : new Date().toISOString(),
+  }];
+}
+
 export function SavedPromptsTab() {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
+  const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
 
   const savedPromptsQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
@@ -38,20 +68,33 @@ export function SavedPromptsTab() {
 
   const { data: savedPrompts, isLoading } = useCollection<SavedPrompt>(savedPromptsQuery);
   
-  const handleDelete = (promptId: string) => {
+  const handleDelete = async (promptId: string) => {
     if (!user || !firestore) return;
-    const docRef = doc(firestore, `users/${user.uid}/savedPrompts`, promptId);
-    deleteDocumentNonBlocking(docRef);
-    toast({
-        title: "Prompt Deleted",
-        description: "The saved prompt has been removed.",
-    })
+    try {
+      await deleteSavedPromptAction({
+        firebaseIdToken: await user.getIdToken(),
+        promptId,
+      });
+      toast({
+          title: "Prompt Deleted",
+          description: "The saved prompt has been removed.",
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Could Not Delete Prompt',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your Saved Prompts</CardTitle>
+        <CardTitle className="flex items-center justify-between gap-3">
+          <span>Your Saved Prompts</span>
+          <Badge variant="outline">{savedPromptCount}/{isPro ? 'unlimited' : savedPromptLimit}</Badge>
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && (
@@ -66,9 +109,10 @@ export function SavedPromptsTab() {
             {savedPrompts.map((prompt) => (
               <AccordionItem value={prompt.id} key={prompt.id} className="border rounded-lg px-4">
                 <AccordionTrigger className="hover:no-underline">
-                  <div className="flex justify-between items-center w-full">
-                    <span className="font-semibold text-left">{prompt.name}</span>
-                    <span className="text-sm text-muted-foreground pr-4">
+                  <div className="flex min-w-0 flex-1 flex-col items-start gap-2 pr-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="max-w-full truncate font-semibold text-left">{prompt.name}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                        <Badge variant="outline">v{prompt.latestVersion ?? prompt.versionCount ?? 1}</Badge>
                         {new Date(prompt.saveTimestamp.seconds * 1000).toLocaleDateString()}
                     </span>
                   </div>
@@ -93,6 +137,35 @@ export function SavedPromptsTab() {
                             <span className="sr-only">Delete prompt</span>
                         </Button>
                     </div>
+                    <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value={`${prompt.id}-versions`}>
+                        <AccordionTrigger>Version History</AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-3">
+                            {getPromptVersions(prompt).map((version) => (
+                              <div key={`${prompt.id}-${version.version}`} className="rounded-md border bg-background p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <Badge variant="secondary">Version {version.version}</Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(version.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <h5 className="font-semibold text-xs mb-1">Raw Prompt</h5>
+                                  <p className="text-xs text-muted-foreground">{version.rawPrompt}</p>
+                                </div>
+                                <div>
+                                  <h5 className="font-semibold text-xs mb-1">Refined Prompt</h5>
+                                  <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-2 rounded-md">
+                                    <code>{version.refinedPrompt}</code>
+                                  </pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -101,8 +174,8 @@ export function SavedPromptsTab() {
         )}
         {!isLoading && (!savedPrompts || savedPrompts.length === 0) && (
             <div className="text-center text-muted-foreground py-12">
-                <p>You haven't saved any prompts yet.</p>
-                <p>Refine a prompt in the "Refinery" tab and save it to see it here.</p>
+                <p>{`You haven't saved any prompts yet.`}</p>
+                <p>Refine a prompt in the &quot;Refinery&quot; tab and save it to see it here.</p>
             </div>
         )}
       </CardContent>

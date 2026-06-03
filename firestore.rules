@@ -14,6 +14,8 @@
  * - /users/{userId}/prompts/{promptId}: Stores prompts created by the user.
  * - /users/{userId}/prompts/{promptId}/refinements/{refinementId}: Stores AI-generated refinements for a prompt.
  * - /users/{userId}/savedPrompts/{savedPromptId}: Stores a user's bookmarked prompts.
+ * - /users/{userId}/projects/{projectId}: Stores long-running project memory containers.
+ * - /users/{userId}/projects/{projectId}/projectSessions/{sessionId}: Stores project refinement sessions.
  *
  * Key Security Decisions:
  * - No Public Access: All collections are locked down to the owner. There are no public or shared collections.
@@ -44,6 +46,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isProUser(userId) {
+      return isOwner(userId) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.subscriptionTier in ['pro', 'pro-max'];
+    }
+
     /**
      * For update/delete operations, confirms the user is the owner AND the document exists.
      * Prevents modifying or deleting non-existent documents.
@@ -57,14 +64,26 @@ service cloud.firestore {
      * Ensures the document's internal ID matches its path ID.
      */
     function hasValidUserDataOnCreate(userId) {
-      return request.resource.data.id == userId;
+      return request.resource.data.id == userId &&
+        request.resource.data.subscriptionTier == 'free' &&
+        request.resource.data.savedPromptCount == 0 &&
+        request.resource.data.managedRefinementsUsedToday == 0;
     }
     
     /**
      * Enforces immutability of critical fields for a User document on update.
      */
     function isUpdatingImmutableUserData() {
-      return request.resource.data.id == resource.data.id;
+      return request.resource.data.id == resource.data.id &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'subscriptionTier',
+          'subscriptionStatus',
+          'stripeCustomerId',
+          'stripeSubscriptionId',
+          'savedPromptCount',
+          'managedRefinementsDate',
+          'managedRefinementsUsedToday'
+        ]);
     }
 
     /**
@@ -168,9 +187,33 @@ service cloud.firestore {
     match /users/{userId}/savedPrompts/{savedPromptId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && hasValidSavedPromptDataOnCreate(userId);
-      allow update: if isExistingOwner(userId) && isUpdatingImmutableSavedPromptData();
-      allow delete: if isExistingOwner(userId);
+      // Writes are performed by authenticated server actions so the Free limit cannot be bypassed.
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Manages user-owned projects for memory-aware prompt refinement.
+     * @path /users/{userId}/projects/{projectId}
+     * @principle Keeps project memory under the authenticated user's private data tree.
+     */
+    match /users/{userId}/projects/{projectId} {
+      allow get: if isProUser(userId);
+      allow list: if isProUser(userId);
+      // Writes are performed by authenticated server actions so Pro checks and
+      // recursive memory cleanup cannot be bypassed from the browser.
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Manages iterative refinement sessions within a project.
+     * @path /users/{userId}/projects/{projectId}/projectSessions/{sessionId}
+     * @principle Inherits ownership from the project path and validates the parent project id.
+     */
+    match /users/{userId}/projects/{projectId}/projectSessions/{sessionId} {
+      allow get: if isProUser(userId);
+      allow list: if isProUser(userId);
+      // Session writes are server-managed with verified ownership and tier checks.
+      allow create, update, delete: if false;
     }
   }
 }

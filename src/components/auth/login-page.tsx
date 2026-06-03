@@ -29,6 +29,7 @@ import {
   initiateAnonymousSignIn,
   initiateEmailSignIn,
   initiateEmailSignUp,
+  initiateGoogleSignIn,
 } from '@/firebase/non-blocking-login';
 import { useAuth } from '@/firebase';
 import { FirebaseError } from 'firebase/app';
@@ -45,7 +46,7 @@ const signInSchema = z.object({
   password: z.string().min(1, { message: 'Password is required.' }),
 });
 
-export function LoginPage() {
+export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccount: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const auth = useAuth();
@@ -89,35 +90,44 @@ export function LoginPage() {
   const onSignUp = async (values: z.infer<typeof signUpSchema>) => {
     setIsLoading(true);
     try {
-      initiateEmailSignUp(auth, values.email, values.password);
+      await initiateEmailSignUp(auth, values.email, values.password);
     } catch (error) {
       handleAuthError(error);
     } finally {
-      // The onAuthStateChanged listener will handle success, but we can stop loading indicator
-      // after a short delay in case of error. This is a simplification.
-      setTimeout(() => setIsLoading(false), 2000);
+      setIsLoading(false);
     }
   };
 
   const onSignIn = async (values: z.infer<typeof signInSchema>) => {
     setIsLoading(true);
     try {
-      initiateEmailSignIn(auth, values.email, values.password);
+      await initiateEmailSignIn(auth, values.email, values.password);
     } catch (error) {
       handleAuthError(error);
     } finally {
-      setTimeout(() => setIsLoading(false), 2000);
+      setIsLoading(false);
     }
   };
   
   const onSignInAnonymously = async () => {
     setIsLoading(true);
     try {
-      initiateAnonymousSignIn(auth);
+      await initiateAnonymousSignIn(auth);
     } catch (error) {
         handleAuthError(error)
     } finally {
-        setTimeout(() => setIsLoading(false), 2000);
+        setIsLoading(false);
+    }
+  };
+
+  const onSignInWithGoogle = async () => {
+    setIsLoading(true);
+    try {
+      await initiateGoogleSignIn(auth);
+    } catch (error) {
+      handleAuthError(error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -194,11 +204,29 @@ export function LoginPage() {
                     type="button"
                     variant="secondary"
                     className="w-full"
+                    onClick={onSignInWithGoogle}
+                    disabled={isLoading}
+                  >
+                    Continue with Google
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
                     onClick={onSignInAnonymously}
                     disabled={isLoading}
                   >
                     <User className="mr-2 h-4 w-4" />
                     Continue as Guest
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={onContinueWithoutAccount}
+                    disabled={isLoading}
+                  >
+                    Continue without signing in
                   </Button>
                 </CardFooter>
               </form>

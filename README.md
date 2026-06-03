@@ -1,90 +1,177 @@
-## Project Overview
+# The Prompt Refinery
 
-Firebase Studio is a powerful, opinionated starter kit designed to streamline the development of Next.js applications integrated with Firebase. It provides a robust foundation, combining the best practices of modern web development with the comprehensive backend services offered by Google Firebase. This tool aims to accelerate your development workflow, allowing you to focus on building unique features rather than wrestling with initial setup and configurations.
+Refine raw prompts with an AI Council of expert agents for dramatically better LLM outputs.
 
-## Highlights & Features
+The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, OpenRouter routing, and user-provided API keys stored locally in the browser.
 
-*   **Next.js Framework:** Leverage the full power of Next.js for server-side rendering (SSR), static site generation (SSG), API routes, and a world-class developer experience.
-*   **Seamless Firebase Integration:** Pre-configured and optimized for Firebase services including Authentication, Firestore, Storage, Cloud Functions, and Hosting. Get up and running with your backend in minutes.
-*   **Authentication Flow:** Ready-to-use authentication components and hooks, supporting various providers (Google, Email/Password, etc.), simplifying user management.
-*   **Database (Firestore) Integration:** Examples and utilities for interacting with Firestore, enabling real-time data synchronization and powerful NoSQL database capabilities.
-*   **Optimized Performance:** Built with performance in mind, ensuring fast load times and a smooth user experience.
-*   **Scalability:** Designed to scale effortlessly from small projects to large-scale applications, leveraging Firebase's infrastructure.
-*   **Developer Experience (DX):** Thoughtfully structured project layout, comprehensive type safety (TypeScript), and pre-configured linters/formatters ensure a pleasant and productive development environment.
-*   **Deployment Ready:** Easily deployable to Firebase Hosting, Vercel, or any other Next.js compatible platform.
+## Current Product Scope
 
-## Getting Started
+- AI Council prompt refinement with The Specifier, The Simplifier, The Stylist, The Critic, and The Formatter.
+- Eight refinement techniques: Zero-shot, Few-shot, Chain-of-thought, Tree-of-thoughts, Role/persona, Prompt chaining, ReAct, and Meta/reflection.
+- Guideline Evaluator with overall and sub-dimension quality scores.
+- Saved Prompts for authenticated users, including version-history metadata for new saves.
+- Projects & Memory for iterative, context-aware refinement across sessions.
+- Reference file context in the Refinery with Gemini Vision images and MarkItDown document conversion.
+- Dedicated format converter for reusable Markdown output from supported documents.
+- Before/after diff view for refined prompts.
+- Prompt templates, explanation mode, styled copy actions, and TXT/Markdown/JSON exports.
+- Free and Pro segmentation with protected subscription tiers, daily managed-key limits, and server-enforced saved-prompt limits.
+- Stripe subscription Checkout and webhook fulfillment for Pro upgrades.
+- Local Bring Your Own Key Gemini support.
+- OpenRouter support with configurable model IDs for each council member.
+- Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
+- Optional max-character target for refined output.
+- Email, Google, and guest sign-in through Firebase Authentication.
+- Signed-out BYOK refinement, evaluation, conversion, and template browsing; authentication remains required for saved prompts, Projects, managed-key usage, and Pro checkout.
+- Dark/light mode and responsive Next.js UI.
 
-Follow these steps to get your Firebase Studio project up and running:
+Production-readiness tooling includes regression tests, CI, route throttles, a redacted health endpoint, and an operator runbook.
 
-### Prerequisites
+## Tech Stack
 
-*   Node.js (LTS version recommended)
-*   npm or Yarn
-*   A Firebase Project (create one at [console.firebase.google.com](https://console.firebase.google.com))
-*   Firebase CLI installed globally (`npm install -g firebase-tools`)
+- Next.js App Router with TypeScript
+- Tailwind CSS and Radix UI components
+- Google Genkit with `@genkit-ai/google-genai`
+- Firebase Auth and Firestore
+- Stripe subscription Checkout and webhook fulfillment
 
-### Setup Instructions
+## Prerequisites
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone [your-repository-url]
-    cd [your-project-name]
-    ```
-2.  **Install Dependencies:**
-    ```bash
-    npm install
-    # or
-    yarn install
-    ```
-3.  **Connect to your Firebase Project:**
-    Log in to Firebase via the CLI (if you haven't already):
-    ```bash
-    firebase login
-    ```
-    Then, link your local project to your Firebase project:
-    ```bash
-    firebase use --add
-    ```
-    Select your desired Firebase project from the list.
+- Node.js 20.19+ LTS
+- npm
+- Firebase project with Auth and Firestore configured
+- Gemini API key for AI refinement and evaluation
 
-4.  **Configure Firebase Environment Variables:**
-    Create a `.env.local` file in the root of your project and add your Firebase configuration details. You can find these in your Firebase project settings -> "Project settings" -> "Your apps" -> "Web app" -> "Config".
+## Local Setup
 
-    ```env
-    NEXT_PUBLIC_FIREBASE_API_KEY="YOUR_API_KEY"
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="YOUR_AUTH_DOMAIN"
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID="YOUR_PROJECT_ID"
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="YOUR_STORAGE_BUCKET"
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="YOUR_MESSAGING_SENDER_ID"
-    NEXT_PUBLIC_FIREBASE_APP_ID="YOUR_APP_ID"
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID="YOUR_MEASUREMENT_ID"
-    ```
-    **Note:** Make sure these are `NEXT_PUBLIC_` prefixed for client-side access in Next.js.
+1. Clone and install dependencies:
 
-5.  **Run the Development Server:**
-    ```bash
-    npm run dev
-    # or
-    yarn dev
-    ```
-    Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+   ```powershell
+   git clone https://github.com/saidhara010801-ai/Prompt-refinery.git
+   cd Prompt-refinery
+   npm install
+   ```
 
-6.  **Deploy to Firebase Hosting (Optional):**
-    First, build your Next.js application:
-    ```bash
-    npm run build
-    # or
-    yarn build
-    ```
-    Then, deploy to Firebase Hosting:
-    ```bash
-    firebase deploy --only hosting
-    ```
+2. Create a local env file:
 
-### Recommended Next Steps
+   ```powershell
+   Copy-Item .env.example .env.local
+   ```
 
-*   Explore `src/app/page.tsx` for the main application entry point.
-*   Check the `firebase/` directory for Firebase-related configurations and utility functions.
-*   Familiarize yourself with the folder structure and existing components.
-*   Refer to the [Next.js Documentation](https://nextjs.org/docs) and [Firebase Documentation](https://firebase.google.com/docs) for detailed guides.
+3. Fill in Firebase values in `.env.local`.
+
+   Firebase client config is required for auth and saved prompts. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
+
+4. Optional: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
+
+   ```powershell
+   pip install -r requirements-markitdown.txt
+   ```
+
+5. Start the app:
+
+   ```powershell
+   npm run dev
+   ```
+
+6. Open [http://localhost:9002](http://localhost:9002).
+
+## Environment Variables
+
+Required for Firebase-backed auth and saved prompts:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
+```
+
+Required for Stripe Pro subscription upgrades:
+
+```env
+STRIPE_SECRET_KEY=
+STRIPE_PRO_PRICE_ID=
+STRIPE_WEBHOOK_SECRET=
+APP_BASE_URL=https://your-production-host.example
+```
+
+`APP_BASE_URL` is the trusted public origin used for Stripe Checkout success and cancellation redirects. Keep it explicit in production rather than deriving it from request headers.
+
+Outside Firebase App Hosting, server-side tier enforcement also needs Firebase Admin application-default credentials:
+
+```env
+GOOGLE_APPLICATION_CREDENTIALS=
+```
+
+Optional for managed server-side OpenRouter fallback:
+
+```env
+OPENROUTER_API_KEY=
+```
+
+OpenRouter can also be used as a user-provided browser-local key from Settings. In that BYOK mode, each AI Council member can use a different OpenRouter model ID.
+
+Optional for document conversion when the MarkItDown CLI is not discoverable as `markitdown`:
+
+```env
+MARKITDOWN_COMMAND=
+```
+
+With the Gemini provider, image uploads are sent as inline data URIs for Vision-aware refinement. Text files are read in the browser. PDF and Office attachments use the server-side Microsoft MarkItDown CLI when installed, with a metadata-only fallback when conversion is unavailable.
+
+## Scripts
+
+```powershell
+npm run dev          # Start Next.js on port 9002
+npm run lint         # Run Next.js ESLint checks
+npm run typecheck    # Run TypeScript validation
+npm test             # Run automated regression coverage
+npm run build        # Create a production Next.js build
+npm run verify       # Run lint, typecheck, regression tests, and production build
+npm run check:production-env # Validate required production environment values
+npm run genkit:dev   # Start Genkit dev flow runner
+```
+
+## Phase 1 Verification
+
+The critical bug-fix phase is considered healthy when:
+
+- Token estimates render after a successful refinement without calling an AI model.
+- Missing or invalid Gemini API keys show clear user-facing messages.
+- The Settings button visually pulses when API-key action is required.
+- AI flows do not use unsafe `output!` assertions.
+- `npm run typecheck` passes.
+- `npm run build` passes.
+
+## Data Model
+
+The app stores user-owned data under each authenticated user path in Firestore:
+
+- `/users/{uid}/savedPrompts`
+- `/users/{uid}/projects`
+- `/users/{uid}/projects/{projectId}/projectSessions`
+
+User profiles store `subscriptionTier`, the server-maintained `savedPromptCount`, and managed-refinement usage metadata. Free accounts can save up to 10 prompts and use up to 5 managed-key refinements per day. BYOK refinements do not consume managed usage. Pro accounts unlock all eight techniques, Projects & Memory, unlimited saved prompts, and unlimited managed-key refinements.
+
+Saved-prompt writes, project-memory writes, recursive project deletion, and Stripe tier changes run through server-side Firebase Admin code. Browser clients may read their own tier and Pro project memory but cannot self-promote or bypass server enforcement.
+
+## Production Operations
+
+The app exposes `GET /api/health` for liveness monitoring and `GET /api/health?ready=1` for readiness monitoring. Both responses report redacted configuration checks only.
+
+Firestore transactions enforce the Free managed-key quota. Checkout and document conversion also use per-instance request throttles as a best-effort abuse guard. Multi-instance production deployments should complement these with platform or edge rate limits.
+
+See [docs/production-runbook.md](docs/production-runbook.md) for Firebase App Hosting secrets, Stripe webhook registration, alerting, release gates, and manual promotion checks.
+
+Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. API keys must remain local-only or server env-only and must never be stored in Firestore.
+
+## Development Notes
+
+- Work should happen on feature branches, never directly on `main`.
+- Keep changes aligned with the numbered implementation phases in `Documents/06-Implementation-Plan.md`.
+- Commit messages should be focused and conventional, for example `fix: make token counts deterministic` or `docs: replace starter readme`.
+- Do not commit `.env`, `.env.local`, `.next`, `node_modules`, or generated Firebase/Genkit debug files.
