@@ -1,16 +1,19 @@
 {
-  "name": "nextn",
+  "name": "prompt-refinery",
   "version": "0.1.0",
   "private": true,
   "engines": {
     "node": ">=20.19.0"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
   },
   "scripts": {
     "dev": "next dev -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 9002",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
