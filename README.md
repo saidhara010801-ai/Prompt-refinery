@@ -95,11 +95,38 @@ Required for Stripe Pro subscription upgrades:
 ```env
 STRIPE_SECRET_KEY=
 STRIPE_PRO_PRICE_ID=
+STRIPE_PRO_PRICE_ID_USD=
+STRIPE_PRO_PRICE_ID_INR=
+STRIPE_PRO_PRICE_ID_DEFAULT=
 STRIPE_WEBHOOK_SECRET=
 APP_BASE_URL=https://your-production-host.example
 ```
 
 `APP_BASE_URL` is the trusted public origin used for Stripe Checkout success and cancellation redirects. Keep it explicit in production rather than deriving it from request headers.
+
+Required for production owner bootstrap, quotas, rate limits, feature flags, and provider allowlists:
+
+```env
+OWNER_EMAILS=
+OWNER_UIDS=
+ADMIN_EMAILS=
+SUPPORT_EMAILS=
+ENABLE_ADMIN_CENTER=false
+ENABLE_DISCOUNT_ADMIN=false
+ENABLE_FILE_CONVERSION=false
+ENABLE_STRIPE_CHECKOUT=true
+ENABLE_SUPPORT_ACCESS_REQUESTS=false
+ENABLE_MANAGED_OPENROUTER=false
+FREE_DAILY_REQUEST_LIMIT=5
+PRO_DAILY_REQUEST_LIMIT=200
+PRO_MONTHLY_TOKEN_LIMIT=1000000
+MAX_UPLOAD_SIZE_MB=10
+RATE_LIMIT_WINDOW_SECONDS=60
+RATE_LIMIT_MAX_REQUESTS=60
+ADMIN_RATE_LIMIT_MAX_REQUESTS=20
+OPENROUTER_ALLOWED_MODELS=
+GEMINI_ALLOWED_MODELS=
+```
 
 Outside Firebase App Hosting, server-side tier enforcement also needs Firebase Admin application-default credentials:
 
@@ -107,9 +134,10 @@ Outside Firebase App Hosting, server-side tier enforcement also needs Firebase A
 GOOGLE_APPLICATION_CREDENTIALS=
 ```
 
-Optional for managed server-side OpenRouter fallback:
+Optional for managed server-side provider fallback. BYOK remains the recommended launch mode until managed access has quotas, model allowlists, usage logging, and cost monitoring:
 
 ```env
+GEMINI_API_KEY=
 OPENROUTER_API_KEY=
 ```
 
