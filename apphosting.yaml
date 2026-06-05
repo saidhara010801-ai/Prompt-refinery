@@ -8,7 +8,10 @@ runConfig:
   maxInstances: 10
 
 # Create these with `firebase apphosting:secrets:set`.
-# Configure APP_BASE_URL and the public NEXT_PUBLIC_FIREBASE_* values for the backend environment.
+# Configure APP_BASE_URL, owner bootstrap values, quota/model allowlist values,
+# emergency feature flags, and public NEXT_PUBLIC_FIREBASE_* values for the backend environment.
+# Optional managed provider secrets should only be configured when their feature flags,
+# quotas, and model allowlists are production-ready.
 env:
   - variable: STRIPE_SECRET_KEY
     secret: STRIPE_SECRET_KEY

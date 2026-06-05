@@ -13,6 +13,15 @@ npm audit --omit=dev
 
 The environment check must run with the production Firebase and Stripe variables available. The optional managed OpenRouter fallback and MarkItDown executable are reported separately. Review residual dependency advisories before promotion; do not use forced fixes that downgrade Next.js.
 
+Review the companion production documents before public launch:
+
+- [Production readiness plan](production-readiness-plan.md)
+- [Deployment decision](deployment-decision.md)
+- [Privacy and data retention](privacy-and-data-retention.md)
+- [Monitoring](monitoring.md)
+- [Incident response](incident-response.md)
+- [Go-live checklist](go-live-checklist.md)
+
 ## Firebase App Hosting
 
 `apphosting.yaml` references Stripe values in Cloud Secret Manager. Create or rotate them before the first rollout:
@@ -24,6 +33,8 @@ firebase apphosting:secrets:set STRIPE_WEBHOOK_SECRET
 ```
 
 Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
+
+Production readiness also requires explicit owner bootstrap, quota, model allowlist, and emergency feature-flag variables. Keep managed provider and file-conversion flags disabled until their quotas, allowlists, and runtime dependencies are verified.
 
 Deploy Firestore rules after review:
 

@@ -10,8 +10,11 @@ import {
   getRequestRateLimitEntryCountForTests,
 } from '../src/lib/server/request-rate-limit';
 import {
+  getMissingFeatureFlags,
   getMissingProductionVariables,
+  getOptionalProductionWarnings,
   getRuntimeReadiness,
+  FEATURE_FLAG_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
 } from '../src/lib/server/runtime-readiness';
 import {
@@ -87,13 +90,44 @@ test('production readiness reports required configuration without exposing value
   const environment = Object.fromEntries(
     REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`])
   );
+  for (const variable of FEATURE_FLAG_VARIABLES) {
+    environment[variable] = 'false';
+  }
 
   assert.deepEqual(getMissingProductionVariables(environment), []);
+  assert.deepEqual(getMissingFeatureFlags(environment), []);
   assert.equal(getRuntimeReadiness(environment).ready, true);
   assert.equal(getRuntimeReadiness(environment).checks.checkoutReturnOrigin, true);
+  assert.equal(getRuntimeReadiness(environment).checks.ownerBootstrap, true);
   assert.equal(getRuntimeReadiness({}).ready, false);
   assert.equal(getRuntimeReadiness({}).checks.checkoutReturnOrigin, false);
   assert.deepEqual(getMissingProductionVariables({}), [...REQUIRED_PRODUCTION_VARIABLES]);
+  assert.deepEqual(getMissingFeatureFlags({}), [...FEATURE_FLAG_VARIABLES]);
+  assert.ok(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Localized Stripe prices')));
+});
+
+test('production readiness fails closed for unguarded optional features', () => {
+  const environment = Object.fromEntries(
+    REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`])
+  );
+  for (const variable of FEATURE_FLAG_VARIABLES) {
+    environment[variable] = 'false';
+  }
+
+  environment.ENABLE_MANAGED_OPENROUTER = 'true';
+  assert.equal(getRuntimeReadiness(environment).ready, false);
+  assert.equal(getRuntimeReadiness(environment).checks.managedOpenRouterGuarded, false);
+  assert.ok(getOptionalProductionWarnings(environment).some((warning) => warning.includes('OPENROUTER_API_KEY')));
+
+  environment.OPENROUTER_API_KEY = 'configured-openrouter';
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+
+  environment.ENABLE_FILE_CONVERSION = 'true';
+  assert.equal(getRuntimeReadiness(environment).ready, false);
+  assert.equal(getRuntimeReadiness(environment).checks.fileConversionRuntime, false);
+
+  environment.MARKITDOWN_COMMAND = 'markitdown';
+  assert.equal(getRuntimeReadiness(environment).ready, true);
 });
 
 test('output formatting supports plain, Markdown, and JSON copy styles', () => {
