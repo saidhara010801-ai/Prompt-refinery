@@ -67,7 +67,17 @@ service cloud.firestore {
       return request.resource.data.id == userId &&
         request.resource.data.subscriptionTier == 'free' &&
         request.resource.data.savedPromptCount == 0 &&
-        request.resource.data.managedRefinementsUsedToday == 0;
+        request.resource.data.managedRefinementsUsedToday == 0 &&
+        !request.resource.data.keys().hasAny([
+          'role',
+          'accountStatus',
+          'subscriptionSource',
+          'subscriptionStatus',
+          'stripeCustomerId',
+          'stripeSubscriptionId',
+          'adminEntitlements',
+          'entitlements'
+        ]);
     }
     
     /**
@@ -77,7 +87,10 @@ service cloud.firestore {
       return request.resource.data.id == resource.data.id &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'subscriptionTier',
+          'subscriptionSource',
           'subscriptionStatus',
+          'role',
+          'accountStatus',
           'stripeCustomerId',
           'stripeSubscriptionId',
           'savedPromptCount',
@@ -214,6 +227,26 @@ service cloud.firestore {
       allow list: if isProUser(userId);
       // Session writes are server-managed with verified ownership and tier checks.
       allow create, update, delete: if false;
+    }
+
+    match /adminEntitlements/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /adminAuditLogs/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /stripeWebhookEvents/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /usageEvents/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /dailyUsageAggregates/{document=**} {
+      allow read, write: if false;
     }
   }
 }

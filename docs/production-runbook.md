@@ -36,6 +36,8 @@ Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `APP_BASE_URL=https:
 
 Production readiness also requires explicit owner bootstrap, quota, model allowlist, and emergency feature-flag variables. Keep managed provider and file-conversion flags disabled until their quotas, allowlists, and runtime dependencies are verified.
 
+Bootstrap at least one owner with `OWNER_EMAILS` or `OWNER_UIDS` before enabling admin APIs. Legacy user documents without role, tier, source, or status fields resolve safely to `role: "user"`, `subscriptionTier: "free"`, `subscriptionSource: null`, and `accountStatus: "active"`.
+
 Deploy Firestore rules after review:
 
 ```powershell
@@ -43,6 +45,28 @@ firebase deploy --only firestore:rules
 ```
 
 The checked-in `firebase.json` and `firestore.indexes.json` files make the rules deployment reproducible. Project-memory and saved-prompt writes are server-managed; browser rules intentionally allow read access only where required.
+
+Privileged collections are server-only from browser rules: `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, and `dailyUsageAggregates`. Admin/support access must use guarded server APIs.
+
+## Roles, Status, And Entitlements
+
+Role hierarchy is `user < support < admin < owner`. Support can read safe system health; admin can search/read redacted user metadata and entitlement/audit data; owner is required to grant/revoke Pro and suspend/reactivate accounts.
+
+Account statuses are `active`, `disabled`, `suspended`, and `deleted_pending`. Non-active statuses are blocked from checkout, managed provider calls, saving prompts, and Pro/project-memory server actions.
+
+Effective Pro entitlement is resolved server-side. Active owner/manual/team/beta/test grants can provide Pro without Stripe. Active Stripe subscription state can provide Pro. Expired or revoked grants do not. Stripe cancellation only removes Stripe-sourced Pro and must not remove valid manual/team/beta/test grants.
+
+Minimal admin API paths:
+
+- `POST /api/admin/users/search`
+- `GET /api/admin/users/{uid}/entitlement`
+- `POST /api/admin/users/{uid}/grant-pro`
+- `POST /api/admin/users/{uid}/revoke-pro`
+- `POST /api/admin/users/{uid}/status`
+- `GET /api/admin/audit-logs`
+- `GET /api/admin/system-health`
+
+All admin/security actions write redacted entries to `adminAuditLogs`.
 
 ## Stripe
 

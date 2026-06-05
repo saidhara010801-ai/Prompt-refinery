@@ -30,11 +30,15 @@
 ## Admin And Security
 
 - Owner bootstrap verified.
-- Admin grant/revoke verified.
+- Admin user metadata search verified with pagination and redaction.
+- Owner-only Pro grant/revoke verified.
 - Account suspend/reactivate verified.
 - Audit logs written.
+- Audit logs paginated and direct browser reads denied by Firestore rules.
 - Mock auth disabled in production.
 - Admin APIs protected by server-side guards.
+- Legacy users without role/tier/status/source fields render as user/free/active.
+- Suspended and disabled accounts cannot create checkout sessions or call provider APIs.
 - Logs redacted.
 
 ## User Flows

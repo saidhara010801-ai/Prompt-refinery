@@ -3,7 +3,8 @@
 import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
 import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
-import { assertProFeatureAccess, assertRefinementAccess, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
+import { assertProFeatureAccess, assertRefinementAccess, getVerifiedUserProfile, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
+import { assertActiveAccount } from "@/lib/server/user-access";
 import {
     MAX_API_KEY_CHARACTERS,
     MAX_ATTACHMENT_DATA_URI_CHARACTERS,
@@ -242,16 +243,20 @@ const evaluateSchema = z.object({
     guideline: z.string().min(1, "Guideline must be selected.").max(MAX_GUIDELINE_CHARACTERS),
     apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     userQuery: z.string().max(MAX_PROMPT_CHARACTERS),
+    firebaseIdToken: z.string().max(MAX_FIREBASE_ID_TOKEN_CHARACTERS).optional(),
 });
 
-export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput) {
+export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput & { firebaseIdToken?: string }) {
     const parsed = evaluateSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
     }
 
     try {
-        const result = await evaluatePromptGuidelineInclusion(parsed.data);
+        const { profile } = await getVerifiedUserProfile(parsed.data.firebaseIdToken);
+        assertActiveAccount(profile, "call provider APIs");
+        const { firebaseIdToken: _firebaseIdToken, ...flowData } = parsed.data;
+        const result = await evaluatePromptGuidelineInclusion(flowData);
         return result;
     } catch (error) {
         console.error("Error evaluating guideline:", error);
@@ -263,12 +268,6 @@ export async function getTokenCountsAction(data: GetTokenCountsInput) {
     const parsed = tokenCounterSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
-    }
-
-    if (!parsed.data.apiKey) {
-        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
-        missingKeyError.name = "ApiKeyMissingError";
-        throw missingKeyError;
     }
 
     try {
