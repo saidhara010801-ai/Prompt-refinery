@@ -18,7 +18,7 @@ import {
   type NormalizedUserProfile,
 } from './user-access';
 
-const MAX_PAGE_SIZE = 25;
+export const ADMIN_MAX_PAGE_SIZE = 25;
 const DEFAULT_PAGE_SIZE = 10;
 const SAFE_ENTITLEMENT_SOURCES = new Set<EntitlementSource>(['manual', 'team', 'beta', 'test']);
 
@@ -45,17 +45,17 @@ export interface AdminUserSummary {
   managedRefinementsUsedToday: number;
 }
 
-function clampPageSize(value: number | undefined): number {
+export function clampAdminPageSize(value: number | undefined): number {
   if (!value || !Number.isFinite(value)) {
     return DEFAULT_PAGE_SIZE;
   }
-  return Math.min(Math.max(Math.trunc(value), 1), MAX_PAGE_SIZE);
+  return Math.min(Math.max(Math.trunc(value), 1), ADMIN_MAX_PAGE_SIZE);
 }
 
-function redactMetadata(metadata: Record<string, unknown> = {}): Record<string, unknown> {
+export function redactAdminAuditMetadata(metadata: Record<string, unknown> = {}): Record<string, unknown> {
   const redacted: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    if (/prompt|content|memory|key|secret|token|cookie|authorization|response/i.test(key)) {
+    if (/prompt|content|memory|key|apiKey|secret|token|bearer|cookie|authorization|providerResponse|response/i.test(key)) {
       redacted[key] = '[redacted]';
     } else if (typeof value === 'string') {
       redacted[key] = value.slice(0, 160);
@@ -96,7 +96,7 @@ export async function writeAdminAuditLog(input: AdminAuditInput) {
     actorRole: input.actor?.role ?? null,
     action: input.action,
     targetUid: input.targetUid ?? null,
-    metadataRedacted: redactMetadata(input.metadata),
+    metadataRedacted: redactAdminAuditMetadata(input.metadata),
     ipHash: hashRequestValue(input.request?.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null),
     userAgentHash: hashRequestValue(input.request?.headers.get('user-agent') ?? null),
     createdAt: firestoreTimestampNow(),
@@ -114,26 +114,36 @@ export async function auditUnauthorizedAdminAttempt(request: NextRequest | Reque
   }).catch(() => undefined);
 }
 
-export async function searchAdminUsers(request: NextRequest, search: string, pageSize?: number) {
+export async function searchAdminUsers(request: NextRequest, search: string, pageSize?: number, pageToken?: string | null) {
   const actor = await requireAdmin(request);
   const firestore = getAdminFirestore();
-  const limit = clampPageSize(pageSize);
+  const limit = clampAdminPageSize(pageSize);
   const term = sanitizeSearchTerm(search);
 
   let users: AdminUserSummary[] = [];
+  let nextPageToken: string | null = null;
   if (term) {
     const byUid = await firestore.doc(`users/${term}`).get();
     if (byUid.exists) {
       users = [toUserSummary(byUid.id, normalizeUserProfile(byUid.id, byUid.data() as Record<string, unknown> | undefined))];
     } else {
-      const snapshot = await firestore
+      let query = firestore
         .collection('users')
         .orderBy('email')
         .startAt(term)
         .endAt(`${term}\uf8ff`)
-        .limit(limit)
-        .get();
+        .limit(limit);
+
+      if (pageToken) {
+        const cursorDoc = await firestore.doc(`users/${pageToken}`).get();
+        if (cursorDoc.exists) {
+          query = query.startAfter(cursorDoc);
+        }
+      }
+
+      const snapshot = await query.get();
       users = snapshot.docs.map((doc) => toUserSummary(doc.id, normalizeUserProfile(doc.id, doc.data())));
+      nextPageToken = snapshot.docs.length === limit ? snapshot.docs.at(-1)?.id ?? null : null;
     }
   }
 
@@ -144,7 +154,7 @@ export async function searchAdminUsers(request: NextRequest, search: string, pag
     request,
   });
 
-  return { users, pageSize: limit, nextPageToken: null };
+  return { users, pageSize: limit, nextPageToken };
 }
 
 export async function readAdminEntitlement(request: NextRequest, uid: string) {
@@ -246,7 +256,7 @@ export async function readAdminUserByUid(request: NextRequest, uid: string) {
 
 export async function readAuditLogs(request: NextRequest, pageSize?: number, cursor?: string | null) {
   const actor = await requireAdmin(request);
-  const limit = clampPageSize(pageSize);
+  const limit = clampAdminPageSize(pageSize);
   let query = getAdminFirestore()
     .collection('adminAuditLogs')
     .orderBy('createdAt', 'desc')

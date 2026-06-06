@@ -275,13 +275,21 @@ function roleRank(role: UserRole): number {
   return role === 'owner' ? 4 : role === 'admin' ? 3 : role === 'support' ? 2 : 1;
 }
 
+export function canAccessRole(role: UserRole, requiredRole: UserRole): boolean {
+  return roleRank(role) >= roleRank(requiredRole);
+}
+
+export function isMockAuthAllowed(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.NODE_ENV !== 'production' && environment.ENABLE_MOCK_AUTH === 'true';
+}
+
 export async function requireUser(request: NextRequest | Request): Promise<CurrentUserContext> {
   return getCurrentUserFromRequest(request);
 }
 
 export async function requireSupport(request: NextRequest | Request): Promise<CurrentUserContext> {
   const context = await requireUser(request);
-  if (roleRank(context.role) < roleRank('support')) {
+  if (!canAccessRole(context.role, 'support')) {
     throw new AuthorizationError('Support access is required.', 403, 'SupportRequiredError');
   }
   return context;
@@ -289,7 +297,7 @@ export async function requireSupport(request: NextRequest | Request): Promise<Cu
 
 export async function requireAdmin(request: NextRequest | Request): Promise<CurrentUserContext> {
   const context = await requireUser(request);
-  if (roleRank(context.role) < roleRank('admin')) {
+  if (!canAccessRole(context.role, 'admin')) {
     throw new AuthorizationError('Admin access is required.', 403, 'AdminRequiredError');
   }
   return context;
