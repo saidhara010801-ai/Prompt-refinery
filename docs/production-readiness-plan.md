@@ -12,7 +12,7 @@ The release candidate has passed local verification, but public production launc
 - Stripe test and live Checkout, Billing Portal, webhook signatures, webhook idempotency, cancellation, failed payment, and localized pricing must be verified.
 - Gemini and OpenRouter must be tested with real keys. BYOK remains the launch default.
 - Managed OpenRouter must remain disabled until quotas, model allowlists, usage logging, and cost monitoring are enforced.
-- Admin roles, account status controls, entitlement grants, audit logs, and minimal admin APIs/UI must be added before operator-managed Pro grants.
+- Minimal guarded admin APIs, account status controls, entitlement grants, and audit logs are now implemented server-side. A polished admin UI remains to be built before non-technical operators use these controls.
 - `?mock_user=` style access must remain unavailable in production.
 - MarkItDown conversion must remain disabled or isolated until runtime security is decided.
 
@@ -28,11 +28,30 @@ The release candidate has passed local verification, but public production launc
 
 Planned server-managed collections:
 
-- `adminEntitlements/{uid}` for manual/team/beta/test/owner Pro grants.
-- `adminAuditLogs/{logId}` for all admin/support/security actions.
+- `adminEntitlements/{uid}` for manual/team/beta/test Pro grants. Owner role also resolves to Pro without a Stripe subscription.
+- `adminAuditLogs/{logId}` for admin/support/security actions, including search, entitlement reads, Pro grant/revoke, account status changes, audit-log reads, health reads, and feasible unauthorized attempts.
 - `stripeWebhookEvents/{eventId}` for idempotent webhook processing.
 - `usageEvents/{eventId}` for privacy-safe usage metadata.
 - `dailyUsageAggregates/{date_uid}` for quota and admin metrics.
+
+## Implemented Server Authority
+
+- Legacy user documents default safely to `role: "user"`, `subscriptionTier: "free"`, `subscriptionSource: null`, and `accountStatus: "active"`.
+- Server guards verify Firebase ID tokens for protected admin APIs and derive the acting UID from the decoded token.
+- Role hierarchy is `user < support < admin < owner`; support can read safe system health only in this slice, admin can search/read metadata, and owner is required for Pro grants/revokes and account status changes.
+- Suspended, disabled, and `deleted_pending` accounts are blocked from checkout, managed provider calls, Pro server actions, saving prompts, and project-memory writes.
+- Entitlement precedence is server-authoritative: owner/manual/team/beta/test grants can provide Pro independently of Stripe; active Stripe state can provide Pro; expired/revoked grants do not; Stripe cancellation does not remove valid manual/team/beta/test grants.
+- Admin APIs return redacted metadata only and do not expose prompts, saved prompt contents, project memory, uploaded contents, provider responses, BYOK keys, auth headers, cookies, Stripe secrets, or environment secrets.
+
+## Minimal Admin APIs
+
+- `POST /api/admin/users/search`
+- `GET /api/admin/users/{uid}/entitlement`
+- `POST /api/admin/users/{uid}/grant-pro`
+- `POST /api/admin/users/{uid}/revoke-pro`
+- `POST /api/admin/users/{uid}/status`
+- `GET /api/admin/audit-logs`
+- `GET /api/admin/system-health`
 
 ## Deployment Recommendation
 
@@ -44,7 +63,7 @@ Production requires public Firebase config, Stripe subscription secrets, trusted
 
 ## Required Tests
 
-Before launch, add tests for legacy users, role guards, account status blocking, entitlement precedence, Stripe webhook idempotency, billing portal creation, localized pricing, admin redaction/pagination, Firestore rule assumptions, provider allowlists, BYOK redaction, quotas, upload validation, and privacy-safe analytics.
+Before launch, keep the new tests for legacy users, role boundaries, account status blocking, entitlement precedence, and Firestore rule assumptions passing. Still add tests for Stripe webhook idempotency, billing portal creation, localized pricing, admin API integration against a Firebase test project/emulator, admin redaction/pagination, provider allowlists, BYOK redaction, quotas, upload validation, and privacy-safe analytics.
 
 ## Rollback Plan
 

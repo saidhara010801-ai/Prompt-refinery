@@ -6,13 +6,24 @@ import {
   FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
   FREE_SAVED_PROMPT_LIMIT,
   isFreeTechnique,
-  isProTier,
   type SubscriptionTier,
 } from '@/lib/subscription';
-import { getAdminAuth, getAdminFirestore } from './firebase-admin';
+import { getAdminFirestore } from './firebase-admin';
+import {
+  assertActiveAccount,
+  getEffectiveUserEntitlement,
+  normalizeUserProfile,
+  verifyFirebaseIdToken,
+  type AccountStatus,
+  type NormalizedUserProfile,
+  type SubscriptionSource,
+} from './user-access';
 
 interface UserProfile {
   subscriptionTier?: SubscriptionTier;
+  subscriptionSource?: SubscriptionSource;
+  accountStatus?: AccountStatus;
+  role?: string;
   savedPromptCount?: number;
   managedRefinementsDate?: string;
   managedRefinementsUsedToday?: number;
@@ -60,14 +71,13 @@ function todayUtc(): string {
 }
 
 async function verifyUser(firebaseIdToken?: string): Promise<DecodedIdToken> {
-  if (!firebaseIdToken) {
-    throw new TierEnforcementError('Sign in again to continue.', 'AuthenticationRequiredError');
-  }
-
   try {
-    return await getAdminAuth().verifyIdToken(firebaseIdToken);
-  } catch {
-    throw new TierEnforcementError('Your sign-in session could not be verified. Sign in again and retry.', 'AuthenticationRequiredError');
+    return await verifyFirebaseIdToken(firebaseIdToken);
+  } catch (error) {
+    throw new TierEnforcementError(
+      error instanceof Error ? error.message : 'Your sign-in session could not be verified. Sign in again and retry.',
+      'AuthenticationRequiredError'
+    );
   }
 }
 
@@ -82,7 +92,10 @@ async function ensureUserProfile(decodedToken: DecodedIdToken) {
       id: decodedToken.uid,
       email: decodedToken.email ?? '',
       name: decodedToken.name ?? '',
+      role: 'user',
       subscriptionTier: 'free',
+      subscriptionSource: null,
+      accountStatus: 'active',
       savedPromptCount: savedPromptsSnapshot.size,
       managedRefinementsDate: todayUtc(),
       managedRefinementsUsedToday: 0,
@@ -98,6 +111,9 @@ async function ensureUserProfile(decodedToken: DecodedIdToken) {
 
     await userRef.set({
       subscriptionTier: profile.subscriptionTier ?? 'free',
+      subscriptionSource: profile.subscriptionSource ?? null,
+      accountStatus: profile.accountStatus ?? 'active',
+      role: profile.role ?? 'user',
       savedPromptCount: savedPromptsSnapshot?.size ?? profile.savedPromptCount ?? 0,
       managedRefinementsDate: profile.managedRefinementsDate ?? todayUtc(),
       managedRefinementsUsedToday: profile.managedRefinementsUsedToday ?? 0,
@@ -112,11 +128,19 @@ export async function getVerifiedUserProfile(firebaseIdToken?: string) {
   const decodedToken = await verifyUser(firebaseIdToken);
   const userRef = await ensureUserProfile(decodedToken);
   const snapshot = await userRef.get();
+  const profile = normalizeUserProfile(decodedToken.uid, snapshot.data() as Record<string, unknown> | undefined);
   return {
     decodedToken,
     userRef,
-    profile: (snapshot.data() ?? {}) as UserProfile,
+    profile,
   };
+}
+
+async function assertProEntitlement(uid: string, message: string) {
+  const entitlement = await getEffectiveUserEntitlement(uid);
+  if (!entitlement.isPro) {
+    throw new TierEnforcementError(message);
+  }
 }
 
 export async function assertRefinementAccess(
@@ -124,25 +148,25 @@ export async function assertRefinementAccess(
   technique: PromptTechnique,
   usesProjectMemory: boolean
 ) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'call provider APIs');
+
   if (isFreeTechnique(technique) && !usesProjectMemory) {
     return;
   }
 
-  const { profile } = await getVerifiedUserProfile(firebaseIdToken);
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError(
-      usesProjectMemory
-        ? 'Projects and memory are available on Pro. Upgrade to refine with project context.'
-        : `${technique} is a Pro refinement technique. Upgrade to unlock all eight techniques.`
-    );
-  }
+  await assertProEntitlement(
+    decodedToken.uid,
+    usesProjectMemory
+      ? 'Projects and memory are available on Pro. Upgrade to refine with project context.'
+      : `${technique} is a Pro refinement technique. Upgrade to unlock all eight techniques.`
+  );
 }
 
 export async function assertProFeatureAccess(firebaseIdToken: string | undefined, message: string) {
-  const { profile } = await getVerifiedUserProfile(firebaseIdToken);
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError(message);
-  }
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'use Pro features');
+  await assertProEntitlement(decodedToken.uid, message);
 }
 
 export async function reserveManagedRefinement(firebaseIdToken?: string) {
@@ -152,12 +176,14 @@ export async function reserveManagedRefinement(firebaseIdToken?: string) {
 
   await firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
-    const profile = (snapshot.data() ?? {}) as UserProfile;
+    const profile = normalizeUserProfile(decodedToken.uid, snapshot.data() as Record<string, unknown> | undefined);
+    assertActiveAccount(profile, 'use managed provider APIs');
     const usedToday = profile.managedRefinementsDate === usageDate
       ? profile.managedRefinementsUsedToday ?? 0
       : 0;
+    const entitlement = await getEffectiveUserEntitlement(decodedToken.uid);
 
-    if (!isProTier(profile.subscriptionTier) && usedToday >= FREE_MANAGED_REFINEMENT_DAILY_LIMIT) {
+    if (!entitlement.isPro && usedToday >= FREE_MANAGED_REFINEMENT_DAILY_LIMIT) {
       throw new TierEnforcementError(
         `Free managed refinements are limited to ${FREE_MANAGED_REFINEMENT_DAILY_LIMIT} per day. Add your own API key or upgrade to Pro.`,
         'ManagedRateLimitError'
@@ -180,7 +206,7 @@ export async function releaseManagedRefinement(uid: string, usageDate: string) {
 
   await firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
-    const profile = (snapshot.data() ?? {}) as UserProfile;
+    const profile = normalizeUserProfile(uid, snapshot.data() as Record<string, unknown> | undefined);
     if (profile.managedRefinementsDate !== usageDate) {
       return;
     }
@@ -199,10 +225,12 @@ export async function savePromptForUser(firebaseIdToken: string | undefined, pro
 
   await firestore.runTransaction(async (transaction) => {
     const userSnapshot = await transaction.get(userRef);
-    const profile = (userSnapshot.data() ?? {}) as UserProfile;
+    const profile = normalizeUserProfile(decodedToken.uid, userSnapshot.data() as Record<string, unknown> | undefined);
+    assertActiveAccount(profile, 'save prompts');
     const savedPromptCount = profile.savedPromptCount ?? 0;
+    const entitlement = await getEffectiveUserEntitlement(decodedToken.uid);
 
-    if (!isProTier(profile.subscriptionTier) && savedPromptCount >= FREE_SAVED_PROMPT_LIMIT) {
+    if (!entitlement.isPro && savedPromptCount >= FREE_SAVED_PROMPT_LIMIT) {
       throw new TierEnforcementError(
         `Free accounts can save up to ${FREE_SAVED_PROMPT_LIMIT} prompts. Delete an older prompt or upgrade to Pro.`,
         'SavedPromptLimitError'
@@ -239,7 +267,8 @@ export async function deleteSavedPromptForUser(firebaseIdToken: string | undefin
       return;
     }
 
-    const profile = (userSnapshot.data() ?? {}) as UserProfile;
+    const profile = normalizeUserProfile(decodedToken.uid, userSnapshot.data() as Record<string, unknown> | undefined);
+    assertActiveAccount(profile, 'delete saved prompts');
     transaction.delete(savedPromptRef);
     transaction.set(userRef, {
       savedPromptCount: Math.max((profile.savedPromptCount ?? 1) - 1, 0),
@@ -250,10 +279,8 @@ export async function deleteSavedPromptForUser(firebaseIdToken: string | undefin
 
 export async function deleteProjectForUser(firebaseIdToken: string | undefined, projectId: string) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
-
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to manage project context.');
-  }
+  assertActiveAccount(profile, 'manage project context');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to manage project context.');
 
   const firestore = getAdminFirestore();
   await firestore.recursiveDelete(firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`));
@@ -264,10 +291,8 @@ export async function createProjectForUser(
   project: { name: string; description: string }
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
-
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to create a project.');
-  }
+  assertActiveAccount(profile, 'create projects');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to create a project.');
 
   const firestore = getAdminFirestore();
   const projectRef = firestore.collection(`users/${decodedToken.uid}/projects`).doc();
@@ -289,10 +314,8 @@ export async function addProjectSessionForUser(
   session: ProjectSessionInput
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
-
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to store project sessions.');
-  }
+  assertActiveAccount(profile, 'store project sessions');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to store project sessions.');
 
   const firestore = getAdminFirestore();
   const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
@@ -322,10 +345,8 @@ export async function updateProjectSessionResponseForUser(
   llmResponse: string
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
-
-  if (!isProTier(profile.subscriptionTier)) {
-    throw new TierEnforcementError('Projects and memory are available on Pro. Upgrade to update project memory.');
-  }
+  assertActiveAccount(profile, 'update project memory');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to update project memory.');
 
   const firestore = getAdminFirestore();
   const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);

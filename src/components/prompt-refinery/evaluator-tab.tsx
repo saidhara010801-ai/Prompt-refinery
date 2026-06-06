@@ -19,6 +19,7 @@ import { evaluateGuidelineAction } from '@/app/actions';
 import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
 import { Progress } from '@/components/ui/progress';
+import { useFirebase } from '@/firebase';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -65,6 +66,20 @@ function getErrorToast(error: unknown): { title: string; description: string } {
     };
   }
 
+  if (errorName === 'AuthenticationRequiredError' || errorMessage.includes('Sign in')) {
+    return {
+      title: 'Sign In Required',
+      description: 'Sign in again, then try evaluating the prompt.',
+    };
+  }
+
+  if (errorName === 'AccountStatusBlockedError' || errorMessage.includes('account is')) {
+    return {
+      title: 'Account Restricted',
+      description: errorMessage,
+    };
+  }
+
   if (errorName === 'ApiQuotaError' || errorMessage.includes('quota')) {
     return {
       title: 'Gemini Quota Issue',
@@ -84,6 +99,7 @@ export function EvaluatorTab() {
   const { toast } = useToast();
   const { apiKey } = useContext(ApiKeyContext);
   const { triggerAnimation } = useContext(SettingsContext);
+  const { user } = useFirebase();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -97,7 +113,13 @@ export function EvaluatorTab() {
     setIsLoading(true);
     setEvaluation(null);
     try {
-      const result = await evaluateGuidelineAction({ ...data, userQuery: data.prompt, apiKey: apiKey || undefined });
+      const firebaseIdToken = await user?.getIdToken();
+      const result = await evaluateGuidelineAction({
+        ...data,
+        userQuery: data.prompt,
+        apiKey: apiKey || undefined,
+        firebaseIdToken,
+      });
       setEvaluation(result);
     } catch (error) {
       const errorToast = getErrorToast(error);
