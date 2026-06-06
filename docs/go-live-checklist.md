@@ -31,10 +31,15 @@
 
 - Owner bootstrap verified.
 - Admin user metadata search verified with pagination and redaction.
+- Admin API rate limits verified for search, audit reads, entitlement reads, health reads, grant/revoke, and status changes.
 - Owner-only Pro grant/revoke verified.
+- Support cannot grant/revoke Pro or suspend/reactivate users.
+- Admin cannot grant/revoke Pro or suspend/reactivate users unless elevated to owner.
 - Account suspend/reactivate verified.
+- Suspended/disabled accounts cannot use Pro-gated project or memory APIs.
 - Audit logs written.
 - Audit logs paginated and direct browser reads denied by Firestore rules.
+- Audit logs do not contain raw request bodies, prompts, uploaded contents, memory, BYOK keys, bearer tokens, cookies, raw provider responses, or secrets.
 - Mock auth disabled in production.
 - Admin APIs protected by server-side guards.
 - Legacy users without role/tier/status/source fields render as user/free/active.

@@ -68,6 +68,23 @@ Minimal admin API paths:
 
 All admin/security actions write redacted entries to `adminAuditLogs`.
 
+Admin API throttles are enforced in the shared admin route wrapper:
+
+- Owner-only mutations, including Pro grant/revoke and account-status changes, are limited to the stricter mutation bucket.
+- User search and audit-log reads use a stricter read/search bucket.
+- Entitlement reads and system-health reads use the default admin bucket.
+- `ADMIN_RATE_LIMIT_MAX_REQUESTS` controls the upper read limit; mutation/search buckets are capped below that value.
+
+Admin user search must provide a UID or email-prefix search term. It returns at most 25 users and uses `nextPageToken` for additional pages. Audit-log reads are ordered by newest first, return at most 25 logs, and use `nextPageToken` for additional pages. Do not add unbounded collection scans to admin APIs.
+
+Audit logs must never include raw request bodies, prompts, uploaded contents, saved prompt text, project memory, BYOK keys, auth headers, cookies, bearer tokens, raw provider responses, Stripe secrets, or environment secrets. Audit metadata redacts sensitive keys and stores request IP/user-agent metadata as short hashes.
+
+Manual Firestore rule verification until emulator tests are added:
+
+- A user cannot write `role`, `accountStatus`, subscription, Stripe, quota, entitlement, audit, usage, or admin fields on their own profile.
+- A browser client cannot read or write `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, or `dailyUsageAggregates`.
+- A user cannot read another user's saved prompts, projects, project sessions, or profile document.
+
 ## Stripe
 
 Create a recurring Pro price and store its price ID as `STRIPE_PRO_PRICE_ID`. Register:

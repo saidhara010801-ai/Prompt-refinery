@@ -11,6 +11,12 @@ import {
   getRequestRateLimitEntryCountForTests,
 } from '../src/lib/server/request-rate-limit';
 import {
+  ADMIN_MAX_PAGE_SIZE,
+  clampAdminPageSize,
+  redactAdminAuditMetadata,
+} from '../src/lib/server/admin-service';
+import { getAdminRateLimitForTests } from '../src/app/api/admin/_shared';
+import {
   getMissingFeatureFlags,
   getMissingProductionVariables,
   getOptionalProductionWarnings,
@@ -27,8 +33,11 @@ import {
 import { MAX_TOKEN_ESTIMATE_CHARACTERS } from '../src/lib/input-limits';
 import {
   assertActiveAccount,
+  canAccessRole,
   evaluateEntitlement,
   getBootstrapRole,
+  hashRequestValue,
+  isMockAuthAllowed,
   normalizeUserProfile,
 } from '../src/lib/server/user-access';
 
@@ -187,7 +196,77 @@ test('account status blocks provider, checkout, save, and pro server work', () =
   assert.doesNotThrow(() => assertActiveAccount({ accountStatus: 'active' }, 'call provider APIs'));
   assert.throws(() => assertActiveAccount({ accountStatus: 'suspended' }, 'call provider APIs'), /suspended/);
   assert.throws(() => assertActiveAccount({ accountStatus: 'disabled' }, 'create checkout sessions'), /disabled/);
+  assert.throws(() => assertActiveAccount({ accountStatus: 'suspended' }, 'use Pro project memory APIs'), /project memory/);
+  assert.throws(() => assertActiveAccount({ accountStatus: 'disabled' }, 'call refinement provider APIs'), /refinement provider/);
   assert.throws(() => assertActiveAccount({ accountStatus: 'deleted_pending' }, 'save prompts'), /deleted_pending/);
+});
+
+test('admin role boundaries keep support below admin and admin below owner-only actions', () => {
+  assert.equal(canAccessRole('user', 'support'), false);
+  assert.equal(canAccessRole('support', 'support'), true);
+  assert.equal(canAccessRole('support', 'admin'), false);
+  assert.equal(canAccessRole('admin', 'admin'), true);
+  assert.equal(canAccessRole('admin', 'owner'), false);
+  assert.equal(canAccessRole('owner', 'owner'), true);
+});
+
+test('admin pagination clamps page sizes and admin throttles are stricter for mutations', () => {
+  assert.equal(ADMIN_MAX_PAGE_SIZE, 25);
+  assert.equal(clampAdminPageSize(undefined), 10);
+  assert.equal(clampAdminPageSize(0), 10);
+  assert.equal(clampAdminPageSize(3.9), 3);
+  assert.equal(clampAdminPageSize(500), 25);
+
+  const grantLimit = getAdminRateLimitForTests('admin.pro_grant');
+  const searchLimit = getAdminRateLimitForTests('admin.user_search');
+  const healthLimit = getAdminRateLimitForTests('admin.system_health_read');
+  assert.ok(grantLimit.limit <= searchLimit.limit);
+  assert.ok(searchLimit.limit <= healthLimit.limit);
+  assert.ok(grantLimit.windowMs > searchLimit.windowMs);
+});
+
+test('admin audit metadata redacts sensitive fields and hashes request metadata', () => {
+  const redacted = redactAdminAuditMetadata({
+    prompt: 'raw prompt',
+    uploadedContent: 'document text',
+    projectMemory: 'private memory',
+    apiKey: 'secret-key',
+    bearerToken: 'bearer-token',
+    cookie: 'session-cookie',
+    authorization: 'Bearer abc',
+    providerResponse: 'raw response',
+    responseBody: 'model body',
+    harmless: 'visible metadata',
+    nested: { secret: 'value' },
+  });
+
+  for (const field of [
+    'prompt',
+    'uploadedContent',
+    'projectMemory',
+    'apiKey',
+    'bearerToken',
+    'cookie',
+    'authorization',
+    'providerResponse',
+    'responseBody',
+  ]) {
+    assert.equal(redacted[field], '[redacted]');
+  }
+  assert.equal(redacted.harmless, 'visible metadata');
+  assert.equal(redacted.nested, '[metadata]');
+
+  const hashed = hashRequestValue('203.0.113.10');
+  assert.equal(typeof hashed, 'string');
+  assert.equal(hashed?.length, 24);
+  assert.notEqual(hashed, '203.0.113.10');
+});
+
+test('mock auth cannot unlock production behavior', () => {
+  assert.equal(isMockAuthAllowed({ NODE_ENV: 'production', ENABLE_MOCK_AUTH: 'true' } as NodeJS.ProcessEnv), false);
+  assert.equal(isMockAuthAllowed({ NODE_ENV: 'production', ENABLE_MOCK_AUTH: 'false' } as NodeJS.ProcessEnv), false);
+  assert.equal(isMockAuthAllowed({ NODE_ENV: 'development', ENABLE_MOCK_AUTH: 'true' } as NodeJS.ProcessEnv), true);
+  assert.equal(isMockAuthAllowed({ NODE_ENV: 'test' } as NodeJS.ProcessEnv), false);
 });
 
 test('entitlement precedence keeps manual grants separate from Stripe state', () => {
@@ -268,6 +347,18 @@ test('firestore rules deny browser access to privileged production collections a
     'subscriptionStatus',
     'stripeCustomerId',
     'stripeSubscriptionId',
+    'savedPromptCount',
+    'managedRefinementsDate',
+    'managedRefinementsUsedToday',
+    'adminEntitlements',
+    'entitlements',
+    'quota',
+    'quotas',
+    'usage',
+    'audit',
+    'admin',
+    'adminRole',
+    'billingRole',
   ]) {
     assert.match(rules, new RegExp(`'${fieldName}'`));
   }

@@ -76,7 +76,14 @@ service cloud.firestore {
           'stripeCustomerId',
           'stripeSubscriptionId',
           'adminEntitlements',
-          'entitlements'
+          'entitlements',
+          'quota',
+          'quotas',
+          'usage',
+          'audit',
+          'admin',
+          'adminRole',
+          'billingRole'
         ]);
     }
     
@@ -95,7 +102,14 @@ service cloud.firestore {
           'stripeSubscriptionId',
           'savedPromptCount',
           'managedRefinementsDate',
-          'managedRefinementsUsedToday'
+          'managedRefinementsUsedToday',
+          'quota',
+          'quotas',
+          'usage',
+          'audit',
+          'admin',
+          'adminRole',
+          'billingRole'
         ]);
     }
 
