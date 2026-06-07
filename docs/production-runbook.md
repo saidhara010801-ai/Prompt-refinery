@@ -38,6 +38,8 @@ Production readiness also requires explicit owner bootstrap, quota, model allowl
 
 Bootstrap at least one owner with `OWNER_EMAILS` or `OWNER_UIDS` before enabling admin APIs. Legacy user documents without role, tier, source, or status fields resolve safely to `role: "user"`, `subscriptionTier: "free"`, `subscriptionSource: null`, and `accountStatus: "active"`.
 
+Server APIs verify Firebase ID tokens with revoked-token checking enabled. Revoked sessions receive a safe reauthentication response, and disabled Firebase users receive a safe account-disabled response. Raw Firebase Admin errors must not be returned to clients.
+
 Deploy Firestore rules after review:
 
 ```powershell
@@ -46,13 +48,15 @@ firebase deploy --only firestore:rules
 
 The checked-in `firebase.json` and `firestore.indexes.json` files make the rules deployment reproducible. Project-memory and saved-prompt writes are server-managed; browser rules intentionally allow read access only where required.
 
-Privileged collections are server-only from browser rules: `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, and `dailyUsageAggregates`. Admin/support access must use guarded server APIs.
+Privileged collections are server-only from browser rules: `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, `dailyUsageAggregates`, and `supportAccessRequests`. Admin/support access must use guarded server APIs. `supportAccessRequests` stays fully denied until a scoped support-access flow is intentionally implemented.
 
 ## Roles, Status, And Entitlements
 
 Role hierarchy is `user < support < admin < owner`. Support can read safe system health; admin can search/read redacted user metadata and entitlement/audit data; owner is required to grant/revoke Pro and suspend/reactivate accounts.
 
 Account statuses are `active`, `disabled`, `suspended`, and `deleted_pending`. Non-active statuses are blocked from checkout, managed provider calls, saving prompts, and Pro/project-memory server actions.
+
+Checkout must call the explicit checkout account-status helper before creating a Stripe session. This keeps checkout blocking consistent with provider, saved-prompt, and project-memory enforcement.
 
 Effective Pro entitlement is resolved server-side. Active owner/manual/team/beta/test grants can provide Pro without Stripe. Active Stripe subscription state can provide Pro. Expired or revoked grants do not. Stripe cancellation only removes Stripe-sourced Pro and must not remove valid manual/team/beta/test grants.
 
@@ -79,11 +83,14 @@ Admin user search must provide a UID or email-prefix search term. It returns at 
 
 Audit logs must never include raw request bodies, prompts, uploaded contents, saved prompt text, project memory, BYOK keys, auth headers, cookies, bearer tokens, raw provider responses, Stripe secrets, or environment secrets. Audit metadata redacts sensitive keys and stores request IP/user-agent metadata as short hashes.
 
+The admin wrapper audit-attempts feature-disabled, rate-limited, authorization, and unexpected failures with redacted metadata only. Unexpected server logs should include error names/categories rather than raw error objects.
+
 Manual Firestore rule verification until emulator tests are added:
 
 - A user cannot write `role`, `accountStatus`, subscription, Stripe, quota, entitlement, audit, usage, or admin fields on their own profile.
-- A browser client cannot read or write `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, or `dailyUsageAggregates`.
+- A browser client cannot read or write `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, `dailyUsageAggregates`, or `supportAccessRequests`.
 - A user cannot read another user's saved prompts, projects, project sessions, or profile document.
+- Add functional Firestore emulator rule tests before public launch; current regression tests inspect the checked-in rules text as a lightweight guard.
 
 ## Stripe
 
