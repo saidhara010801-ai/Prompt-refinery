@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { assertActiveAccountForCheckout } from '@/lib/server/account-service';
 import { getCheckoutReturnOrigin } from '@/lib/server/checkout-origin';
 import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
-import { assertActiveAccount, getBearerTokenFromRequest, getCurrentUserFromRequest } from '@/lib/server/user-access';
+import {
+  buildCheckoutSessionParams,
+  getCountryFromRequest,
+  getLocaleFromRequest,
+  isPromotionCodesEnabled,
+  isStripeCheckoutEnabled,
+  requireAllowedBrowserPostOrigin,
+  selectStripePriceForUser,
+} from '@/lib/server/stripe-billing';
+import { AuthorizationError, getBearerTokenFromRequest, getCurrentUserFromRequest } from '@/lib/server/user-access';
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
 
 export async function POST(request: NextRequest) {
   const rateLimit = consumeRequestLimit({
@@ -22,7 +31,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (process.env.ENABLE_STRIPE_CHECKOUT === 'false' || !stripeSecretKey || !stripeProPriceId) {
+  if (!isStripeCheckoutEnabled() || !stripeSecretKey) {
     return NextResponse.json(
       { error: { message: 'Stripe Pro checkout is not configured on this server.' } },
       { status: 503 }
@@ -35,27 +44,35 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    requireAllowedBrowserPostOrigin(request);
     const currentUser = await getCurrentUserFromRequest(request);
-    assertActiveAccount(currentUser.profile, 'create checkout sessions');
+    await assertActiveAccountForCheckout(currentUser.uid);
 
     const origin = getCheckoutReturnOrigin(request.url);
-    const stripe = new Stripe(stripeSecretKey);
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      client_reference_id: currentUser.uid,
-      customer_email: currentUser.email || currentUser.decodedToken.email,
-      line_items: [{ price: stripeProPriceId, quantity: 1 }],
-      metadata: { firebaseUid: currentUser.uid },
-      subscription_data: {
-        metadata: { firebaseUid: currentUser.uid },
-      },
-      success_url: `${origin}/?upgrade=success`,
-      cancel_url: `${origin}/?upgrade=cancelled`,
+    const price = selectStripePriceForUser({
+      country: getCountryFromRequest(request),
+      locale: getLocaleFromRequest(request),
     });
+    const stripe = new Stripe(stripeSecretKey);
+    const session = await stripe.checkout.sessions.create(buildCheckoutSessionParams({
+      uid: currentUser.uid,
+      email: currentUser.email || currentUser.decodedToken.email,
+      priceId: price.priceId,
+      origin,
+      allowPromotionCodes: isPromotionCodesEnabled(),
+    }));
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error('Could not create Stripe subscription checkout:', error);
+    console.error('Could not create Stripe subscription checkout:', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
+    if (error instanceof Error && error.name === 'OriginNotAllowedError') {
+      return NextResponse.json({ error: { message: 'Request origin is not allowed.' } }, { status: 403 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: { message: error.message } }, { status: error.status });
+    }
     return NextResponse.json(
       { error: { message: 'Could not start Pro checkout. Please sign in again and retry.' } },
       { status: 500 }
@@ -65,7 +82,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    configured: Boolean(stripeSecretKey && stripeProPriceId),
+    configured: Boolean(stripeSecretKey && (process.env.STRIPE_PRO_PRICE_ID || process.env.STRIPE_PRO_PRICE_ID_DEFAULT || process.env.STRIPE_PRO_PRICE_ID_USD)),
     product: 'Prompt Refinery Pro',
   });
 }

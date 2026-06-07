@@ -18,8 +18,12 @@ npm audit --omit=dev
 - Gemini BYOK valid/invalid.
 - OpenRouter BYOK valid/invalid.
 - Stripe Checkout test and live-mode dry run.
-- Stripe webhook valid signature, invalid signature, duplicate event, cancellation, failed payment.
-- Billing portal.
+- Stripe Checkout rejects unauthenticated users, blocked account statuses, disabled checkout flag, invalid origins, and client price/currency spoofing.
+- Stripe localized pricing resolves INR for India when configured and falls back safely to default/USD.
+- Stripe promotion-code entry follows `ENABLE_PROMOTION_CODES`; no app-side discount math.
+- Stripe webhook valid signature, invalid signature, duplicate event, failed lookup, retry-safe behavior, cancellation, paid invoice, and failed payment.
+- Stripe webhook records are written to `stripeWebhookEvents/{eventId}` without raw payloads or secrets.
+- Billing Portal uses only stored server-side `stripeCustomerId` and rejects blocked or unlinked accounts.
 - Admin owner bootstrap.
 - Admin user search with redaction and pagination.
 - Manual/team/beta/test Pro grant/revoke; verify revocation does not cancel Stripe.
@@ -50,6 +54,7 @@ Document any residual npm audit advisories, disabled features, manual setup gaps
 - Production mock-auth rejection coverage.
 - Entitlement precedence coverage for free, Stripe Pro, manual grant, expired grant, revoked grant, manual grant surviving Stripe cancellation, and owner role.
 - Firestore rule assumption coverage for privileged collection denies and server-managed user fields.
+- Stripe price-selection, Checkout parameter, promotion-code, origin-check, Billing Portal parameter, subscription lifecycle, manual-grant survival, and webhook event-record coverage.
 
 ## Phase C/D Closure Results
 
@@ -58,3 +63,11 @@ Document any residual npm audit advisories, disabled features, manual setup gaps
 - Audit-log reads are cursor-paginated and capped at 25 results.
 - Firestore rule assumptions are covered by regression tests that inspect the checked-in rules file. Full emulator-based rule tests are still recommended before public launch.
 - Local closure verification was run on this branch; production env verification still requires real Firebase/Stripe/App Hosting values.
+
+## Stripe Billing Hardening Results
+
+- Checkout uses server-selected Price IDs and `APP_BASE_URL` return URLs.
+- Billing Portal route is authenticated, account-status guarded, origin checked, throttled, and server-customer-only.
+- Webhook processing verifies Stripe signatures against the raw request body and records idempotency status in `stripeWebhookEvents`.
+- Stripe subscription events update only server-owned subscription and Stripe fields, never role fields.
+- Manual/team/beta/test/owner entitlements survive Stripe cancellation through entitlement precedence.

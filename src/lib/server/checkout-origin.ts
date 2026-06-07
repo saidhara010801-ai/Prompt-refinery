@@ -8,7 +8,7 @@ function parseBaseUrl(value: string): string {
   return parsed.origin;
 }
 
-export function getCheckoutReturnOrigin(requestUrl: string, environment = process.env): string {
+export function getCheckoutReturnOrigin(requestUrl: string, environment: Record<string, string | undefined> = process.env): string {
   const configuredBaseUrl = environment.APP_BASE_URL?.trim();
 
   if (configuredBaseUrl) {

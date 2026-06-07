@@ -14,10 +14,21 @@
 - Product created.
 - USD/default price created.
 - INR price created if localized pricing is enabled.
+- `STRIPE_PRO_PRICE_ID`, `STRIPE_PRO_PRICE_ID_DEFAULT`, `STRIPE_PRO_PRICE_ID_USD`, and `STRIPE_PRO_PRICE_ID_INR` configured as intended.
+- `ENABLE_STRIPE_CHECKOUT` and `ENABLE_PROMOTION_CODES` explicitly configured.
 - Test checkout passed.
+- Checkout rejects spoofed client price/currency/UID/customer data.
+- Checkout origin validation passed against `APP_BASE_URL`.
+- India checkout selects INR when configured; unknown/default checkout selects default/USD.
+- Billing Portal configured and successful portal session verified.
+- Billing Portal rejects unauthenticated, suspended, disabled, deleted-pending, missing-customer, and client-spoofed-customer attempts.
 - Webhook endpoint configured.
 - Webhook signature verified.
+- Duplicate webhook idempotency verified.
+- Webhook failed lookup recording verified in `stripeWebhookEvents`.
 - Cancellation and failed-payment flows verified.
+- Manual/team/beta/test grants survive Stripe cancellation.
+- Webhooks do not overwrite role fields.
 - Live keys configured only in production.
 
 ## Providers
