@@ -9,7 +9,7 @@ The release candidate has passed local verification, but public production launc
 ## Production Blockers
 
 - Real Firebase project, Auth providers, authorized domains, Firestore rules, and indexes must be configured and deployed.
-- Stripe test and live Checkout, Billing Portal, webhook signatures, webhook idempotency, cancellation, failed payment, and localized pricing must be verified.
+- Stripe test and live mode must be configured and verified with real products, prices, Billing Portal settings, webhook signatures, cancellation, failed payment, and localized pricing.
 - Gemini and OpenRouter must be tested with real keys. BYOK remains the launch default.
 - Managed OpenRouter must remain disabled until quotas, model allowlists, usage logging, and cost monitoring are enforced.
 - Minimal guarded admin APIs, account status controls, entitlement grants, and audit logs are now implemented server-side. A polished admin UI remains to be built before non-technical operators use these controls.
@@ -42,6 +42,8 @@ Planned server-managed collections:
 - Suspended, disabled, and `deleted_pending` accounts are blocked from checkout, managed provider calls, Pro server actions, saving prompts, and project-memory writes.
 - Entitlement precedence is server-authoritative: owner/manual/team/beta/test grants can provide Pro independently of Stripe; active Stripe state can provide Pro; expired/revoked grants do not; Stripe cancellation does not remove valid manual/team/beta/test grants.
 - Admin APIs return redacted metadata only and do not expose prompts, saved prompt contents, project memory, uploaded contents, provider responses, BYOK keys, auth headers, cookies, Stripe secrets, or environment secrets.
+- Stripe Checkout, Billing Portal, localized price selection, promotion-code toggling, webhook signature verification, webhook idempotency records, and subscription lifecycle field updates are implemented server-side.
+- Stripe routes derive the user from verified Firebase ID tokens, reject blocked account statuses, validate browser-triggered origins against `APP_BASE_URL`, use route-level throttles, and never trust client-submitted UID, customer ID, subscription ID, role, tier, entitlement, price ID, or currency.
 
 ## Minimal Admin APIs
 
@@ -63,7 +65,7 @@ Production requires public Firebase config, Stripe subscription secrets, trusted
 
 ## Required Tests
 
-Before launch, keep the new tests for legacy users, role boundaries, account status blocking, entitlement precedence, and Firestore rule assumptions passing. Still add tests for Stripe webhook idempotency, billing portal creation, localized pricing, admin API integration against a Firebase test project/emulator, admin redaction/pagination, provider allowlists, BYOK redaction, quotas, upload validation, and privacy-safe analytics.
+Before launch, keep the tests for legacy users, role boundaries, account status blocking, entitlement precedence, Firestore rule assumptions, Stripe price selection, Checkout params, Billing Portal params, webhook event records, and subscription lifecycle passing. Still add integration tests against Stripe test mode and a Firebase test project/emulator, plus provider allowlists, BYOK redaction, quotas, upload validation, and privacy-safe analytics.
 
 ## Rollback Plan
 
