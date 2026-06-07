@@ -15,7 +15,8 @@ import {
   clampAdminPageSize,
   redactAdminAuditMetadata,
 } from '../src/lib/server/admin-service';
-import { getAdminRateLimitForTests } from '../src/app/api/admin/_shared';
+import { getAdminFailureAuditMetadata, getAdminRateLimitForTests } from '../src/app/api/admin/_shared';
+import { assertCanCreateCheckoutForProfile } from '../src/lib/server/account-service';
 import {
   getMissingFeatureFlags,
   getMissingProductionVariables,
@@ -38,6 +39,7 @@ import {
   getBootstrapRole,
   hashRequestValue,
   isMockAuthAllowed,
+  mapFirebaseAuthError,
   normalizeUserProfile,
 } from '../src/lib/server/user-access';
 
@@ -201,6 +203,30 @@ test('account status blocks provider, checkout, save, and pro server work', () =
   assert.throws(() => assertActiveAccount({ accountStatus: 'deleted_pending' }, 'save prompts'), /deleted_pending/);
 });
 
+test('explicit checkout account-status helper blocks non-active accounts', () => {
+  assert.doesNotThrow(() => assertCanCreateCheckoutForProfile({ accountStatus: 'active' }));
+  assert.throws(() => assertCanCreateCheckoutForProfile({ accountStatus: 'disabled' }), /create checkout sessions/);
+  assert.throws(() => assertCanCreateCheckoutForProfile({ accountStatus: 'suspended' }), /create checkout sessions/);
+  assert.throws(() => assertCanCreateCheckoutForProfile({ accountStatus: 'deleted_pending' }), /create checkout sessions/);
+});
+
+test('firebase auth errors map revoked and disabled users to safe app errors', () => {
+  const revoked = mapFirebaseAuthError({ code: 'auth/id-token-revoked' });
+  assert.equal(revoked.name, 'AuthenticationRequiredError');
+  assert.equal(revoked.status, 401);
+  assert.match(revoked.message, /revoked/i);
+
+  const disabled = mapFirebaseAuthError({ code: 'auth/user-disabled' });
+  assert.equal(disabled.name, 'AccountStatusBlockedError');
+  assert.equal(disabled.status, 403);
+  assert.match(disabled.message, /disabled/i);
+
+  const generic = mapFirebaseAuthError(new Error('raw firebase stack should not leak'));
+  assert.equal(generic.name, 'AuthenticationRequiredError');
+  assert.equal(generic.status, 401);
+  assert.doesNotMatch(generic.message, /raw firebase stack/i);
+});
+
 test('admin role boundaries keep support below admin and admin below owner-only actions', () => {
   assert.equal(canAccessRole('user', 'support'), false);
   assert.equal(canAccessRole('support', 'support'), true);
@@ -260,6 +286,15 @@ test('admin audit metadata redacts sensitive fields and hashes request metadata'
   assert.equal(typeof hashed, 'string');
   assert.equal(hashed?.length, 24);
   assert.notEqual(hashed, '203.0.113.10');
+});
+
+test('admin wrapper failure audit metadata is privacy-safe for unexpected errors', () => {
+  const metadata = getAdminFailureAuditMetadata(new Error('raw secret body'), 'unexpected');
+  assert.deepEqual(metadata, {
+    failureKind: 'unexpected',
+    errorName: 'Error',
+  });
+  assert.doesNotMatch(JSON.stringify(metadata), /raw secret body/);
 });
 
 test('mock auth cannot unlock production behavior', () => {
@@ -329,12 +364,17 @@ test('entitlement precedence keeps manual grants separate from Stripe state', ()
 
 test('firestore rules deny browser access to privileged production collections and server-managed fields', () => {
   const rules = readFileSync('firestore.rules', 'utf8');
+  const createProfileRule = rules.slice(
+    rules.indexOf('function hasValidUserDataOnCreate'),
+    rules.indexOf('function isUpdatingImmutableUserData')
+  );
   for (const collectionName of [
     'adminEntitlements',
     'adminAuditLogs',
     'stripeWebhookEvents',
     'usageEvents',
     'dailyUsageAggregates',
+    'supportAccessRequests',
   ]) {
     assert.ok(rules.includes(`match /${collectionName}/{document=**}`));
   }
@@ -361,5 +401,17 @@ test('firestore rules deny browser access to privileged production collections a
     'billingRole',
   ]) {
     assert.match(rules, new RegExp(`'${fieldName}'`));
+  }
+
+  for (const creationBlockedField of [
+    'savedPromptCount',
+    'managedRefinementsDate',
+    'managedRefinementsUsedToday',
+    'usage',
+    'quota',
+    'audit',
+    'admin',
+  ]) {
+    assert.match(createProfileRule, new RegExp(`'${creationBlockedField}'`));
   }
 });
