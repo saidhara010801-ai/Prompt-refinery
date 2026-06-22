@@ -1,8 +1,8 @@
-# The Prompt Refinery
+# Clarift
 
 Refine raw prompts with an AI Council of expert agents for dramatically better LLM outputs.
 
-The Prompt Refinery helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, OpenRouter routing, and user-provided API keys stored locally in the browser.
+Clarift helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, OpenRouter routing, and user-provided API keys stored locally in the browser.
 
 ## Current Product Scope
 

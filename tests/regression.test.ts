@@ -561,3 +561,21 @@ test('firestore rules deny browser access to privileged production collections a
     assert.match(rules, new RegExp(`'${fieldName}'`));
   }
 });
+
+test('Clarift brand metadata and customer surfaces use the supplied identity', () => {
+  const layout = readFileSync('src/app/layout.tsx', 'utf8');
+  const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
+  const logo = readFileSync('src/components/icons/logo.tsx', 'utf8');
+  const checkout = readFileSync('src/app/api/checkout_sessions/route.ts', 'utf8');
+
+  assert.match(layout, /default: 'Clarift'/);
+  assert.match(layout, /openGraph:[\s\S]*title: 'Clarift'/);
+  assert.match(app, /<h1 className="sr-only">Clarift<\/h1>/);
+  assert.match(logo, /clarift-\$\{assetName\}-dark\.svg/);
+  assert.match(logo, /clarift-\$\{assetName\}-light\.svg/);
+  assert.match(checkout, /product: 'Clarift Pro'/);
+
+  for (const customerSurface of [layout, app, checkout]) {
+    assert.doesNotMatch(customerSurface, /The Prompt Refinery|Prompt Refinery Pro/);
+  }
+});
