@@ -70,12 +70,8 @@ export function PromptRefineryApp() {
   return (
     <div className="w-full max-w-7xl mx-auto">
         <header className="flex flex-col items-center justify-center gap-3 mb-8">
-            <div className="flex items-center gap-3">
-              <Logo className="h-10 w-10 text-primary" />
-              <h1 className="text-3xl md:text-5xl font-bold font-headline tracking-tight text-center">
-                  The Prompt Refinery
-              </h1>
-            </div>
+            <h1 className="sr-only">Clarift</h1>
+            <Logo variant="wordmark" className="h-20 w-64 md:h-24 md:w-80" />
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Badge variant={isPro ? 'default' : 'outline'} className="gap-1">
                 <Crown className="h-3 w-3" />
@@ -90,7 +86,7 @@ export function PromptRefineryApp() {
             </div>
         </header>
         <p className="text-center text-lg text-muted-foreground mb-10 max-w-3xl mx-auto">
-            A suite of tools to sharpen your prompts. Use the AI Council to refine your ideas or evaluate specific guidelines for better, more consistent results.
+            Clarify, refine, and elevate your prompts with an AI Council built for clearer thinking and better results.
         </p>
         <div className="mb-6 flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
           <span>Plan: {tier}</span>

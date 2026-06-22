@@ -83,6 +83,6 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     configured: Boolean(stripeSecretKey && (process.env.STRIPE_PRO_PRICE_ID || process.env.STRIPE_PRO_PRICE_ID_DEFAULT || process.env.STRIPE_PRO_PRICE_ID_USD)),
-    product: 'Prompt Refinery Pro',
+    product: 'Clarift Pro',
   });
 }

@@ -18,7 +18,7 @@ export default {
     extend: {
       fontFamily: {
         body: ['Inter', 'sans-serif'],
-        headline: ['Space Grotesk', 'sans-serif'],
+        headline: ['Quilon', 'Inter', 'sans-serif'],
         code: ['Source Code Pro', 'monospace'],
       },
       colors: {

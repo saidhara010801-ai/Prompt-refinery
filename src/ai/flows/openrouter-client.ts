@@ -46,7 +46,7 @@ export async function createOpenRouterChatCompletion(input: OpenRouterChatInput)
       Authorization: `Bearer ${input.apiKey}`,
       'Content-Type': 'application/json',
       'HTTP-Referer': 'https://github.com/saidhara010801-ai/Prompt-refinery',
-      'X-OpenRouter-Title': 'The Prompt Refinery',
+      'X-OpenRouter-Title': 'Clarift',
     },
     body: JSON.stringify({
       model: input.model,

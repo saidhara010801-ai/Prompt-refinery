@@ -2,7 +2,7 @@
 
 ## Current Architecture
 
-The Prompt Refinery is a Next.js App Router application with server actions, API routes, Firebase Auth, Firestore, Firebase Admin, Stripe Checkout/webhooks, Google Genkit/Gemini flows, optional OpenRouter council routing, and optional MarkItDown document conversion.
+Clarift is a Next.js App Router application with server actions, API routes, Firebase Auth, Firestore, Firebase Admin, Stripe Checkout/webhooks, Google Genkit/Gemini flows, optional OpenRouter council routing, and optional MarkItDown document conversion.
 
 The release candidate has passed local verification, but public production launch is not complete until live Firebase, Stripe, provider, deployment, monitoring, and security controls are verified.
 

@@ -1,4 +1,4 @@
-# **App Name**: The Prompt Refinery
+# **App Name**: Clarift
 
 ## Core Features:
 
@@ -10,11 +10,10 @@
 
 ## Style Guidelines:
 
-- Primary color: Strong purple (#800080) for intellect and focus.
-- Background color: Light gray (#E0E0E0), nearly desaturated purple, for a calm workspace.
-- Accent color: Blue (#0000FF), an analogous color for actionable items, buttons and highlights
-- Headline font: 'Space Grotesk' sans-serif for a computerized feel; body font: 'Inter' sans-serif for longer texts. Note: currently only Google Fonts are supported.
+- Primary color: Clarift orange (#FE6F07) for primary actions and refinement highlights.
+- Supporting colors: Light gray (#A7A9AC), charcoal (#1C1C1E), dark gray (#414042), and white (#FFFFFF).
+- Brand/display font: Quilon Regular. Body and UI font: Inter. Quilon requires a licensed webfont file before it can render as live text.
 - Code font: 'Source Code Pro' monospace, for any displayed code. Note: currently only Google Fonts are supported.
-- Minimal, clear icons to represent prompt types and actions.
+- Use the supplied Clarift magnifying-glass C mark and its light/dark variants for product identity.
 - Clean, intuitive layout optimized for prompt input and refined output display.
 - Subtle animations to indicate the AI council's refinement process.

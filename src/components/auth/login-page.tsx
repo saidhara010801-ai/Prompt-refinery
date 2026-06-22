@@ -33,6 +33,7 @@ import {
 } from '@/firebase/non-blocking-login';
 import { useAuth } from '@/firebase';
 import { FirebaseError } from 'firebase/app';
+import { Logo } from '@/components/icons/logo';
 
 const signUpSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email.' }),
@@ -133,7 +134,12 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
-      <Tabs defaultValue="sign-in" className="w-full max-w-md">
+      <div className="w-full max-w-md space-y-6">
+        <div className="flex justify-center">
+          <Logo variant="wordmark" className="h-20 w-64" />
+          <h1 className="sr-only">Sign in to Clarift</h1>
+        </div>
+      <Tabs defaultValue="sign-in" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="sign-in">Sign In</TabsTrigger>
           <TabsTrigger value="sign-up">Sign Up</TabsTrigger>
@@ -301,6 +307,7 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }

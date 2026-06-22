@@ -305,7 +305,7 @@ export async function readSafeSystemHealth(request: NextRequest) {
     request,
   });
   return {
-    service: 'prompt-refinery',
+    service: 'clarift',
     ready: readiness.ready,
     checks: readiness.checks,
     featureFlags: {
