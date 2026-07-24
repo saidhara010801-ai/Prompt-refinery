@@ -143,6 +143,18 @@ async function assertProEntitlement(uid: string, message: string) {
   }
 }
 
+export function assertCanCreateCheckoutForProfile(profile: Pick<NormalizedUserProfile, 'accountStatus'>) {
+  assertActiveAccount(profile, 'create checkout sessions');
+}
+
+export async function assertActiveAccountForCheckout(uid: string) {
+  const firestore = getAdminFirestore();
+  const snapshot = await firestore.doc(`users/${uid}`).get();
+  const profile = normalizeUserProfile(uid, snapshot.data() as Record<string, unknown> | undefined);
+  assertCanCreateCheckoutForProfile(profile);
+  return profile;
+}
+
 export async function assertRefinementAccess(
   firebaseIdToken: string | undefined,
   technique: PromptTechnique,

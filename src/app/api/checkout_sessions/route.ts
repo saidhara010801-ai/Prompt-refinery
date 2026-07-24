@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { assertActiveAccountForCheckout } from '@/lib/server/account-service';
 import { getCheckoutReturnOrigin } from '@/lib/server/checkout-origin';
 import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
-import { assertActiveAccount, getBearerTokenFromRequest, getCurrentUserFromRequest } from '@/lib/server/user-access';
+import { getBearerTokenFromRequest, getCurrentUserFromRequest } from '@/lib/server/user-access';
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const currentUser = await getCurrentUserFromRequest(request);
-    assertActiveAccount(currentUser.profile, 'create checkout sessions');
+    await assertActiveAccountForCheckout(currentUser.uid);
 
     const origin = getCheckoutReturnOrigin(request.url);
     const stripe = new Stripe(stripeSecretKey);

@@ -66,8 +66,6 @@ service cloud.firestore {
     function hasValidUserDataOnCreate(userId) {
       return request.resource.data.id == userId &&
         request.resource.data.subscriptionTier == 'free' &&
-        request.resource.data.savedPromptCount == 0 &&
-        request.resource.data.managedRefinementsUsedToday == 0 &&
         !request.resource.data.keys().hasAny([
           'role',
           'accountStatus',
@@ -75,6 +73,9 @@ service cloud.firestore {
           'subscriptionStatus',
           'stripeCustomerId',
           'stripeSubscriptionId',
+          'savedPromptCount',
+          'managedRefinementsDate',
+          'managedRefinementsUsedToday',
           'adminEntitlements',
           'entitlements',
           'quota',
@@ -260,6 +261,10 @@ service cloud.firestore {
     }
 
     match /dailyUsageAggregates/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /supportAccessRequests/{document=**} {
       allow read, write: if false;
     }
   }

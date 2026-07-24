@@ -54,6 +54,23 @@ export class AuthorizationError extends Error {
   }
 }
 
+export function mapFirebaseAuthError(error: unknown): AuthorizationError {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+
+  if (code === 'auth/id-token-revoked' || message.includes('revoked')) {
+    return new AuthorizationError('Your sign-in session was revoked. Sign in again to continue.', 401, 'AuthenticationRequiredError');
+  }
+
+  if (code === 'auth/user-disabled' || message.includes('disabled')) {
+    return new AuthorizationError('This account is disabled. Contact support if you believe this is a mistake.', 403, 'AccountStatusBlockedError');
+  }
+
+  return new AuthorizationError('Your sign-in session could not be verified. Sign in again and retry.', 401, 'AuthenticationRequiredError');
+}
+
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
@@ -214,9 +231,9 @@ export async function verifyFirebaseIdToken(firebaseIdToken?: string): Promise<D
   }
 
   try {
-    return await getAdminAuth().verifyIdToken(firebaseIdToken);
-  } catch {
-    throw new AuthorizationError('Your sign-in session could not be verified. Sign in again and retry.', 401, 'AuthenticationRequiredError');
+    return await getAdminAuth().verifyIdToken(firebaseIdToken, true);
+  } catch (error) {
+    throw mapFirebaseAuthError(error);
   }
 }
 
