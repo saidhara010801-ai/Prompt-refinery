@@ -658,3 +658,34 @@ test('Clarift brand metadata and customer surfaces use the supplied identity', (
     assert.doesNotMatch(customerSurface, /The Prompt Refinery|Prompt Refinery Pro/);
   }
 });
+
+test('production responses define strict security headers without blocking Firebase services', () => {
+  const nextConfig = readFileSync('next.config.ts', 'utf8');
+
+  for (const headerName of [
+    'Content-Security-Policy',
+    'Strict-Transport-Security',
+    'X-Content-Type-Options',
+    'X-Frame-Options',
+    'Referrer-Policy',
+    'Permissions-Policy',
+  ]) {
+    assert.match(nextConfig, new RegExp(`key: '${headerName}'`));
+  }
+
+  for (const directive of [
+    "default-src 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    'https://*.googleapis.com',
+    'https://*.firebaseio.com',
+    'wss://*.firebaseio.com',
+    'https://*.firebaseapp.com',
+  ]) {
+    assert.ok(nextConfig.includes(directive));
+  }
+
+  assert.match(nextConfig, /source: '\/:path\*'/);
+  assert.doesNotMatch(nextConfig, /script-src[^"]*'unsafe-eval'/);
+});
