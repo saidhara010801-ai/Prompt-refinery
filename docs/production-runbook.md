@@ -11,7 +11,7 @@ npm run check:production-env
 npm audit --omit=dev
 ```
 
-The environment check must run with the production Firebase and Stripe variables available. The optional managed OpenRouter fallback and MarkItDown executable are reported separately. Review residual dependency advisories before promotion; do not use forced fixes that downgrade Next.js.
+The environment check must run with the production Firebase variables available. Stripe variables are required only when `ENABLE_STRIPE_CHECKOUT=true`. The optional managed OpenRouter fallback and MarkItDown executable are reported separately. Review residual dependency advisories before promotion; do not use forced fixes that downgrade Next.js.
 
 Review the companion production documents before public launch:
 
@@ -24,7 +24,9 @@ Review the companion production documents before public launch:
 
 ## Firebase App Hosting
 
-`apphosting.yaml` references Stripe values in Cloud Secret Manager. Create or rotate them before the first rollout:
+The first App Hosting rollout keeps `ENABLE_STRIPE_CHECKOUT=false` and does not reference unresolved Stripe secrets. Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `OWNER_EMAILS` in the backend environment before creating the rollout.
+
+Create or rotate Stripe secrets before enabling checkout:
 
 ```powershell
 firebase apphosting:secrets:set STRIPE_SECRET_KEY
@@ -35,7 +37,7 @@ firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID_DEFAULT
 firebase apphosting:secrets:set STRIPE_WEBHOOK_SECRET
 ```
 
-Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
+Set `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
 
 Production readiness also requires explicit owner bootstrap, quota, model allowlist, and emergency feature-flag variables. Keep managed provider and file-conversion flags disabled until their quotas, allowlists, and runtime dependencies are verified.
 
@@ -149,7 +151,7 @@ GET /api/health
 GET /api/health?ready=1
 ```
 
-The liveness endpoint returns `200` with a redacted configuration summary. The readiness form returns `503` until required Firebase client configuration and Stripe subscriptions are configured.
+The liveness endpoint returns `200` with a redacted configuration summary. The readiness form returns `503` until required Firebase client configuration is present, and also requires Stripe subscription configuration whenever checkout is enabled.
 
 Alert on:
 

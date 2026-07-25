@@ -81,3 +81,11 @@ Document any residual npm audit advisories, disabled features, manual setup gaps
 - Webhook processing verifies Stripe signatures against the raw request body and records idempotency status in `stripeWebhookEvents`.
 - Stripe subscription events update only server-owned subscription and Stripe fields, never role fields.
 - Manual/team/beta/test/owner entitlements survive Stripe cancellation through entitlement precedence.
+
+## Firebase First Rollout
+
+- Stripe secrets are not required while `ENABLE_STRIPE_CHECKOUT=false`.
+- Enabling checkout without the Stripe secret key, server-selected Price ID, and webhook signing secret fails readiness closed.
+- The first App Hosting rollout keeps Stripe, managed providers, conversion, discounts, support access, and the admin center disabled.
+- The release gate passed on Node 24 with Next.js 15.5.21 and 29 regression tests.
+- The latest production-only npm audit reports no critical advisories; remaining transitive advisories are tracked for a Genkit/Firebase compatibility upgrade.

@@ -23,9 +23,6 @@ export const REQUIRED_PRODUCTION_VARIABLES = [
   'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
   'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
   'NEXT_PUBLIC_FIREBASE_APP_ID',
-  'STRIPE_SECRET_KEY',
-  'STRIPE_PRO_PRICE_ID',
-  'STRIPE_WEBHOOK_SECRET',
   'APP_BASE_URL',
   'OWNER_EMAILS',
   'FREE_DAILY_REQUEST_LIMIT',
@@ -37,6 +34,12 @@ export const REQUIRED_PRODUCTION_VARIABLES = [
   'ADMIN_RATE_LIMIT_MAX_REQUESTS',
   'OPENROUTER_ALLOWED_MODELS',
   'GEMINI_ALLOWED_MODELS',
+] as const;
+
+export const STRIPE_PRODUCTION_VARIABLES = [
+  'STRIPE_SECRET_KEY',
+  'STRIPE_PRO_PRICE_ID',
+  'STRIPE_WEBHOOK_SECRET',
 ] as const;
 
 export const OPTIONAL_PRODUCTION_VARIABLES = [
@@ -72,7 +75,11 @@ function isEnabled(environment: Environment, variable: string) {
 }
 
 export function getMissingProductionVariables(environment: Environment): string[] {
-  return REQUIRED_PRODUCTION_VARIABLES.filter((variable) => !hasValue(environment, variable));
+  const requiredVariables = isEnabled(environment, 'ENABLE_STRIPE_CHECKOUT')
+    ? [...REQUIRED_PRODUCTION_VARIABLES, ...STRIPE_PRODUCTION_VARIABLES]
+    : REQUIRED_PRODUCTION_VARIABLES;
+
+  return requiredVariables.filter((variable) => !hasValue(environment, variable));
 }
 
 export function getMissingFeatureFlags(environment: Environment): string[] {
@@ -82,7 +89,10 @@ export function getMissingFeatureFlags(environment: Environment): string[] {
 export function getOptionalProductionWarnings(environment: Environment): string[] {
   const warnings: string[] = [];
 
-  if (!hasValue(environment, 'STRIPE_PRO_PRICE_ID_USD') || !hasValue(environment, 'STRIPE_PRO_PRICE_ID_INR')) {
+  if (
+    isEnabled(environment, 'ENABLE_STRIPE_CHECKOUT') &&
+    (!hasValue(environment, 'STRIPE_PRO_PRICE_ID_USD') || !hasValue(environment, 'STRIPE_PRO_PRICE_ID_INR'))
+  ) {
     warnings.push('Localized Stripe prices are not fully configured. Checkout will use STRIPE_PRO_PRICE_ID until localized pricing is implemented.');
   }
 
@@ -105,8 +115,8 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
   const firebaseClientConfig = REQUIRED_PRODUCTION_VARIABLES
     .filter((variable) => variable.startsWith('NEXT_PUBLIC_FIREBASE_'))
     .every((variable) => hasValue(environment, variable));
-  const stripeSubscriptions = ['STRIPE_SECRET_KEY', 'STRIPE_PRO_PRICE_ID', 'STRIPE_WEBHOOK_SECRET']
-    .every((variable) => hasValue(environment, variable));
+  const stripeSubscriptions = !isEnabled(environment, 'ENABLE_STRIPE_CHECKOUT') ||
+    STRIPE_PRODUCTION_VARIABLES.every((variable) => hasValue(environment, variable));
   const checkoutReturnOrigin = hasValue(environment, 'APP_BASE_URL');
   const ownerBootstrap = hasValue(environment, 'OWNER_EMAILS') || hasValue(environment, 'OWNER_UIDS');
   const quotaConfig = [

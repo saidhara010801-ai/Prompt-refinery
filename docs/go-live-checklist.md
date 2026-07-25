@@ -11,6 +11,7 @@
 
 ## Stripe
 
+- First rollout confirmed healthy with `ENABLE_STRIPE_CHECKOUT=false` and no Stripe secret references.
 - Product created.
 - USD/default price created.
 - INR price created if localized pricing is enabled.

@@ -34,6 +34,7 @@ import {
   getRuntimeReadiness,
   FEATURE_FLAG_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
+  STRIPE_PRODUCTION_VARIABLES,
 } from '../src/lib/server/runtime-readiness';
 import {
   FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
@@ -229,7 +230,33 @@ test('production readiness reports required configuration without exposing value
   assert.equal(getRuntimeReadiness({}).checks.checkoutReturnOrigin, false);
   assert.deepEqual(getMissingProductionVariables({}), [...REQUIRED_PRODUCTION_VARIABLES]);
   assert.deepEqual(getMissingFeatureFlags({}), [...FEATURE_FLAG_VARIABLES]);
+  assert.equal(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Localized Stripe prices')), false);
+});
+
+test('production readiness requires Stripe secrets only when checkout is enabled', () => {
+  const environment = Object.fromEntries(
+    REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`])
+  );
+  for (const variable of FEATURE_FLAG_VARIABLES) {
+    environment[variable] = 'false';
+  }
+
+  assert.deepEqual(getMissingProductionVariables(environment), []);
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, true);
+
+  environment.ENABLE_STRIPE_CHECKOUT = 'true';
+  assert.deepEqual(getMissingProductionVariables(environment), [...STRIPE_PRODUCTION_VARIABLES]);
+  assert.equal(getRuntimeReadiness(environment).ready, false);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, false);
   assert.ok(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Localized Stripe prices')));
+
+  for (const variable of STRIPE_PRODUCTION_VARIABLES) {
+    environment[variable] = `configured-${variable}`;
+  }
+  assert.deepEqual(getMissingProductionVariables(environment), []);
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, true);
 });
 
 test('production readiness fails closed for unguarded optional features', () => {
