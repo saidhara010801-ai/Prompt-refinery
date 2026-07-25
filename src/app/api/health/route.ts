@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const requireReady = new URL(request.url).searchParams.get('ready') === '1';
 
   return NextResponse.json({
-    service: 'prompt-refinery',
+    service: 'clarift',
     status: readiness.ready ? 'ok' : 'degraded',
     checks: readiness.checks,
   }, {

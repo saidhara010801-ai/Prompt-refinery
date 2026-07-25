@@ -1,5 +1,5 @@
 /**
- * This ruleset enforces a strict user-ownership model for the Prompt Refinery application.
+ * This ruleset enforces a strict user-ownership model for the Clarift application.
  * All user-generated content, including prompts, refinements, and saved prompts, is
  * stored within a user-specific document tree, making authorization simple, secure,
  * and performant.

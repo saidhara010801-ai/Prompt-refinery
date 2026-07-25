@@ -18,12 +18,23 @@ import {
 import { getAdminFailureAuditMetadata, getAdminRateLimitForTests } from '../src/app/api/admin/_shared';
 import { assertCanCreateCheckoutForProfile } from '../src/lib/server/account-service';
 import {
+  buildCheckoutSessionParams,
+  buildBillingPortalSessionParams,
+  buildStripeSubscriptionPatch,
+  buildStripeWebhookEventRecord,
+  isAllowedBrowserPostOrigin,
+  isPromotionCodesEnabled,
+  isStripeSubscriptionActive,
+  selectStripePriceForUser,
+} from '../src/lib/server/stripe-billing';
+import {
   getMissingFeatureFlags,
   getMissingProductionVariables,
   getOptionalProductionWarnings,
   getRuntimeReadiness,
   FEATURE_FLAG_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
+  STRIPE_PRODUCTION_VARIABLES,
 } from '../src/lib/server/runtime-readiness';
 import {
   FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
@@ -104,6 +115,104 @@ test('checkout redirects use the configured production origin', () => {
   );
 });
 
+test('stripe price selection is server-owned and localized with safe fallback', () => {
+  const environment = {
+    STRIPE_PRO_PRICE_ID: 'price_legacy',
+    STRIPE_PRO_PRICE_ID_USD: 'price_usd',
+    STRIPE_PRO_PRICE_ID_INR: 'price_inr',
+    STRIPE_PRO_PRICE_ID_DEFAULT: 'price_default',
+  };
+
+  assert.deepEqual(selectStripePriceForUser({ country: 'IN' }, environment), {
+    priceId: 'price_inr',
+    currency: 'inr',
+  });
+  assert.deepEqual(selectStripePriceForUser({ locale: 'en-IN' }, environment), {
+    priceId: 'price_inr',
+    currency: 'inr',
+  });
+  assert.deepEqual(selectStripePriceForUser({ country: 'US' }, environment), {
+    priceId: 'price_usd',
+    currency: 'usd',
+  });
+  assert.deepEqual(selectStripePriceForUser({ country: 'ZZ' }, environment), {
+    priceId: 'price_default',
+    currency: 'default',
+  });
+  assert.deepEqual(selectStripePriceForUser({ country: 'IN' }, {
+    ...environment,
+    STRIPE_PRO_PRICE_ID_INR: '',
+  }), {
+    priceId: 'price_default',
+    currency: 'default',
+  });
+});
+
+test('checkout session params ignore spoofed client price and toggle promotion codes', () => {
+  assert.equal(isPromotionCodesEnabled({ ENABLE_PROMOTION_CODES: 'true' }), true);
+  assert.equal(isPromotionCodesEnabled({ ENABLE_PROMOTION_CODES: 'false' }), false);
+
+  const params = buildCheckoutSessionParams({
+    uid: 'uid-1',
+    email: 'user@example.com',
+    priceId: 'price_server_selected',
+    origin: 'https://prompt-refinery.example',
+    allowPromotionCodes: true,
+  });
+
+  assert.equal(params.client_reference_id, 'uid-1');
+  assert.deepEqual(params.line_items, [{ price: 'price_server_selected', quantity: 1 }]);
+  assert.equal(params.allow_promotion_codes, true);
+  assert.equal(params.success_url, 'https://prompt-refinery.example/?upgrade=success');
+  assert.equal(params.cancel_url, 'https://prompt-refinery.example/?upgrade=cancelled');
+  assert.equal(JSON.stringify(params).includes('price_client_spoof'), false);
+
+  const withoutPromos = buildCheckoutSessionParams({
+    uid: 'uid-1',
+    priceId: 'price_server_selected',
+    origin: 'https://prompt-refinery.example',
+    allowPromotionCodes: false,
+  });
+  assert.equal(withoutPromos.allow_promotion_codes, undefined);
+});
+
+test('billing portal session params use stored server customer id only', () => {
+  const params = buildBillingPortalSessionParams({
+    stripeCustomerId: 'cus_server_stored',
+    origin: 'https://prompt-refinery.example',
+  });
+
+  assert.deepEqual(params, {
+    customer: 'cus_server_stored',
+    return_url: 'https://prompt-refinery.example',
+  });
+  assert.equal(JSON.stringify(params).includes('cus_client_spoof'), false);
+});
+
+test('sensitive browser post origins are checked against APP_BASE_URL', () => {
+  const environment = {
+    NODE_ENV: 'production',
+    APP_BASE_URL: 'https://prompt-refinery.example/app',
+  };
+
+  assert.equal(
+    isAllowedBrowserPostOrigin('https://prompt-refinery.example', 'https://other.example/api/checkout_sessions', environment),
+    true
+  );
+  assert.equal(
+    isAllowedBrowserPostOrigin('https://evil.example', 'https://prompt-refinery.example/api/checkout_sessions', environment),
+    false
+  );
+  assert.equal(
+    isAllowedBrowserPostOrigin(null, 'https://prompt-refinery.example/api/checkout_sessions', environment),
+    false
+  );
+  assert.equal(
+    isAllowedBrowserPostOrigin(null, 'http://localhost:9002/api/checkout_sessions', { NODE_ENV: 'development' }),
+    true
+  );
+});
+
 test('production readiness reports required configuration without exposing values', () => {
   const environment = Object.fromEntries(
     REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`])
@@ -121,7 +230,33 @@ test('production readiness reports required configuration without exposing value
   assert.equal(getRuntimeReadiness({}).checks.checkoutReturnOrigin, false);
   assert.deepEqual(getMissingProductionVariables({}), [...REQUIRED_PRODUCTION_VARIABLES]);
   assert.deepEqual(getMissingFeatureFlags({}), [...FEATURE_FLAG_VARIABLES]);
+  assert.equal(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Localized Stripe prices')), false);
+});
+
+test('production readiness requires Stripe secrets only when checkout is enabled', () => {
+  const environment = Object.fromEntries(
+    REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`])
+  );
+  for (const variable of FEATURE_FLAG_VARIABLES) {
+    environment[variable] = 'false';
+  }
+
+  assert.deepEqual(getMissingProductionVariables(environment), []);
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, true);
+
+  environment.ENABLE_STRIPE_CHECKOUT = 'true';
+  assert.deepEqual(getMissingProductionVariables(environment), [...STRIPE_PRODUCTION_VARIABLES]);
+  assert.equal(getRuntimeReadiness(environment).ready, false);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, false);
   assert.ok(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Localized Stripe prices')));
+
+  for (const variable of STRIPE_PRODUCTION_VARIABLES) {
+    environment[variable] = `configured-${variable}`;
+  }
+  assert.deepEqual(getMissingProductionVariables(environment), []);
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+  assert.equal(getRuntimeReadiness(environment).checks.stripeSubscriptions, true);
 });
 
 test('production readiness fails closed for unguarded optional features', () => {
@@ -362,6 +497,96 @@ test('entitlement precedence keeps manual grants separate from Stripe state', ()
   }, null, now).source, 'owner');
 });
 
+test('stripe subscription patches grant and remove only stripe-sourced pro fields', () => {
+  const activePatch = buildStripeSubscriptionPatch({
+    id: 'sub_active',
+    status: 'active',
+    customer: 'cus_123',
+  });
+  assert.deepEqual(activePatch, {
+    subscriptionTier: 'pro',
+    subscriptionSource: 'stripe',
+    subscriptionStatus: 'active',
+    stripeCustomerId: 'cus_123',
+    stripeSubscriptionId: 'sub_active',
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(activePatch ?? {}, 'role'), false);
+
+  const trialingPatch = buildStripeSubscriptionPatch({
+    id: 'sub_trial',
+    status: 'trialing',
+    customer: 'cus_123',
+  });
+  assert.equal(trialingPatch?.subscriptionTier, 'pro');
+  assert.equal(isStripeSubscriptionActive('trialing'), true);
+
+  const canceledPatch = buildStripeSubscriptionPatch({
+    id: 'sub_cancel',
+    status: 'canceled',
+    customer: 'cus_123',
+  });
+  assert.deepEqual(canceledPatch, {
+    subscriptionTier: 'free',
+    subscriptionSource: null,
+    subscriptionStatus: 'canceled',
+    stripeCustomerId: 'cus_123',
+    stripeSubscriptionId: 'sub_cancel',
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(canceledPatch ?? {}, 'role'), false);
+
+  const unpaidPatch = buildStripeSubscriptionPatch({
+    id: 'sub_unpaid',
+    status: 'unpaid',
+    customer: 'cus_123',
+  });
+  assert.equal(unpaidPatch?.subscriptionTier, 'free');
+});
+
+test('manual grants survive stripe cancellation through entitlement precedence', () => {
+  const entitlement = evaluateEntitlement('manual-user', {
+    role: 'user',
+    subscriptionTier: 'free',
+    subscriptionSource: null,
+    subscriptionStatus: 'canceled',
+  }, {
+    tier: 'pro',
+    source: 'manual',
+    reason: 'Manual support grant',
+  });
+
+  assert.equal(entitlement.isPro, true);
+  assert.equal(entitlement.source, 'manual');
+});
+
+test('stripe webhook event records are redacted, idempotency-safe, and complete', () => {
+  const record = buildStripeWebhookEventRecord({
+    eventId: 'evt_123',
+    type: 'customer.subscription.updated',
+    processingStatus: 'processed',
+    relatedUid: 'uid_123',
+    stripeCustomerId: 'cus_123',
+    stripeSubscriptionId: 'sub_123',
+  });
+
+  assert.equal(record.eventId, 'evt_123');
+  assert.equal(record.processingStatus, 'processed');
+  assert.equal(record.relatedUid, 'uid_123');
+  assert.equal(record.stripeCustomerId, 'cus_123');
+  assert.equal(record.stripeSubscriptionId, 'sub_123');
+  assert.equal(record.errorCode, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(record, 'rawBody'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(record, 'stripeSecret'), false);
+
+  const failed = buildStripeWebhookEventRecord({
+    eventId: 'evt_failed',
+    type: 'checkout.session.completed',
+    processingStatus: 'failed',
+    errorCode: 'user_lookup_failed',
+  });
+  assert.equal(failed.processingStatus, 'failed');
+  assert.equal(failed.errorCode, 'user_lookup_failed');
+});
+
 test('firestore rules deny browser access to privileged production collections and server-managed fields', () => {
   const rules = readFileSync('firestore.rules', 'utf8');
   const createProfileRule = rules.slice(
@@ -413,5 +638,23 @@ test('firestore rules deny browser access to privileged production collections a
     'admin',
   ]) {
     assert.match(createProfileRule, new RegExp(`'${creationBlockedField}'`));
+  }
+});
+
+test('Clarift brand metadata and customer surfaces use the supplied identity', () => {
+  const layout = readFileSync('src/app/layout.tsx', 'utf8');
+  const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
+  const logo = readFileSync('src/components/icons/logo.tsx', 'utf8');
+  const checkout = readFileSync('src/app/api/checkout_sessions/route.ts', 'utf8');
+
+  assert.match(layout, /default: 'Clarift'/);
+  assert.match(layout, /openGraph:[\s\S]*title: 'Clarift'/);
+  assert.match(app, /<h1 className="sr-only">Clarift<\/h1>/);
+  assert.match(logo, /clarift-\$\{assetName\}-dark\.svg/);
+  assert.match(logo, /clarift-\$\{assetName\}-light\.svg/);
+  assert.match(checkout, /product: 'Clarift Pro'/);
+
+  for (const customerSurface of [layout, app, checkout]) {
+    assert.doesNotMatch(customerSurface, /The Prompt Refinery|Prompt Refinery Pro/);
   }
 });

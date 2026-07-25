@@ -11,7 +11,7 @@ npm run check:production-env
 npm audit --omit=dev
 ```
 
-The environment check must run with the production Firebase and Stripe variables available. The optional managed OpenRouter fallback and MarkItDown executable are reported separately. Review residual dependency advisories before promotion; do not use forced fixes that downgrade Next.js.
+The environment check must run with the production Firebase variables available. Stripe variables are required only when `ENABLE_STRIPE_CHECKOUT=true`. The optional managed OpenRouter fallback and MarkItDown executable are reported separately. Review residual dependency advisories before promotion; do not use forced fixes that downgrade Next.js.
 
 Review the companion production documents before public launch:
 
@@ -24,15 +24,20 @@ Review the companion production documents before public launch:
 
 ## Firebase App Hosting
 
-`apphosting.yaml` references Stripe values in Cloud Secret Manager. Create or rotate them before the first rollout:
+The first App Hosting rollout keeps `ENABLE_STRIPE_CHECKOUT=false` and does not reference unresolved Stripe secrets. Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `OWNER_EMAILS` in the backend environment before creating the rollout.
+
+Create or rotate Stripe secrets before enabling checkout:
 
 ```powershell
 firebase apphosting:secrets:set STRIPE_SECRET_KEY
 firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID
+firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID_USD
+firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID_INR
+firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID_DEFAULT
 firebase apphosting:secrets:set STRIPE_WEBHOOK_SECRET
 ```
 
-Configure the public `NEXT_PUBLIC_FIREBASE_*` variables and `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
+Set `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
 
 Production readiness also requires explicit owner bootstrap, quota, model allowlist, and emergency feature-flag variables. Keep managed provider and file-conversion flags disabled until their quotas, allowlists, and runtime dependencies are verified.
 
@@ -94,7 +99,26 @@ Manual Firestore rule verification until emulator tests are added:
 
 ## Stripe
 
-Create a recurring Pro price and store its price ID as `STRIPE_PRO_PRICE_ID`. Register:
+Create a recurring Pro product in Stripe test mode and live mode. Configure:
+
+- `STRIPE_PRO_PRICE_ID`: legacy/default fallback price.
+- `STRIPE_PRO_PRICE_ID_DEFAULT`: preferred default fallback price.
+- `STRIPE_PRO_PRICE_ID_USD`: USD Pro price.
+- `STRIPE_PRO_PRICE_ID_INR`: INR Pro price.
+- `ENABLE_STRIPE_CHECKOUT`: emergency checkout switch.
+- `ENABLE_PROMOTION_CODES`: when `true`, Checkout enables Stripe promotion-code entry.
+
+Checkout derives the Firebase UID from the verified bearer token, checks account status server-side, validates request origin against `APP_BASE_URL`, selects the Price ID server-side, and ignores client-submitted price/currency/customer data. India resolves to INR when `STRIPE_PRO_PRICE_ID_INR` is configured; otherwise checkout falls back to the default/USD price.
+
+Billing Portal is available at:
+
+```text
+POST /api/stripe/customer-portal
+```
+
+It requires a verified Firebase ID token, active account status, a stored server-side `stripeCustomerId`, route throttling, and an origin that matches `APP_BASE_URL`. It never accepts a customer ID from the client.
+
+Register the webhook endpoint:
 
 ```text
 https://<production-host>/api/stripe_webhooks
@@ -103,10 +127,20 @@ https://<production-host>/api/stripe_webhooks
 Subscribe the webhook to:
 
 - `checkout.session.completed`
+- `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
+- `invoice.payment_failed`
+- `invoice.payment_succeeded`
 
-Store the resulting signing secret as `STRIPE_WEBHOOK_SECRET`.
+Store the resulting signing secret as `STRIPE_WEBHOOK_SECRET`. The webhook route verifies signatures with the raw request body, records each event in `stripeWebhookEvents/{eventId}`, skips duplicate processed/reserved events, records failed lookups instead of silently ignoring them, and updates only server-owned Stripe/subscription fields. Webhooks must never write role fields.
+
+Stripe lifecycle behavior:
+
+- `active` and `trialing` subscriptions grant Stripe-sourced Pro.
+- `canceled`, `deleted`, `unpaid`, and inactive subscription states remove only Stripe-sourced Pro.
+- Manual/team/beta/test/owner grants survive Stripe cancellation because entitlement resolution checks those grants separately.
+- Promotion code discounts are handled only by Stripe Checkout when `ENABLE_PROMOTION_CODES=true`; the app does not implement custom discount math.
 
 ## Monitoring
 
@@ -117,7 +151,7 @@ GET /api/health
 GET /api/health?ready=1
 ```
 
-The liveness endpoint returns `200` with a redacted configuration summary. The readiness form returns `503` until required Firebase client configuration and Stripe subscriptions are configured.
+The liveness endpoint returns `200` with a redacted configuration summary. The readiness form returns `503` until required Firebase client configuration is present, and also requires Stripe subscription configuration whenever checkout is enabled.
 
 Alert on:
 

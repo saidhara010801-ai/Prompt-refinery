@@ -7,21 +7,75 @@ runConfig:
   concurrency: 40
   maxInstances: 10
 
-# Create these with `firebase apphosting:secrets:set`.
-# Configure APP_BASE_URL, owner bootstrap values, quota/model allowlist values,
-# emergency feature flags, and public NEXT_PUBLIC_FIREBASE_* values for the backend environment.
-# Optional managed provider secrets should only be configured when their feature flags,
-# quotas, and model allowlists are production-ready.
+# The first production rollout keeps optional paid and managed services disabled.
+# Configure public NEXT_PUBLIC_FIREBASE_* values and OWNER_EMAILS in the backend
+# environment. Add Stripe secret references only after test-mode billing is ready.
 env:
-  - variable: STRIPE_SECRET_KEY
-    secret: STRIPE_SECRET_KEY
+  - variable: APP_BASE_URL
+    value: https://clarift--clarift-e4f6f.us-east4.hosted.app
     availability:
       - RUNTIME
-  - variable: STRIPE_PRO_PRICE_ID
-    secret: STRIPE_PRO_PRICE_ID
+  - variable: ENABLE_ADMIN_CENTER
+    value: "false"
     availability:
       - RUNTIME
-  - variable: STRIPE_WEBHOOK_SECRET
-    secret: STRIPE_WEBHOOK_SECRET
+  - variable: ENABLE_DISCOUNT_ADMIN
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_FILE_CONVERSION
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_STRIPE_CHECKOUT
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_PROMOTION_CODES
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_SUPPORT_ACCESS_REQUESTS
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_MANAGED_OPENROUTER
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: FREE_DAILY_REQUEST_LIMIT
+    value: "5"
+    availability:
+      - RUNTIME
+  - variable: PRO_DAILY_REQUEST_LIMIT
+    value: "200"
+    availability:
+      - RUNTIME
+  - variable: PRO_MONTHLY_TOKEN_LIMIT
+    value: "1000000"
+    availability:
+      - RUNTIME
+  - variable: MAX_UPLOAD_SIZE_MB
+    value: "10"
+    availability:
+      - RUNTIME
+  - variable: RATE_LIMIT_WINDOW_SECONDS
+    value: "60"
+    availability:
+      - RUNTIME
+  - variable: RATE_LIMIT_MAX_REQUESTS
+    value: "60"
+    availability:
+      - RUNTIME
+  - variable: ADMIN_RATE_LIMIT_MAX_REQUESTS
+    value: "20"
+    availability:
+      - RUNTIME
+  - variable: OPENROUTER_ALLOWED_MODELS
+    value: openai/gpt-4o-mini,anthropic/claude-3.5-haiku,google/gemini-2.0-flash-001,deepseek/deepseek-chat,qwen/qwen-2.5-coder
+    availability:
+      - RUNTIME
+  - variable: GEMINI_ALLOWED_MODELS
+    value: googleai/gemini-2.0-flash
     availability:
       - RUNTIME
