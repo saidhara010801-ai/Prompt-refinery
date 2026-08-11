@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { refinePromptWithAICouncil } from '@/ai/flows/refine-prompt-with-ai-council';
 import { authenticatePublicApi, getCallerProvider } from '@/lib/server/api-key-service';
 import { recordUsageEvent } from '@/lib/server/usage-analytics';
-import { publicApiError } from '../_shared';
+import { parsePublicApiJson, publicApiError } from '../_shared';
 
 const schema = z.object({
   prompt: z.string().min(1).max(60000),
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   try {
     const { uid } = await authenticatePublicApi(request);
     const caller = getCallerProvider(request);
-    const input = schema.parse(await request.json());
+    const input = await parsePublicApiJson(request, schema);
     const result = await refinePromptWithAICouncil({
       prompt: input.prompt,
       promptType: input.technique,

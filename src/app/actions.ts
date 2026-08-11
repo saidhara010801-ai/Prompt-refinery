@@ -27,14 +27,7 @@ import { createOpenRouterChatCompletion } from '@/ai/flows/openrouter-client';
 import { evaluatePromptGuidelinesBatch } from '@/ai/flows/evaluate-prompt-guidelines-batch';
 import { saveEvaluationRunForUser } from '@/lib/server/account-service';
 import { recordUsageEventFromToken } from '@/lib/server/usage-analytics';
-
-const DEFAULT_OPENROUTER_MODELS = {
-    specifier: "openai/gpt-4o-mini",
-    simplifier: "anthropic/claude-3.5-haiku",
-    stylist: "google/gemini-2.0-flash-001",
-    critic: "anthropic/claude-3.5-haiku",
-    formatter: "openai/gpt-4o-mini",
-};
+import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '@/lib/openrouter-models';
 
 const refineSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS, `Prompt must be ${MAX_PROMPT_CHARACTERS} characters or fewer.`),
@@ -217,10 +210,7 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
             ? {
                 ...flowData,
                 openRouterApiKey: parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY,
-                openRouterModels: {
-                    ...DEFAULT_OPENROUTER_MODELS,
-                    ...parsed.data.openRouterModels,
-                },
+                openRouterModels: withDefaultOpenRouterModels(parsed.data.openRouterModels),
             }
             : flowData;
 

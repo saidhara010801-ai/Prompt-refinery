@@ -1,5 +1,28 @@
 const DEFAULT_API_BASE = 'https://clarift--clarift-e4f6f.us-east4.hosted.app';
 
+async function readResponsePayload(response) {
+  const responseText = await response.text();
+  if (!responseText) return {};
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return {};
+  }
+}
+
+function responseErrorMessage(response, payload) {
+  if (typeof payload?.error?.message === 'string' && payload.error.message.trim()) {
+    return payload.error.message;
+  }
+  if (response.status === 401 || response.status === 403) {
+    return 'Clarift rejected an API key. Check the Clarift and provider keys in extension settings.';
+  }
+  if (response.status === 429) {
+    return 'Clarift rate limit reached. Wait briefly and try again.';
+  }
+  return 'Clarift could not refine this prompt. Check extension settings and try again.';
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'clarift-refine') return false;
 
@@ -24,8 +47,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       },
       body: JSON.stringify({ prompt: message.prompt, technique: settings.technique })
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error?.message || 'Clarift could not refine this prompt.');
+    const payload = await readResponsePayload(response);
+    if (!response.ok) throw new Error(responseErrorMessage(response, payload));
+    if (typeof payload.refinedPrompt !== 'string' || !payload.refinedPrompt.trim()) {
+      throw new Error('Clarift returned an incomplete refinement. Please try again.');
+    }
     sendResponse({ ok: true, refinedPrompt: payload.refinedPrompt });
   }).catch((error) => sendResponse({ ok: false, error: error.message || 'Clarift request failed.' }));
 

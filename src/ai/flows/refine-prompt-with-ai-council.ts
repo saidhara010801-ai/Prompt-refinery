@@ -25,6 +25,7 @@ import {
   MAX_PROMPT_CHARACTERS,
   MAX_REFINED_PROMPT_CHARACTERS,
 } from '@/lib/input-limits';
+import { withDefaultOpenRouterModels } from '@/lib/openrouter-models';
 
 const PromptTechniqueSchema = z.enum([
   'Zero-shot',
@@ -129,7 +130,7 @@ function requireOpenRouterApiKey(input: RefinePromptWithAICouncilInput): string 
 }
 
 async function runOpenRouterCouncilMember(input: RefinePromptWithAICouncilInput, role: CouncilRole) {
-  const models = OpenRouterModelsSchema.parse(input.openRouterModels);
+  const models = OpenRouterModelsSchema.parse(withDefaultOpenRouterModels(input.openRouterModels));
   const roleConfig = councilRoleConfig[role];
   const model = models[role] ?? models.specifier;
 
@@ -194,7 +195,7 @@ async function synthesizeOpenRouterCouncilOutput(
   input: RefinePromptWithAICouncilInput,
   refinements: z.infer<typeof CouncilMemberOutputSchema>[]
 ): Promise<RefinePromptWithAICouncilOutput> {
-  const models = OpenRouterModelsSchema.parse(input.openRouterModels);
+  const models = OpenRouterModelsSchema.parse(withDefaultOpenRouterModels(input.openRouterModels));
   const content = await createOpenRouterChatCompletion({
     apiKey: requireOpenRouterApiKey(input),
     model: models.formatter ?? models.specifier,

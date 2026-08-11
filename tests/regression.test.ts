@@ -64,6 +64,8 @@ import {
   normalizeUserProfile,
 } from '../src/lib/server/user-access';
 import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts, normalizedSearchTerms } from '../src/lib/stage2-utils';
+import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '../src/lib/openrouter-models';
+import { publicApiErrorDetails } from '../src/app/api/v1/_shared';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -857,10 +859,30 @@ test('public AI routes authenticate Clarift API keys before parsing caller input
     const source = readFileSync(`src/app/api/v1/${route}/route.ts`, 'utf8');
     const authentication = source.indexOf('await authenticatePublicApi(request)');
     const provider = source.indexOf('getCallerProvider(request)');
-    const body = source.indexOf('await request.json()');
+    const body = source.indexOf('await parsePublicApiJson(request, schema)');
 
     assert.ok(authentication >= 0 && authentication < provider && authentication < body);
   }
+});
+
+test('OpenRouter refinements use complete defaults when API clients omit council models', () => {
+  const flow = readFileSync('src/ai/flows/refine-prompt-with-ai-council.ts', 'utf8');
+  assert.deepEqual(withDefaultOpenRouterModels(), DEFAULT_OPENROUTER_MODELS);
+  assert.deepEqual(withDefaultOpenRouterModels({ formatter: 'custom/formatter' }), {
+    ...DEFAULT_OPENROUTER_MODELS,
+    formatter: 'custom/formatter',
+  });
+  assert.equal((flow.match(/withDefaultOpenRouterModels\(input\.openRouterModels\)/g) ?? []).length, 2);
+});
+
+test('public API failures never expose raw provider or schema errors', () => {
+  const rawError = new Error('[{"code":"invalid_type","received":"undefined"}]');
+  rawError.name = 'ZodError';
+  const details = publicApiErrorDetails(rawError);
+
+  assert.equal(details.status, 502);
+  assert.equal(details.body.error.code, 'ApiRequestError');
+  assert.doesNotMatch(details.body.error.message, /invalid_type|undefined|ZodError/);
 });
 
 test('browser extension is packaged for in-app testing and supports chatbot activation', () => {
@@ -872,6 +894,7 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
 
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.version, '1.1.1');
   assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage']);
   for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
     assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));
