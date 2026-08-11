@@ -17,7 +17,7 @@
     "dev": "next dev -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
-    "build": "npm run install:markitdown && next build",
+    "build": "next build && npm run install:markitdown",
     "install:markitdown": "node scripts/install-markitdown-runtime.mjs",
     "start": "next start -p 9002",
     "lint": "eslint .",

@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 
 const UV_VERSION = '0.12.3';
 const PYTHON_VERSION = '3.12';
 const projectRoot = process.cwd();
-const runtimeDirectory = join(projectRoot, '.markitdown-runtime');
+const standaloneDirectory = join(projectRoot, '.next', 'standalone');
+const runtimeDirectory = join(
+  existsSync(standaloneDirectory) ? standaloneDirectory : projectRoot,
+  '.markitdown-runtime'
+);
 
 function run(command, args, environment) {
   return new Promise((resolve, reject) => {
@@ -131,4 +136,4 @@ try {
   await rm(toolsDirectory, { recursive: true, force: true });
 }
 
-console.log('Packaged MarkItDown runtime is ready for the App Hosting server bundle.');
+console.log(`Packaged MarkItDown runtime is ready at ${runtimeDirectory}.`);

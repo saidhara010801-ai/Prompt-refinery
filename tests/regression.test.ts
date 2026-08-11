@@ -383,10 +383,17 @@ test('App Hosting build packages and enables the pinned MarkItDown runtime', () 
     scripts: Record<string, string>;
   };
   const appHosting = readFileSync('apphosting.yaml', 'utf8');
+  const nextConfig = readFileSync('next.config.ts', 'utf8');
   const requirements = readFileSync('requirements-markitdown.txt', 'utf8');
 
   assert.match(packageJson.scripts.build, /install:markitdown/);
+  assert.ok(
+    packageJson.scripts.build.indexOf('next build') <
+      packageJson.scripts.build.indexOf('install:markitdown'),
+    'MarkItDown must be installed after Next creates the standalone server bundle'
+  );
   assert.equal(packageJson.scripts['install:markitdown'], 'node scripts/install-markitdown-runtime.mjs');
+  assert.match(nextConfig, /output:\s*'standalone'/);
   assert.match(appHosting, /ENABLE_FILE_CONVERSION\s*\n\s*value: "true"/);
   assert.match(appHosting, /MARKITDOWN_COMMAND\s*\n\s*value: packaged/);
   assert.equal(requirements.trim(), 'markitdown[pdf,docx,pptx,xlsx,xls]==0.1.7');
