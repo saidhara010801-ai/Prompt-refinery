@@ -7,7 +7,10 @@ import { formatOutput } from '../src/lib/output-formats';
 import {
   canConvertWithTextFallback,
   convertTextLikeBufferToMarkdown,
+  MarkitdownRuntimeUnavailableError,
+  packagedMarkitdownCommandCandidates,
   parseMarkitdownCommand,
+  resolveMarkitdownCommand,
   safeConversionExtension,
 } from '../src/lib/server/markitdown-converter';
 import { getCheckoutReturnOrigin } from '../src/lib/server/checkout-origin';
@@ -343,6 +346,50 @@ test('format converter parses MarkItDown command with arguments', () => {
     command: 'C:\\Program Files\\Python\\python.exe',
     args: ['-m', 'markitdown'],
   });
+});
+
+test('format converter resolves the packaged App Hosting runtime beside the standalone server', () => {
+  const candidates = packagedMarkitdownCommandCandidates({
+    cwd: 'C:\\workspace',
+    entrypoint: 'C:\\workspace\\.next\\standalone\\server.js',
+    platform: 'linux',
+  });
+  const packagedPython = candidates[0];
+
+  assert.match(packagedPython, /\.next[\\/]standalone[\\/]\.markitdown-runtime/);
+  assert.deepEqual(
+    resolveMarkitdownCommand('packaged', {
+      cwd: 'C:\\workspace',
+      entrypoint: 'C:\\workspace\\.next\\standalone\\server.js',
+      platform: 'linux',
+      exists: (candidate) => candidate === packagedPython,
+    }),
+    {
+      command: packagedPython,
+      args: ['-m', 'markitdown'],
+    }
+  );
+});
+
+test('format converter reports a missing packaged runtime as an availability failure', () => {
+  assert.throws(
+    () => resolveMarkitdownCommand('packaged', { exists: () => false }),
+    MarkitdownRuntimeUnavailableError
+  );
+});
+
+test('App Hosting build packages and enables the pinned MarkItDown runtime', () => {
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const appHosting = readFileSync('apphosting.yaml', 'utf8');
+  const requirements = readFileSync('requirements-markitdown.txt', 'utf8');
+
+  assert.match(packageJson.scripts.build, /install:markitdown/);
+  assert.equal(packageJson.scripts['install:markitdown'], 'node scripts/install-markitdown-runtime.mjs');
+  assert.match(appHosting, /ENABLE_FILE_CONVERSION\s*\n\s*value: "true"/);
+  assert.match(appHosting, /MARKITDOWN_COMMAND\s*\n\s*value: packaged/);
+  assert.equal(requirements.trim(), 'markitdown[pdf,docx,pptx,xlsx,xls]==0.1.7');
 });
 
 test('legacy user documents default to safe role, tier, source, and status', () => {

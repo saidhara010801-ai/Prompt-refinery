@@ -24,7 +24,11 @@ env:
     availability:
       - RUNTIME
   - variable: ENABLE_FILE_CONVERSION
-    value: "false"
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: MARKITDOWN_COMMAND
+    value: packaged
     availability:
       - RUNTIME
   - variable: ENABLE_STRIPE_CHECKOUT

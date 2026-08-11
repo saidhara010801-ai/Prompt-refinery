@@ -165,9 +165,9 @@ Alert on:
 
 Firestore transactions enforce the product quota of five managed-key refinements per day for Free users. Route-level in-memory throttles provide an additional best-effort guard for checkout and document conversion. For multi-instance production deployments, complement these guards with edge or platform rate limiting.
 
-## Optional MarkItDown Runtime
+## MarkItDown Runtime
 
-The converter needs the Microsoft MarkItDown CLI in the runtime image. If the command is not discoverable as `markitdown`, set `MARKITDOWN_COMMAND`. Without it, the app returns a friendly `503` and text-file attachment fallback remains available.
+The App Hosting build runs `scripts/install-markitdown-runtime.mjs`, which packages a managed Python 3.12 runtime and the pinned Microsoft MarkItDown dependencies into the Next.js standalone server. Production uses `ENABLE_FILE_CONVERSION=true` and `MARKITDOWN_COMMAND=packaged`. For non-App-Hosting deployments, install `requirements-markitdown.txt` and either expose `markitdown` on `PATH` or set `MARKITDOWN_COMMAND` to an explicit command such as `python -m markitdown`.
 
 ## Manual Journeys
 

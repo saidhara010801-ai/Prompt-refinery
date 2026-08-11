@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { extname, join } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -9,6 +10,21 @@ const execFileAsync = promisify(execFile);
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 11 * 1024 * 1024;
 export const MAX_MARKDOWN_CHARACTERS = 12000;
+export const PACKAGED_MARKITDOWN_COMMAND = 'packaged';
+
+export class MarkitdownRuntimeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MarkitdownRuntimeUnavailableError';
+  }
+}
+
+export class MarkitdownDocumentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MarkitdownDocumentError';
+  }
+}
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.csv',
@@ -70,6 +86,68 @@ export function parseMarkitdownCommand(commandValue?: string) {
     command: tokens[0] || 'markitdown',
     args: tokens.slice(1),
   };
+}
+
+export function packagedMarkitdownCommandCandidates(options?: {
+  cwd?: string;
+  entrypoint?: string;
+  platform?: NodeJS.Platform;
+}) {
+  const cwd = options?.cwd ?? process.cwd();
+  const entrypoint = options?.entrypoint ?? process.argv[1];
+  const platform = options?.platform ?? process.platform;
+  const pythonPath = platform === 'win32'
+    ? join('.markitdown-runtime', 'bin', 'python.exe')
+    : join('.markitdown-runtime', 'bin', 'python');
+  const entrypointDirectory = entrypoint
+    ? dirname(resolve(cwd, entrypoint))
+    : cwd;
+
+  return Array.from(new Set([
+    join(entrypointDirectory, pythonPath),
+    join(cwd, pythonPath),
+    join(cwd, '.next', 'standalone', pythonPath),
+  ]));
+}
+
+export function resolveMarkitdownCommand(
+  commandValue?: string,
+  options?: {
+    cwd?: string;
+    entrypoint?: string;
+    platform?: NodeJS.Platform;
+    exists?: (path: string) => boolean;
+  }
+) {
+  if (commandValue?.trim().toLowerCase() !== PACKAGED_MARKITDOWN_COMMAND) {
+    return parseMarkitdownCommand(commandValue);
+  }
+
+  const candidates = packagedMarkitdownCommandCandidates(options);
+  const command = candidates.find(options?.exists ?? existsSync);
+  if (!command) {
+    throw new MarkitdownRuntimeUnavailableError(
+      `The packaged MarkItDown runtime was not found. Checked: ${candidates.join(', ')}`
+    );
+  }
+
+  return {
+    command,
+    args: ['-m', 'markitdown'],
+  };
+}
+
+export function isMarkitdownRuntimeUnavailableError(error: unknown): boolean {
+  if (error instanceof MarkitdownRuntimeUnavailableError) {
+    return true;
+  }
+
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return false;
+  }
+
+  const code = String(error.code);
+  return code === 'ENOENT' || code === 'EACCES';
 }
 
 function truncateMarkdown(content: string) {
@@ -217,7 +295,7 @@ export async function convertBufferToMarkdown(input: {
 
   try {
     await writeFile(temporaryFile, input.contents);
-    const parsedCommand = parseMarkitdownCommand(input.markitdownCommand);
+    const parsedCommand = resolveMarkitdownCommand(input.markitdownCommand);
     const { stdout } = await execFileAsync(
       parsedCommand.command,
       [...parsedCommand.args, temporaryFile],
@@ -227,6 +305,10 @@ export async function convertBufferToMarkdown(input: {
         windowsHide: true,
       }
     );
+
+    if (!stdout.trim()) {
+      throw new MarkitdownDocumentError('No readable text was found in this document.');
+    }
 
     return truncateMarkdown(stdout);
   } finally {

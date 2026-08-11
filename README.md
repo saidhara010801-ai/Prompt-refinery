@@ -62,7 +62,7 @@ Production-readiness tooling includes regression tests, CI, route throttles, a r
 
    Firebase client config is required for auth and saved prompts. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
 
-4. Optional: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
+4. Optional for local development: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
 
    ```powershell
    pip install -r requirements-markitdown.txt
@@ -113,7 +113,7 @@ ADMIN_EMAILS=
 SUPPORT_EMAILS=
 ENABLE_ADMIN_CENTER=false
 ENABLE_DISCOUNT_ADMIN=false
-ENABLE_FILE_CONVERSION=false
+ENABLE_FILE_CONVERSION=true
 ENABLE_STRIPE_CHECKOUT=true
 ENABLE_SUPPORT_ACCESS_REQUESTS=false
 ENABLE_MANAGED_OPENROUTER=false
@@ -143,13 +143,13 @@ OPENROUTER_API_KEY=
 
 OpenRouter can also be used as a user-provided browser-local key from Settings. In that BYOK mode, each AI Council member can use a different OpenRouter model ID.
 
-Optional for document conversion when the MarkItDown CLI is not discoverable as `markitdown`:
+Optional for document conversion when the MarkItDown CLI is not discoverable as `markitdown`. Firebase App Hosting uses the managed runtime built with `MARKITDOWN_COMMAND=packaged`:
 
 ```env
 MARKITDOWN_COMMAND=
 ```
 
-With the Gemini provider, image uploads are sent as inline data URIs for Vision-aware refinement. Text files are read in the browser. PDF and Office attachments use the server-side Microsoft MarkItDown CLI when installed, with a metadata-only fallback when conversion is unavailable.
+With the Gemini provider, image uploads are sent as inline data URIs for Vision-aware refinement. Text files are read in the browser. PDF and Office attachments use the server-side Microsoft MarkItDown CLI. Production App Hosting builds install a pinned MarkItDown release and a relocatable Python runtime automatically.
 
 ## Scripts
 

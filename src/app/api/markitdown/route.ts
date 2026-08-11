@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
 import {
   convertBufferToMarkdown,
+  isMarkitdownRuntimeUnavailableError,
   MAX_REQUEST_BYTES,
   MAX_UPLOAD_BYTES,
   safeConversionExtension,
@@ -60,11 +61,20 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error('MarkItDown conversion failed:', error);
+    if (isMarkitdownRuntimeUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          error: 'Document conversion is temporarily unavailable. Try again shortly or use a text-based file.',
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       {
-        error: 'Document conversion is unavailable. Install MarkItDown on the app server or try a text-based file.',
+        error: 'Clarift could not read this document. Check that the file is valid and not password protected.',
       },
-      { status: 503 }
+      { status: 422 }
     );
   }
 }
