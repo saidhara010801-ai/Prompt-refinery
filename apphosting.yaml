@@ -112,6 +112,6 @@ env:
     availability:
       - RUNTIME
   - variable: GEMINI_ALLOWED_MODELS
-    value: googleai/gemini-2.0-flash
+    value: googleai/gemini-3.6-flash
     availability:
       - RUNTIME

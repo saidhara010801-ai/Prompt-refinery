@@ -4,7 +4,7 @@ config();
 import { genkit, type Genkit as GenkitType } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 
-const generation = 'googleai/gemini-2.5-flash';
+const generation = 'googleai/gemini-3.6-flash';
 
 const plugins = [];
 // Always initialize googleAI. It will use the environment variable if available.

@@ -50,6 +50,35 @@ export function publicApiErrorDetails(error: unknown) {
     };
   }
 
+  if (error instanceof Error && error.name === 'GenkitError') {
+    const message = error.message.toLowerCase();
+    if (message.includes('api key not valid') || message.includes('api_key_invalid')) {
+      return {
+        status: 401,
+        body: { error: { code: 'ProviderApiKeyInvalidError', message: 'Gemini rejected the provider API key. Check the key in extension settings.' } },
+      };
+    }
+    if (message.includes('quota') || message.includes('resource_exhausted') || message.includes('rate limit')) {
+      return {
+        status: 429,
+        body: { error: { code: 'ProviderQuotaError', message: 'Gemini quota or rate limit reached. Wait briefly or use a key with available quota.' } },
+      };
+    }
+    if (message.includes('model') && (message.includes('not found') || message.includes('no longer available'))) {
+      return {
+        status: 503,
+        body: { error: { code: 'ProviderModelUnavailableError', message: 'The configured Gemini model is unavailable. Clarift needs a model update.' } },
+      };
+    }
+  }
+
+  if (error instanceof Error && error.name === 'EmptyAIOutputError') {
+    return {
+      status: 502,
+      body: { error: { code: 'ProviderOutputError', message: 'Gemini did not return a usable structured refinement. Please try again.' } },
+    };
+  }
+
   return {
     status: 502,
     body: {

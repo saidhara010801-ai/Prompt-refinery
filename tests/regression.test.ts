@@ -879,6 +879,15 @@ test('OpenRouter refinements use complete defaults when API clients omit council
   assert.equal(OPENROUTER_REQUEST_TIMEOUT_MS, 45000);
 });
 
+test('Gemini refinements use a current structured-output model', () => {
+  const genkitSource = readFileSync('src/ai/genkit.ts', 'utf8');
+  const appHosting = readFileSync('apphosting.yaml', 'utf8');
+
+  assert.match(genkitSource, /googleai\/gemini-3\.6-flash/);
+  assert.doesNotMatch(genkitSource, /gemini-2\.5-flash/);
+  assert.match(appHosting, /GEMINI_ALLOWED_MODELS\s*\n\s*value: googleai\/gemini-3\.6-flash/);
+});
+
 test('public API failures never expose raw provider or schema errors', () => {
   const rawError = new Error('[{"code":"invalid_type","received":"undefined"}]');
   rawError.name = 'ZodError';
@@ -900,6 +909,21 @@ test('public API failures never expose raw provider or schema errors', () => {
   assert.equal(timeoutDetails.body.error.code, 'ProviderTimeoutError');
   assert.match(timeoutDetails.body.error.message, /too long/i);
   assert.doesNotMatch(timeoutDetails.body.error.message, /raw timeout details/);
+
+  const retiredGeminiModel = Object.assign(
+    new Error('404 Not Found: model gemini-old is no longer available to new users'),
+    { name: 'GenkitError' }
+  );
+  const modelDetails = publicApiErrorDetails(retiredGeminiModel);
+  assert.equal(modelDetails.status, 503);
+  assert.equal(modelDetails.body.error.code, 'ProviderModelUnavailableError');
+  assert.doesNotMatch(modelDetails.body.error.message, /gemini-old|new users/);
+
+  const invalidGeminiKey = Object.assign(new Error('API key not valid: raw provider details'), { name: 'GenkitError' });
+  const invalidKeyDetails = publicApiErrorDetails(invalidGeminiKey);
+  assert.equal(invalidKeyDetails.status, 401);
+  assert.equal(invalidKeyDetails.body.error.code, 'ProviderApiKeyInvalidError');
+  assert.doesNotMatch(invalidKeyDetails.body.error.message, /raw provider details/);
 });
 
 test('browser extension is packaged for in-app testing and supports chatbot activation', () => {
