@@ -11,7 +11,9 @@ const schema = z.object({ prompt: z.string().min(1).max(60000), guidelines: z.ar
 
 export async function POST(request: Request) {
   try {
-    const [{ uid }, caller, input] = await Promise.all([authenticatePublicApi(request), Promise.resolve(getCallerProvider(request)), request.json().then((body) => schema.parse(body))]);
+    const { uid } = await authenticatePublicApi(request);
+    const caller = getCallerProvider(request);
+    const input = schema.parse(await request.json());
     if (caller.provider !== 'gemini') throw new AuthorizationError('Evaluation currently supports Gemini provider keys.', 400, 'ApiValidationError');
     const result = await evaluatePromptGuidelinesBatch({ prompt: input.prompt, guidelines: input.guidelines, apiKey: caller.providerApiKey });
     await recordUsageEvent(uid, { kind: 'evaluation', score: result.combinedScore, provider: caller.provider, source: 'api' }).catch(() => undefined);

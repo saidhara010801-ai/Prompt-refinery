@@ -851,3 +851,14 @@ test('production responses define strict security headers without blocking Fireb
   assert.match(nextConfig, /source: '\/:path\*'/);
   assert.doesNotMatch(nextConfig, /script-src[^"]*'unsafe-eval'/);
 });
+
+test('public AI routes authenticate Clarift API keys before parsing caller input', () => {
+  for (const route of ['refinements', 'evaluations']) {
+    const source = readFileSync(`src/app/api/v1/${route}/route.ts`, 'utf8');
+    const authentication = source.indexOf('await authenticatePublicApi(request)');
+    const provider = source.indexOf('getCallerProvider(request)');
+    const body = source.indexOf('await request.json()');
+
+    assert.ok(authentication >= 0 && authentication < provider && authentication < body);
+  }
+});

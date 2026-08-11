@@ -17,7 +17,9 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const [{ uid }, caller, input] = await Promise.all([authenticatePublicApi(request), Promise.resolve(getCallerProvider(request)), request.json().then((body) => schema.parse(body))]);
+    const { uid } = await authenticatePublicApi(request);
+    const caller = getCallerProvider(request);
+    const input = schema.parse(await request.json());
     const result = await refinePromptWithAICouncil({
       prompt: input.prompt,
       promptType: input.technique,
