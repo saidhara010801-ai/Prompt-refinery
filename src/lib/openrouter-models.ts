@@ -8,9 +8,9 @@ export interface OpenRouterModels {
 
 export const DEFAULT_OPENROUTER_MODELS: OpenRouterModels = {
   specifier: 'openai/gpt-4o-mini',
-  simplifier: 'anthropic/claude-3.5-haiku',
-  stylist: 'google/gemini-2.0-flash-001',
-  critic: 'anthropic/claude-3.5-haiku',
+  simplifier: 'anthropic/claude-haiku-4.5',
+  stylist: 'google/gemini-3.5-flash-lite',
+  critic: 'anthropic/claude-haiku-4.5',
   formatter: 'openai/gpt-4o-mini',
 };
 

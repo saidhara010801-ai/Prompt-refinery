@@ -868,6 +868,8 @@ test('public AI routes authenticate Clarift API keys before parsing caller input
 test('OpenRouter refinements use complete defaults when API clients omit council models', () => {
   const flow = readFileSync('src/ai/flows/refine-prompt-with-ai-council.ts', 'utf8');
   assert.deepEqual(withDefaultOpenRouterModels(), DEFAULT_OPENROUTER_MODELS);
+  assert.equal(DEFAULT_OPENROUTER_MODELS.simplifier, 'anthropic/claude-haiku-4.5');
+  assert.equal(DEFAULT_OPENROUTER_MODELS.stylist, 'google/gemini-3.5-flash-lite');
   assert.deepEqual(withDefaultOpenRouterModels({ formatter: 'custom/formatter' }), {
     ...DEFAULT_OPENROUTER_MODELS,
     formatter: 'custom/formatter',
@@ -883,6 +885,12 @@ test('public API failures never expose raw provider or schema errors', () => {
   assert.equal(details.status, 502);
   assert.equal(details.body.error.code, 'ApiRequestError');
   assert.doesNotMatch(details.body.error.message, /invalid_type|undefined|ZodError/);
+
+  const quotaError = Object.assign(new Error('raw OpenRouter response'), { name: 'OpenRouterError', status: 402 });
+  const quotaDetails = publicApiErrorDetails(quotaError);
+  assert.equal(quotaDetails.body.error.code, 'ProviderRequestError');
+  assert.match(quotaDetails.body.error.message, /insufficient credits/);
+  assert.doesNotMatch(quotaDetails.body.error.message, /raw OpenRouter response/);
 });
 
 test('browser extension is packaged for in-app testing and supports chatbot activation', () => {

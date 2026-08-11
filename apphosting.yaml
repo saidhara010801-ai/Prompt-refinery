@@ -108,7 +108,7 @@ env:
     availability:
       - RUNTIME
   - variable: OPENROUTER_ALLOWED_MODELS
-    value: openai/gpt-4o-mini,anthropic/claude-3.5-haiku,google/gemini-2.0-flash-001,deepseek/deepseek-chat,qwen/qwen-2.5-coder
+    value: openai/gpt-4o-mini,anthropic/claude-haiku-4.5,google/gemini-3.5-flash-lite,deepseek/deepseek-chat,qwen/qwen-2.5-coder
     availability:
       - RUNTIME
   - variable: GEMINI_ALLOWED_MODELS

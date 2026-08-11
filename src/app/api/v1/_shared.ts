@@ -29,6 +29,25 @@ export function publicApiErrorDetails(error: unknown) {
     };
   }
 
+  if (error instanceof Error && error.name === 'OpenRouterError') {
+    const providerStatus = typeof (error as Error & { status?: unknown }).status === 'number'
+      ? (error as Error & { status: number }).status
+      : undefined;
+    const message = providerStatus === 401 || providerStatus === 403
+      ? 'OpenRouter rejected the provider API key. Check the key in extension settings.'
+      : providerStatus === 402
+        ? 'The OpenRouter account has insufficient credits for this refinement.'
+        : providerStatus === 429
+          ? 'OpenRouter rate limit reached. Wait briefly and try again.'
+          : providerStatus === 404
+            ? 'A selected OpenRouter model is unavailable. Restore the default council models and try again.'
+            : 'OpenRouter could not complete the refinement. Check the provider key and try again.';
+    return {
+      status: 502,
+      body: { error: { code: 'ProviderRequestError', message } },
+    };
+  }
+
   return {
     status: 502,
     body: {
