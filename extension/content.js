@@ -6,6 +6,17 @@
   let actionButton = null;
   let statusBox = null;
   let statusTimer = null;
+  const RESPONSE_TIMEOUT_MS = 115000;
+
+  function withResponseTimeout(promise) {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(
+        () => reject(new Error('Clarift took too long to respond. Please try again.')),
+        RESPONSE_TIMEOUT_MS
+      );
+      promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+    });
+  }
 
   function isEditor(element) {
     return element instanceof HTMLTextAreaElement ||
@@ -84,6 +95,7 @@
 
   async function refineActiveEditor() {
     if (!activeEditor || !document.contains(activeEditor)) return;
+    if (actionButton?.disabled) return;
     const prompt = editorText(activeEditor).trim();
     if (!prompt) {
       showStatus('Enter a prompt before refining.', true);
@@ -93,15 +105,19 @@
     actionButton.disabled = true;
     actionButton.textContent = 'Refining...';
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'clarift-refine', prompt });
+      const response = await withResponseTimeout(
+        chrome.runtime.sendMessage({ type: 'clarift-refine', prompt })
+      );
       if (!response?.ok) throw new Error(response?.error || 'Clarift request failed.');
       replaceEditorText(activeEditor, response.refinedPrompt);
       showStatus('Prompt refined.');
     } catch (error) {
       showStatus(error.message || 'Clarift request failed.', true);
     } finally {
-      actionButton.disabled = false;
-      actionButton.textContent = 'Refine with Clarift';
+      if (actionButton) {
+        actionButton.disabled = false;
+        actionButton.textContent = 'Refine with Clarift';
+      }
     }
   }
 

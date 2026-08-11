@@ -2,6 +2,7 @@ import { z } from 'genkit';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MAX_OPENROUTER_RESPONSE_CHARACTERS = 300000;
+export const OPENROUTER_REQUEST_TIMEOUT_MS = 45000;
 
 const OpenRouterChatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
@@ -41,23 +42,38 @@ export async function createOpenRouterChatCompletion(input: OpenRouterChatInput)
     throw new OpenRouterError('OpenRouter API key is missing.');
   }
 
-  const response = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/saidhara010801-ai/Prompt-refinery',
-      'X-OpenRouter-Title': 'Clarift',
-    },
-    body: JSON.stringify({
-      model: input.model,
-      messages: input.messages,
-      temperature: input.temperature ?? 0.3,
-      ...(input.jsonMode === false ? {} : { response_format: { type: 'json_object' } }),
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENROUTER_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  let responseText: string;
 
-  const responseText = await response.text();
+  try {
+    response = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/saidhara010801-ai/Prompt-refinery',
+        'X-OpenRouter-Title': 'Clarift',
+      },
+      body: JSON.stringify({
+        model: input.model,
+        messages: input.messages,
+        temperature: input.temperature ?? 0.3,
+        ...(input.jsonMode === false ? {} : { response_format: { type: 'json_object' } }),
+      }),
+      signal: controller.signal,
+    });
+    responseText = await response.text();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new OpenRouterError('OpenRouter request timed out.', 504);
+    }
+    throw new OpenRouterError('OpenRouter could not be reached.', 502);
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (responseText.length > MAX_OPENROUTER_RESPONSE_CHARACTERS) {
     throw new OpenRouterError('OpenRouter returned a response that was too large.', response.status);
   }

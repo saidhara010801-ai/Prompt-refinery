@@ -39,12 +39,14 @@ export function publicApiErrorDetails(error: unknown) {
         ? 'The OpenRouter account has insufficient credits for this refinement.'
         : providerStatus === 429
           ? 'OpenRouter rate limit reached. Wait briefly and try again.'
-          : providerStatus === 404
-            ? 'A selected OpenRouter model is unavailable. Restore the default council models and try again.'
-            : 'OpenRouter could not complete the refinement. Check the provider key and try again.';
+          : providerStatus === 504
+            ? 'OpenRouter took too long to respond. Please try again.'
+            : providerStatus === 404
+              ? 'A selected OpenRouter model is unavailable. Restore the default council models and try again.'
+              : 'OpenRouter could not complete the refinement. Check the provider key and try again.';
     return {
-      status: 502,
-      body: { error: { code: 'ProviderRequestError', message } },
+      status: providerStatus === 504 ? 504 : 502,
+      body: { error: { code: providerStatus === 504 ? 'ProviderTimeoutError' : 'ProviderRequestError', message } },
     };
   }
 

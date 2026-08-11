@@ -66,6 +66,7 @@ import {
 import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts, normalizedSearchTerms } from '../src/lib/stage2-utils';
 import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '../src/lib/openrouter-models';
 import { publicApiErrorDetails } from '../src/app/api/v1/_shared';
+import { OPENROUTER_REQUEST_TIMEOUT_MS } from '../src/ai/flows/openrouter-client';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -875,6 +876,7 @@ test('OpenRouter refinements use complete defaults when API clients omit council
     formatter: 'custom/formatter',
   });
   assert.equal((flow.match(/withDefaultOpenRouterModels\(input\.openRouterModels\)/g) ?? []).length, 2);
+  assert.equal(OPENROUTER_REQUEST_TIMEOUT_MS, 45000);
 });
 
 test('public API failures never expose raw provider or schema errors', () => {
@@ -891,18 +893,26 @@ test('public API failures never expose raw provider or schema errors', () => {
   assert.equal(quotaDetails.body.error.code, 'ProviderRequestError');
   assert.match(quotaDetails.body.error.message, /insufficient credits/);
   assert.doesNotMatch(quotaDetails.body.error.message, /raw OpenRouter response/);
+
+  const timeoutError = Object.assign(new Error('raw timeout details'), { name: 'OpenRouterError', status: 504 });
+  const timeoutDetails = publicApiErrorDetails(timeoutError);
+  assert.equal(timeoutDetails.status, 504);
+  assert.equal(timeoutDetails.body.error.code, 'ProviderTimeoutError');
+  assert.match(timeoutDetails.body.error.message, /too long/i);
+  assert.doesNotMatch(timeoutDetails.body.error.message, /raw timeout details/);
 });
 
 test('browser extension is packaged for in-app testing and supports chatbot activation', () => {
   const manifest = JSON.parse(readFileSync('extension/manifest.json', 'utf8'));
   const popupMarkup = readFileSync('extension/popup.html', 'utf8');
   const popup = readFileSync('extension/popup.js', 'utf8');
+  const background = readFileSync('extension/background.js', 'utf8');
   const content = readFileSync('extension/content.js', 'utf8');
   const settings = readFileSync('src/components/browser-extension-panel.tsx', 'utf8');
   const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
 
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.1.1');
+  assert.equal(manifest.version, '1.1.2');
   assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage']);
   for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
     assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));
@@ -910,6 +920,9 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   assert.match(popup, /chrome\.scripting\.executeScript/);
   assert.match(popupMarkup, /Enable on this page/);
   assert.match(content, /clarift-ping/);
+  assert.match(content, /RESPONSE_TIMEOUT_MS = 115000/);
+  assert.match(background, /REQUEST_TIMEOUT_MS = 105000/);
+  assert.match(background, /AbortController/);
   assert.match(settings, /\/downloads\/clarift-browser-extension\.zip/);
   assert.ok(archive.includes(Buffer.from('manifest.json')));
   assert.ok(archive.includes(Buffer.from('popup.html')));
