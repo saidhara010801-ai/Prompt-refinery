@@ -57,7 +57,7 @@ The OpenAPI document is served at `/api/v1/openapi.json`. Provider keys are requ
 
 ## Browser Extension
 
-The unpacked Manifest V3 extension lives in `extension/`. Load it in Chrome or Edge developer mode, then enter a Clarift API key and provider key on its settings page. It supports ChatGPT, Gemini, and Claude prompt editors.
+The Manifest V3 test build is downloadable from Clarift Settings > Browser Extension. Extract the ZIP, load the folder in Chrome or Edge developer mode, then enter a Clarift API key and provider key on its settings page. It activates automatically on ChatGPT, Claude, Gemini, Copilot, Perplexity, Poe, Grok, and Google AI Studio; use the extension popup to enable it temporarily on another web chatbot.
 
 ## Privacy Boundaries
 

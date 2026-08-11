@@ -1,7 +1,5 @@
 const DEFAULT_API_BASE = 'https://clarift--clarift-e4f6f.us-east4.hosted.app';
 
-chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'clarift-refine') return false;
 

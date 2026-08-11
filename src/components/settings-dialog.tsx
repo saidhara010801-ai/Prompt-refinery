@@ -20,6 +20,7 @@ import { SettingsContext } from '@/context/settings-context';
 import { cn } from '@/lib/utils';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { ApiKeysPanel } from '@/components/api-keys-panel';
+import { BrowserExtensionPanel } from '@/components/browser-extension-panel';
 
 export function SettingsDialog() {
   const {
@@ -203,6 +204,7 @@ export function SettingsDialog() {
                 </div>
               </div>
             </div>
+            <BrowserExtensionPanel enabled={isPro} />
             <ApiKeysPanel enabled={isPro} />
           </div>
           <DialogFooter>

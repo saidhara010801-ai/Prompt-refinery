@@ -50,6 +50,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: '/downloads/clarift-browser-extension.zip',
+        headers: [
+          { key: 'Content-Disposition', value: 'attachment; filename="clarift-browser-extension.zip"' },
+          { key: 'Content-Type', value: 'application/zip' },
+          { key: 'Cache-Control', value: 'public, max-age=300, must-revalidate' },
+        ],
+      },
+      {
         source: '/:path*',
         headers: productionSecurityHeaders,
       },

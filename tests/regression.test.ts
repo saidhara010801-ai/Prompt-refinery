@@ -862,3 +862,24 @@ test('public AI routes authenticate Clarift API keys before parsing caller input
     assert.ok(authentication >= 0 && authentication < provider && authentication < body);
   }
 });
+
+test('browser extension is packaged for in-app testing and supports chatbot activation', () => {
+  const manifest = JSON.parse(readFileSync('extension/manifest.json', 'utf8'));
+  const popupMarkup = readFileSync('extension/popup.html', 'utf8');
+  const popup = readFileSync('extension/popup.js', 'utf8');
+  const content = readFileSync('extension/content.js', 'utf8');
+  const settings = readFileSync('src/components/browser-extension-panel.tsx', 'utf8');
+  const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
+
+  assert.equal(manifest.manifest_version, 3);
+  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage']);
+  for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
+    assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));
+  }
+  assert.match(popup, /chrome\.scripting\.executeScript/);
+  assert.match(popupMarkup, /Enable on this page/);
+  assert.match(content, /clarift-ping/);
+  assert.match(settings, /\/downloads\/clarift-browser-extension\.zip/);
+  assert.ok(archive.includes(Buffer.from('manifest.json')));
+  assert.ok(archive.includes(Buffer.from('popup.html')));
+});
