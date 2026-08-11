@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #18181b; color: #fafafa; }
+main { width: min(620px, calc(100% - 32px)); margin: 40px auto; }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.mark { display: grid; width: 44px; height: 44px; place-items: center; border: 2px solid #ff7400; border-radius: 50%; font: 700 24px Georgia, serif; }
+h1 { margin: 0; font: 700 28px Georgia, serif; letter-spacing: 0; }
+p { margin: 4px 0 0; color: #a1a1aa; }
+form { display: grid; gap: 10px; border: 1px solid #3f3f46; border-radius: 8px; padding: 22px; background: #202024; }
+label { margin-top: 8px; font-size: 13px; font-weight: 650; }
+input, select, button { min-height: 42px; border: 1px solid #52525b; border-radius: 6px; padding: 9px 11px; background: #18181b; color: #fafafa; font: inherit; letter-spacing: 0; }
+input:focus, select:focus, button:focus { outline: 3px solid #ff7400; outline-offset: 2px; }
+button { margin-top: 14px; border-color: #ff7400; background: #ff7400; color: #18181b; font-weight: 700; cursor: pointer; }
+#status { min-height: 20px; text-align: center; font-size: 13px; }

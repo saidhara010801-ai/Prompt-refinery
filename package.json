@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "check:production-env": "tsx scripts/check-production-env.ts",
+    "migrate:project-memory": "tsx scripts/migrate-project-memory.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

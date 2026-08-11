@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clarift Extension Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header><div class="mark">C</div><div><h1>Clarift</h1><p>Browser refinement settings</p></div></header>
+      <form id="settings-form">
+        <label for="api-base">Clarift API URL</label>
+        <input id="api-base" name="apiBase" type="url" required>
+        <label for="clarift-key">Clarift API key</label>
+        <input id="clarift-key" name="clariftApiKey" type="password" required autocomplete="off">
+        <label for="provider">AI provider</label>
+        <select id="provider" name="provider"><option value="gemini">Gemini</option><option value="openrouter">OpenRouter</option></select>
+        <label for="provider-key">Provider API key</label>
+        <input id="provider-key" name="providerApiKey" type="password" required autocomplete="off">
+        <label for="technique">Refinement technique</label>
+        <select id="technique" name="technique">
+          <option>Zero-shot</option><option>Few-shot</option><option>Chain-of-thought</option><option>Tree-of-thoughts</option><option>Role / persona</option><option>Prompt chaining</option><option>ReAct</option><option>Meta / reflection</option>
+        </select>
+        <button type="submit">Save Settings</button>
+        <p id="status" role="status"></p>
+      </form>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

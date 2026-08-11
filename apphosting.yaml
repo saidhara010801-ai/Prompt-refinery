@@ -16,7 +16,7 @@ env:
     availability:
       - RUNTIME
   - variable: ENABLE_ADMIN_CENTER
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: ENABLE_DISCOUNT_ADMIN
@@ -36,7 +36,7 @@ env:
     availability:
       - RUNTIME
   - variable: ENABLE_PROMOTION_CODES
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: ENABLE_SUPPORT_ACCESS_REQUESTS
@@ -45,6 +45,38 @@ env:
       - RUNTIME
   - variable: ENABLE_MANAGED_OPENROUTER
     value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_PUBLIC_API
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_PROJECT_SHARING
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_USAGE_ANALYTICS
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: OWNER_EMAILS
+    value: bhargavdvs2001@gmail.com
+    availability:
+      - RUNTIME
+  - variable: PUBLIC_API_RATE_LIMIT_PER_MINUTE
+    value: "30"
+    availability:
+      - RUNTIME
+  - variable: PROMO_CODE_PEPPER
+    secret: PROMO_CODE_PEPPER
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_API_KEY_PEPPER
+    secret: CLARIFT_API_KEY_PEPPER
+    availability:
+      - RUNTIME
+  - variable: CRON_SECRET
+    secret: CRON_SECRET
     availability:
       - RUNTIME
   - variable: FREE_DAILY_REQUEST_LIMIT

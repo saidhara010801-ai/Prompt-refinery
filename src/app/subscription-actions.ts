@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 
-import { deleteSavedPromptForUser, savePromptForUser } from '@/lib/server/account-service';
+import { deleteSavedPromptForUser, savePromptForUser, updateSavedPromptMetadataForUser } from '@/lib/server/account-service';
 import {
   MAX_FIREBASE_ID_TOKEN_CHARACTERS,
   MAX_PROMPT_CHARACTERS,
@@ -28,12 +28,31 @@ const savePromptSchema = z.object({
     latestVersion: z.number().int().positive(),
     versionCount: z.number().int().positive(),
     versions: z.array(promptVersionSchema).min(1).max(MAX_PROMPT_VERSIONS),
+    folder: z.string().trim().max(80).nullable().optional(),
+    tags: z.array(z.string().trim().min(1).max(32)).max(10).optional(),
   }),
 });
 
 export async function savePromptAction(data: z.infer<typeof savePromptSchema>) {
   const parsed = savePromptSchema.parse(data);
   return savePromptForUser(parsed.firebaseIdToken, parsed.prompt);
+}
+
+export async function updateSavedPromptMetadataAction(data: {
+  firebaseIdToken: string;
+  promptId: string;
+  name: string;
+  folder?: string | null;
+  tags: string[];
+}) {
+  const parsed = z.object({
+    firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
+    promptId: z.string().min(1).max(200),
+    name: z.string().trim().min(1).max(160),
+    folder: z.string().trim().max(80).nullable().optional(),
+    tags: z.array(z.string().trim().min(1).max(32)).max(10),
+  }).parse(data);
+  return updateSavedPromptMetadataForUser(parsed.firebaseIdToken, parsed.promptId, parsed);
 }
 
 export async function deleteSavedPromptAction(data: { firebaseIdToken: string; promptId: string }) {

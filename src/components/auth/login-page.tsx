@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AtSign, Lock, User } from 'lucide-react';
+import { AtSign, Lock, Ticket, User } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -40,6 +40,7 @@ const signUpSchema = z.object({
   password: z
     .string()
     .min(6, { message: 'Password must be at least 6 characters.' }),
+  promoCode: z.string().trim().max(100).optional(),
 });
 
 const signInSchema = z.object({
@@ -54,7 +55,7 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
 
   const signUpForm = useForm<z.infer<typeof signUpSchema>>({
     resolver: zodResolver(signUpSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: '', password: '', promoCode: '' },
   });
 
   const signInForm = useForm<z.infer<typeof signInSchema>>({
@@ -91,7 +92,21 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
   const onSignUp = async (values: z.infer<typeof signUpSchema>) => {
     setIsLoading(true);
     try {
-      await initiateEmailSignUp(auth, values.email, values.password);
+      const credential = await initiateEmailSignUp(auth, values.email, values.password);
+      if (values.promoCode?.trim()) {
+        try {
+          const response = await fetch('/api/promo/redeem', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await credential.user.getIdToken()}` },
+            body: JSON.stringify({ code: values.promoCode }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error?.message || 'Promo code could not be redeemed.');
+          toast({ title: 'Promo Pro Activated', description: 'Your account now has Pro access.' });
+        } catch (promoError) {
+          toast({ title: 'Account Created on Free', description: promoError instanceof Error ? promoError.message : 'The promo code was not applied.' });
+        }
+      }
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -121,10 +136,22 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
     }
   };
 
-  const onSignInWithGoogle = async () => {
+  const onSignInWithGoogle = async (promoCode?: string) => {
     setIsLoading(true);
     try {
-      await initiateGoogleSignIn(auth);
+      if (promoCode?.trim()) sessionStorage.setItem('clarift-pending-promo', promoCode.trim());
+      const credential = await initiateGoogleSignIn(auth);
+      if (credential?.user && promoCode?.trim()) {
+        const response = await fetch('/api/promo/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await credential.user.getIdToken()}` },
+          body: JSON.stringify({ code: promoCode }),
+        });
+        sessionStorage.removeItem('clarift-pending-promo');
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error?.message || 'Promo code could not be redeemed.');
+        toast({ title: 'Promo Pro Activated', description: 'Your account now has Pro access.' });
+      }
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -210,7 +237,7 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
                     type="button"
                     variant="secondary"
                     className="w-full"
-                    onClick={onSignInWithGoogle}
+                    onClick={() => onSignInWithGoogle()}
                     disabled={isLoading}
                   >
                     Continue with Google
@@ -273,6 +300,22 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
                   />
                   <FormField
                     control={signUpForm.control}
+                    name="promoCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Promo Code <span className="text-muted-foreground">(optional)</span></FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Ticket className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input placeholder="CLARIFT-..." className="pl-10 uppercase" autoComplete="off" {...field} />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={signUpForm.control}
                     name="password"
                     render={({ field }) => (
                       <FormItem>
@@ -305,7 +348,7 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
                     type="button"
                     variant="secondary"
                     className="w-full"
-                    onClick={onSignInWithGoogle}
+                    onClick={() => onSignInWithGoogle(signUpForm.getValues('promoCode'))}
                     disabled={isLoading}
                   >
                     Continue with Google

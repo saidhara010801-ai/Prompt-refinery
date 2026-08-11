@@ -9,7 +9,7 @@ import { getAdminAuth, getAdminFirestore } from './firebase-admin';
 
 export type UserRole = 'user' | 'support' | 'admin' | 'owner';
 export type AccountStatus = 'active' | 'disabled' | 'suspended' | 'deleted_pending';
-export type SubscriptionSource = 'stripe' | 'manual' | 'team' | 'beta' | 'test' | 'owner' | null;
+export type SubscriptionSource = 'stripe' | 'promo' | 'manual' | 'team' | 'beta' | 'test' | 'owner' | null;
 export type EntitlementSource = Exclude<SubscriptionSource, null>;
 
 export interface NormalizedUserProfile {
@@ -92,7 +92,7 @@ function normalizeStatus(value: unknown): AccountStatus {
 }
 
 function normalizeSource(value: unknown): SubscriptionSource {
-  return value === 'stripe' || value === 'manual' || value === 'team' || value === 'beta' || value === 'test' || value === 'owner'
+  return value === 'stripe' || value === 'promo' || value === 'manual' || value === 'team' || value === 'beta' || value === 'test' || value === 'owner'
     ? value
     : null;
 }
@@ -197,6 +197,15 @@ export function evaluateEntitlement(
     return { uid, tier: 'pro', isPro: true, source: 'owner', reason: 'Owner role entitlement', expiresAt: null };
   }
 
+  const stripeActive = profile.subscriptionSource === 'stripe' ||
+    profile.subscriptionStatus === 'active' ||
+    profile.subscriptionStatus === 'trialing' ||
+    (isProTier(profile.subscriptionTier) && !profile.subscriptionSource);
+
+  if (stripeActive && isProTier(profile.subscriptionTier)) {
+    return { uid, tier: profile.subscriptionTier, isPro: true, source: 'stripe', reason: 'Active Stripe subscription', expiresAt: null };
+  }
+
   if (activeGrant && isProTier(grantTier)) {
     return {
       uid,
@@ -206,15 +215,6 @@ export function evaluateEntitlement(
       reason: asString(grant?.reason) || null,
       expiresAt,
     };
-  }
-
-  const stripeActive = profile.subscriptionSource === 'stripe' ||
-    profile.subscriptionStatus === 'active' ||
-    profile.subscriptionStatus === 'trialing' ||
-    (isProTier(profile.subscriptionTier) && !profile.subscriptionSource);
-
-  if (stripeActive && isProTier(profile.subscriptionTier)) {
-    return { uid, tier: profile.subscriptionTier, isPro: true, source: 'stripe', reason: 'Active Stripe subscription', expiresAt: null };
   }
 
   return { uid, tier: 'free', isPro: false, source: null, reason: null, expiresAt: null };

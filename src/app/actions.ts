@@ -21,6 +21,12 @@ import {
     MAX_TOKEN_ESTIMATE_CHARACTERS,
 } from "@/lib/input-limits";
 import { z } from "zod";
+import { genkit, generation } from '@/ai/genkit';
+import { googleAI } from '@genkit-ai/google-genai';
+import { createOpenRouterChatCompletion } from '@/ai/flows/openrouter-client';
+import { evaluatePromptGuidelinesBatch } from '@/ai/flows/evaluate-prompt-guidelines-batch';
+import { saveEvaluationRunForUser } from '@/lib/server/account-service';
+import { recordUsageEventFromToken } from '@/lib/server/usage-analytics';
 
 const DEFAULT_OPENROUTER_MODELS = {
     specifier: "openai/gpt-4o-mini",
@@ -69,7 +75,7 @@ const tokenCounterSchema = z.object({
     apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
 });
 
-type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts";
+type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts" | "test prompt";
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -219,6 +225,11 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
             : flowData;
 
         const result = await refinePromptWithAICouncil(input);
+        await recordUsageEventFromToken(parsed.data.firebaseIdToken, {
+            kind: 'refinement',
+            technique: parsed.data.promptType,
+            provider,
+        });
         return result;
     } catch (error) {
         console.error("Error refining prompt:", error);
@@ -275,5 +286,94 @@ export async function getTokenCountsAction(data: GetTokenCountsInput) {
     } catch (error) {
         console.error("Error getting token counts:", error);
         throw toUserFacingError(error, "get token counts", true);
+    }
+}
+
+const batchEvaluateSchema = z.object({
+    prompt: z.string().min(1).max(MAX_PROMPT_CHARACTERS),
+    guidelines: z.array(z.string().min(1).max(MAX_GUIDELINE_CHARACTERS)).min(1).max(8),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
+});
+
+export async function evaluateGuidelinesAction(data: z.infer<typeof batchEvaluateSchema>) {
+    const parsed = batchEvaluateSchema.parse(data);
+    const { profile } = await getVerifiedUserProfile(parsed.firebaseIdToken);
+    assertActiveAccount(profile, 'evaluate guidelines');
+    try {
+        const evaluation = await evaluatePromptGuidelinesBatch({
+            prompt: parsed.prompt,
+            guidelines: parsed.guidelines,
+            apiKey: parsed.apiKey,
+        });
+        const saved = await saveEvaluationRunForUser(parsed.firebaseIdToken, {
+            prompt: parsed.prompt,
+            guidelines: parsed.guidelines,
+            combinedScore: evaluation.combinedScore,
+            results: evaluation.results,
+        });
+        await recordUsageEventFromToken(parsed.firebaseIdToken, { kind: 'evaluation', score: evaluation.combinedScore });
+        return { ...evaluation, id: saved.id };
+    } catch (error) {
+        console.error('Error evaluating guidelines:', error);
+        throw toUserFacingError(error, 'evaluate guideline', Boolean(parsed.apiKey));
+    }
+}
+
+const testPromptSchema = z.object({
+    prompt: z.string().min(1).max(MAX_REFINED_PROMPT_CHARACTERS),
+    provider: z.enum(['gemini', 'openrouter']),
+    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
+    model: z.string().max(MAX_MODEL_ID_CHARACTERS).optional(),
+    firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
+});
+
+export async function testRefinedPromptAction(data: z.infer<typeof testPromptSchema>) {
+    const parsed = testPromptSchema.parse(data);
+    await assertProFeatureAccess(parsed.firebaseIdToken, 'Integrated model testing is available on Pro.');
+    const startedAt = Date.now();
+
+    try {
+        let content: string;
+        if (parsed.provider === 'openrouter') {
+            if (!parsed.openRouterApiKey) {
+                const error = new Error('Add your OpenRouter API key in Settings before testing.');
+                error.name = 'OpenRouterApiKeyMissingError';
+                throw error;
+            }
+            content = await createOpenRouterChatCompletion({
+                apiKey: parsed.openRouterApiKey,
+                model: parsed.model || DEFAULT_OPENROUTER_MODELS.formatter,
+                messages: [{ role: 'user', content: parsed.prompt }],
+                temperature: 0.3,
+                jsonMode: false,
+            });
+        } else {
+            if (!parsed.apiKey) {
+                const error = new Error('Add your Gemini API key in Settings before testing.');
+                error.name = 'ApiKeyMissingError';
+                throw error;
+            }
+            const testAi = genkit({ plugins: [googleAI({ apiKey: parsed.apiKey })], model: generation });
+            const response = await testAi.generate({ prompt: parsed.prompt });
+            content = response.text;
+        }
+
+        if (!content?.trim()) throw new Error('The model returned an empty response.');
+        await recordUsageEventFromToken(parsed.firebaseIdToken, { kind: 'model_test', provider: parsed.provider });
+        return { content: content.slice(0, 20000), latencyMs: Date.now() - startedAt };
+    } catch (error) {
+        if (error instanceof Error && (
+            error.name === 'ApiKeyMissingError' ||
+            error.name === 'OpenRouterApiKeyMissingError' ||
+            error.name === 'ProFeatureRequiredError'
+        )) throw error;
+        throw toProviderError(
+            error,
+            'test prompt',
+            parsed.provider,
+            parsed.provider === 'openrouter' ? Boolean(parsed.openRouterApiKey) : Boolean(parsed.apiKey)
+        );
     }
 }

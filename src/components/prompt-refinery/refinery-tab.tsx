@@ -1,10 +1,10 @@
 'use client';
 
-import { ChangeEvent, useState, useContext, useEffect } from 'react';
+import { ChangeEvent, useState, useContext, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText } from 'lucide-react';
+import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText, Play, FolderPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
-import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
+import { refinePromptAction, getTokenCountsAction, testRefinedPromptAction } from '@/app/actions';
 import { OutputActions } from './output-actions';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, limit, orderBy, query } from 'firebase/firestore';
@@ -30,7 +30,9 @@ import { Badge } from '../ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { isFreeTechnique } from '@/lib/subscription';
 import { savePromptAction } from '@/app/subscription-actions';
-import { addProjectSessionAction } from '@/app/project-actions';
+import { addProjectSessionAction, createProjectMemoryEntryAction } from '@/app/project-actions';
+import { useWorkflow } from '@/context/workflow-context';
+import type { ProjectMemoryEntry } from './stage2-types';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -67,18 +69,6 @@ interface PromptVersion {
     createdAt: string;
 }
 
-interface ProjectSessionMemory {
-    id: string;
-    rawPrompt: string;
-    refinedPrompt: string;
-    promptType: string;
-    llmResponse?: string;
-    timestamp?: {
-      seconds: number;
-      nanoseconds: number;
-    };
-}
-
 interface RefineryTabProps {
   selectedProject: Project | null;
   projects?: Project[] | null;
@@ -91,7 +81,7 @@ interface RefineryTabProps {
 
 const NO_PROJECT_VALUE = '__no_project__';
 
-function buildProjectMemory(project: Project | null, sessions: ProjectSessionMemory[] | null): string | undefined {
+function buildProjectMemory(project: Project | null, entries: ProjectMemoryEntry[]): string | undefined {
   if (!project) {
     return undefined;
   }
@@ -99,15 +89,10 @@ function buildProjectMemory(project: Project | null, sessions: ProjectSessionMem
   const memoryParts = [
     `Project: ${project.name}`,
     project.description ? `Project description: ${project.description}` : '',
-    ...(sessions ?? [])
+    ...entries
       .slice()
       .reverse()
-      .map((session, index) => [
-        `Session ${index + 1} (${session.promptType})`,
-        `Raw prompt: ${session.rawPrompt}`,
-        `Refined prompt: ${session.refinedPrompt}`,
-        session.llmResponse ? `LLM response / notes: ${session.llmResponse}` : '',
-      ].filter(Boolean).join('\n')),
+      .map((entry, index) => `Memory ${index + 1} (${entry.kind}) — ${entry.title}\n${entry.content}`),
   ].filter(Boolean);
 
   return memoryParts.join('\n\n').slice(0, 6000);
@@ -273,22 +258,28 @@ export function RefineryTab({
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [explanationMode, setExplanationMode] = useState(true);
   const [maxCharacters, setMaxCharacters] = useState('');
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
+  const [isTestingPrompt, setIsTestingPrompt] = useState(false);
+  const [testResponse, setTestResponse] = useState<{ content: string; latencyMs: number } | null>(null);
+  const [diffFromVersion, setDiffFromVersion] = useState(1);
+  const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
   const { triggerAnimation } = useContext(SettingsContext);
   const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
+  const { refineryTransfer, clearRefineryTransfer } = useWorkflow();
 
   const projectSessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProject) return null;
     return query(
-      collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/projectSessions`),
-      orderBy('timestamp', 'desc'),
-      limit(5)
+      collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/memoryEntries`),
+      orderBy('updatedAt', 'desc'),
+      limit(25)
     );
   }, [user, firestore, selectedProject]);
 
-  const { data: projectSessions } = useCollection<ProjectSessionMemory>(projectSessionsQuery);
+  const { data: projectMemoryEntries } = useCollection<ProjectMemoryEntry>(projectSessionsQuery);
   const projectOptions = selectedProject && !projects?.some((project) => project.id === selectedProject.id)
     ? [selectedProject, ...(projects ?? [])]
     : (projects ?? []);
@@ -300,6 +291,40 @@ export function RefineryTab({
       promptType: 'Zero-shot',
     },
   });
+
+  useEffect(() => {
+    const technique = PROMPT_TECHNIQUES.find((candidate) => candidate.value === selectedProject?.defaultTechnique)?.value;
+    if (technique) form.setValue('promptType', technique);
+  }, [form, selectedProject?.defaultTechnique, selectedProject?.id]);
+
+  const watchedPrompt = form.watch('prompt');
+  const relevantMemoryEntries = useMemo(() => {
+    const queryTerms = new Set(watchedPrompt.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length >= 2));
+    return (projectMemoryEntries ?? [])
+      .filter((entry) => entry.active !== false)
+      .map((entry) => ({
+        entry,
+        score: entry.searchTerms?.reduce((score, term) => score + (queryTerms.has(term) ? 1 : 0), 0) ?? 0,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map(({ entry }) => entry);
+  }, [projectMemoryEntries, watchedPrompt]);
+
+  useEffect(() => {
+    setSelectedMemoryIds(relevantMemoryEntries.map((entry) => entry.id));
+  }, [relevantMemoryEntries]);
+
+  useEffect(() => {
+    if (!refineryTransfer) return;
+    if (refineryTransfer.prompt) {
+      form.setValue('prompt', refineryTransfer.prompt.slice(0, 50000), { shouldDirty: true, shouldValidate: true });
+    }
+    if (refineryTransfer.attachments?.length) {
+      setAttachments((current) => [...current, ...refineryTransfer.attachments!].slice(0, 6));
+    }
+    clearRefineryTransfer(refineryTransfer.id);
+  }, [clearRefineryTransfer, form, refineryTransfer]);
 
   useEffect(() => {
     if (!refinedPrompt) {
@@ -333,7 +358,8 @@ export function RefineryTab({
     setRefinements([]);
     setTokenCounts(null);
     try {
-      const projectMemory = buildProjectMemory(selectedProject, projectSessions);
+      const selectedEntries = (projectMemoryEntries ?? []).filter((entry) => selectedMemoryIds.includes(entry.id));
+      const projectMemory = buildProjectMemory(selectedProject, selectedEntries);
       const firebaseIdToken = await user?.getIdToken();
       const result = await refinePromptAction({
         ...data,
@@ -361,6 +387,9 @@ export function RefineryTab({
       };
       const nextVersions = [...previousVersions, nextVersion];
       setPromptVersions(nextVersions);
+      setDiffFromVersion(Math.max(1, nextVersion.version - 1));
+      setDiffToVersion(nextVersion.version);
+      setTestResponse(null);
 
       if (user && firestore && selectedProject) {
         try {
@@ -521,8 +550,51 @@ export function RefineryTab({
     }
   };
 
+  const handleTestPrompt = async () => {
+    if (!user || !refinedPrompt) return;
+    setIsTestingPrompt(true);
+    setTestResponse(null);
+    try {
+      const result = await testRefinedPromptAction({
+        firebaseIdToken: await user.getIdToken(),
+        prompt: refinedPrompt,
+        provider: aiProvider,
+        apiKey: apiKey || undefined,
+        openRouterApiKey: openRouterApiKey || undefined,
+        model: aiProvider === 'openrouter' ? openRouterModels.formatter : undefined,
+      });
+      setTestResponse(result);
+    } catch (error) {
+      const errorToast = getErrorToast(error);
+      toast({ variant: 'destructive', title: errorToast.title, description: errorToast.description });
+    } finally {
+      setIsTestingPrompt(false);
+    }
+  };
+
+  const handleSaveTestResponse = async () => {
+    if (!user || !selectedProject || !testResponse) return;
+    try {
+      await createProjectMemoryEntryAction({
+        firebaseIdToken: await user.getIdToken(),
+        projectId: selectedProject.id,
+        kind: 'response',
+        title: 'Integrated model test response',
+        content: testResponse.content,
+      });
+      toast({ title: 'Saved to Project Memory', description: 'The model response is available to future refinements.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Save Response', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
   const diffTokens = rawPromptAtResult && refinedPrompt
     ? buildDiffTokens(rawPromptAtResult, refinedPrompt)
+    : [];
+  const fromVersion = promptVersions.find((version) => version.version === diffFromVersion);
+  const toVersion = promptVersions.find((version) => version.version === diffToVersion);
+  const versionDiffTokens = fromVersion && toVersion
+    ? buildDiffTokens(fromVersion.refinedPrompt, toVersion.refinedPrompt)
     : [];
 
   return (
@@ -568,6 +640,27 @@ export function RefineryTab({
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              {selectedProject && relevantMemoryEntries.length > 0 && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-semibold">Relevant project memory</p>
+                  <div className="flex flex-wrap gap-2">
+                    {relevantMemoryEntries.map((entry) => {
+                      const selected = selectedMemoryIds.includes(entry.id);
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          title={entry.content.slice(0, 500)}
+                          onClick={() => setSelectedMemoryIds((current) => selected ? current.filter((id) => id !== entry.id) : [...current, entry.id])}
+                          className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground line-through'}`}
+                        >
+                          {entry.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="space-y-3 rounded-md border bg-muted/40 p-3">
                 <div className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-primary" />
@@ -635,6 +728,10 @@ export function RefineryTab({
                     <p className="text-sm text-muted-foreground pt-1">
                       {PROMPT_TECHNIQUES.find(t => t.value === form.watch('promptType'))?.description}
                     </p>
+                    <div className="rounded-md border bg-muted/40 p-3 text-xs">
+                      <span className="font-semibold">Example: </span>
+                      {PROMPT_TECHNIQUES.find(t => t.value === form.watch('promptType'))?.example}
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -797,6 +894,45 @@ export function RefineryTab({
                     </AccordionItem>
                   </Accordion>
                 )}
+
+                {promptVersions.length > 1 && (
+                  <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="version-diff">
+                      <AccordionTrigger>Compare Prompt Versions</AccordionTrigger>
+                      <AccordionContent className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <Select value={String(diffFromVersion)} onValueChange={(value) => setDiffFromVersion(Number(value))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>{promptVersions.map((version) => <SelectItem key={`from-${version.version}`} value={String(version.version)}>Version {version.version}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <Select value={String(diffToVersion)} onValueChange={(value) => setDiffToVersion(Number(value))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>{promptVersions.map((version) => <SelectItem key={`to-${version.version}`} value={String(version.version)}>Version {version.version}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <pre className="whitespace-pre-wrap rounded-md border bg-background p-3 font-code text-xs"><code>{fromVersion?.refinedPrompt}</code></pre>
+                          <div className="whitespace-pre-wrap rounded-md border bg-background p-3 font-code text-xs">
+                            {versionDiffTokens.map((token) => token.isWhitespace ? token.text : <span key={token.id} className={token.isNew ? 'rounded bg-green-500/15 text-green-700 dark:text-green-300' : undefined}>{token.text}</span>)}
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                )}
+
+                <div className="space-y-3 rounded-md border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="font-semibold">Test with {aiProvider === 'openrouter' ? 'OpenRouter' : 'Gemini'}</p><p className="text-xs text-muted-foreground">Uses your provider key and does not consume Clarift-managed credits.</p></div>
+                    <Button type="button" variant="outline" onClick={handleTestPrompt} disabled={!isPro || isTestingPrompt}><Play className="h-4 w-4" />{isTestingPrompt ? 'Testing...' : isPro ? 'Run Test' : 'Pro'}</Button>
+                  </div>
+                  {testResponse && (
+                    <div className="space-y-2">
+                      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-code text-xs"><code>{testResponse.content}</code></pre>
+                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>{testResponse.latencyMs} ms</span>{selectedProject && <Button type="button" variant="ghost" size="sm" onClick={handleSaveTestResponse}><FolderPlus className="h-4 w-4" />Save to Memory</Button>}</div>
+                    </div>
+                  )}
+                </div>
 
                 {isTokenizing && (
                   <div className="space-y-2">

@@ -17,6 +17,7 @@ interface SubscriptionProfile {
   managedRefinementsDate?: string;
   managedRefinementsUsedToday?: number;
   subscriptionStatus?: string;
+  subscriptionSource?: 'stripe' | 'promo' | 'manual' | 'team' | 'beta' | 'test' | 'owner' | null;
 }
 
 interface SubscriptionContextValue {
@@ -27,6 +28,8 @@ interface SubscriptionContextValue {
   managedRefinementsUsedToday: number;
   managedRefinementLimit: number | null;
   isLoading: boolean;
+  source: SubscriptionProfile['subscriptionSource'];
+  planLabel: string;
 }
 
 export const SubscriptionContext = createContext<SubscriptionContextValue>({
@@ -37,6 +40,8 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   managedRefinementsUsedToday: 0,
   managedRefinementLimit: FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
   isLoading: true,
+  source: null,
+  planLabel: 'Free',
 });
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
@@ -67,6 +72,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     });
   }, [isLoading, profile, user, userRef]);
 
+  useEffect(() => {
+    const pendingCode = sessionStorage.getItem('clarift-pending-promo');
+    if (!user || !pendingCode) return;
+    user.getIdToken().then((token) => fetch('/api/promo/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code: pendingCode }),
+    })).then(() => sessionStorage.removeItem('clarift-pending-promo')).catch(() => undefined);
+  }, [user]);
+
   const value = useMemo<SubscriptionContextValue>(() => {
     const tier = profile?.subscriptionTier ?? 'free';
     const hasPro = isProTier(tier);
@@ -83,6 +98,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       managedRefinementsUsedToday: managedUsage,
       managedRefinementLimit: hasPro ? null : FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
       isLoading,
+      source: profile?.subscriptionSource ?? null,
+      planLabel: hasPro && profile?.subscriptionSource === 'promo' ? 'Pro — Promo' : hasPro ? 'Pro' : 'Free',
     };
   }, [isLoading, profile]);
 

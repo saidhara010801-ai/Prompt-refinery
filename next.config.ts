@@ -1,12 +1,13 @@
 import type {NextConfig} from 'next';
 
+const developmentScriptSource = process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'";
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com https://www.gstatic.com",
+  `script-src 'self' 'unsafe-inline'${developmentScriptSource} https://apis.google.com https://accounts.google.com https://www.gstatic.com`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://images.unsplash.com https://picsum.photos https://placehold.co",

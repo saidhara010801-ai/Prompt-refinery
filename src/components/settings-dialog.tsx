@@ -13,11 +13,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Settings } from 'lucide-react';
+import { Settings, Type } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { AIProvider, ApiKeyContext, DEFAULT_OPENROUTER_MODELS } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
 import { cn } from '@/lib/utils';
 import { SubscriptionContext } from '@/context/subscription-context';
+import { ApiKeysPanel } from '@/components/api-keys-panel';
 
 export function SettingsDialog() {
   const {
@@ -30,7 +32,7 @@ export function SettingsDialog() {
     openRouterModels,
     setOpenRouterModels,
   } = useContext(ApiKeyContext);
-  const { animate, setAnimate } = useContext(SettingsContext);
+  const { animate, setAnimate, fontScale, setFontScale, highContrast, setHighContrast } = useContext(SettingsContext);
   const { isPro } = useContext(SubscriptionContext);
   const [open, setOpen] = useState(false);
 
@@ -176,6 +178,32 @@ export function SettingsDialog() {
                 disabled={!isPro}
               />
             </div>
+            <div className="border-t pt-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Type className="h-4 w-4 text-primary" />
+                <h3 className="font-medium">Accessibility</h3>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-4 sm:items-center">
+                <Label htmlFor="fontScale" className="sm:text-right">Text size</Label>
+                <select
+                  id="fontScale"
+                  value={fontScale}
+                  onChange={(event) => setFontScale(Number(event.target.value) as 90 | 100 | 112.5 | 125)}
+                  className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-3"
+                >
+                  <option value={90}>Compact</option>
+                  <option value={100}>Default</option>
+                  <option value={112.5}>Large</option>
+                  <option value={125}>Extra large</option>
+                </select>
+                <Label htmlFor="highContrast" className="sm:text-right">High contrast</Label>
+                <div className="flex items-center gap-3 sm:col-span-3">
+                  <Switch id="highContrast" checked={highContrast} onCheckedChange={setHighContrast} />
+                  <span className="text-sm text-muted-foreground">Strengthen foreground and control contrast.</span>
+                </div>
+              </div>
+            </div>
+            <ApiKeysPanel enabled={isPro} />
           </div>
           <DialogFooter>
             <Button type="submit">Save changes</Button>

@@ -63,6 +63,7 @@ import {
   mapFirebaseAuthError,
   normalizeUserProfile,
 } from '../src/lib/server/user-access';
+import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts, normalizedSearchTerms } from '../src/lib/stage2-utils';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -706,6 +707,11 @@ test('firestore rules deny browser access to privileged production collections a
     'usageEvents',
     'dailyUsageAggregates',
     'supportAccessRequests',
+    'resourceShares',
+    'promoCodes',
+    'promoRedemptions',
+    'promoRateLimits',
+    'apiKeys',
   ]) {
     assert.ok(rules.includes(`match /${collectionName}/{document=**}`));
   }
@@ -747,6 +753,31 @@ test('firestore rules deny browser access to privileged production collections a
   }
 });
 
+test('Stage 2 conversion metadata is deterministic and detects low-text PDFs', () => {
+  assert.deepEqual(estimateTokenCounts('one two three four'), { gemini: 5, openai: 5, deepseek: 5, qwen: 6 });
+  assert.deepEqual(analyzeMarkdownStructure('# Title\n\n- one\n- two\n\n| A | B |\n| - | - |\n| 1 | 2 |'), {
+    headings: 1,
+    tables: 1,
+    listItems: 2,
+  });
+  assert.ok(buildConversionWarnings('scan.pdf', '', 4000).some((warning) => warning.toLowerCase().includes('scanned')));
+  assert.deepEqual(normalizedSearchTerms('Alpha alpha beta'), ['alpha', 'beta']);
+});
+
+test('promo grants provide Pro while active Stripe remains authoritative', () => {
+  const promo = evaluateEntitlement('promo-user', {
+    role: 'user', subscriptionTier: 'pro', subscriptionSource: 'promo', subscriptionStatus: null,
+  }, { tier: 'pro', source: 'promo', reason: 'Alpha code' });
+  assert.equal(promo.isPro, true);
+  assert.equal(promo.source, 'promo');
+
+  const stripe = evaluateEntitlement('paid-user', {
+    role: 'user', subscriptionTier: 'pro', subscriptionSource: 'stripe', subscriptionStatus: 'active',
+  }, { tier: 'pro', source: 'promo', reason: 'Alpha code' });
+  assert.equal(stripe.isPro, true);
+  assert.equal(stripe.source, 'stripe');
+});
+
 test('Clarift brand metadata and customer surfaces use the supplied identity', () => {
   const layout = readFileSync('src/app/layout.tsx', 'utf8');
   const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
@@ -784,7 +815,7 @@ test('project refinements stay in the project workspace and support explicit pro
   assert.match(refineryTab, /onProjectRefinementSaved\?\.\(savedSession\.id\)/);
   assert.match(projectsTab, /<SelectItem value=\{ALL_PROJECTS_VALUE\}>All projects<\/SelectItem>/);
   assert.match(projectsTab, />\s*Leave Project\s*</);
-  assert.match(projectsTab, /selectedProject && isComposing && \(/);
+  assert.match(projectsTab, /selectedProject && workspaceView === 'chat' && isComposing && \(/);
   assert.match(projectsTab, /<RefineryTab[\s\S]*projectWorkspace/);
   assert.doesNotMatch(projectsTab, /onStartRefinement/);
   assert.match(app, /setRequestedProjectSessionId\(sessionId\);\s*setActiveTab\('projects'\)/);

@@ -26,6 +26,7 @@ interface OpenRouterChatInput {
   model: string;
   messages: OpenRouterChatMessage[];
   temperature?: number;
+  jsonMode?: boolean;
 }
 
 export class OpenRouterError extends Error {
@@ -52,7 +53,7 @@ export async function createOpenRouterChatCompletion(input: OpenRouterChatInput)
       model: input.model,
       messages: input.messages,
       temperature: input.temperature ?? 0.3,
-      response_format: { type: 'json_object' },
+      ...(input.jsonMode === false ? {} : { response_format: { type: 'json_object' } }),
     }),
   });
 

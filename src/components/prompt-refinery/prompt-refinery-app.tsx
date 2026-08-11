@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefineryTab } from './refinery-tab';
@@ -12,16 +12,20 @@ import { Project } from './project-types';
 import { ConverterTab } from './converter-tab';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Crown, FileText, FolderKanban, Gauge, Library, Wand2 } from 'lucide-react';
+import { BarChart3, Crown, FileText, FolderKanban, Gauge, Library, Users, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useWorkflow } from '@/context/workflow-context';
+import { AnalyticsTab } from './analytics-tab';
+import { SharedTab } from './shared-tab';
 
 export function PromptRefineryApp() {
   const { toast } = useToast();
   const { user, firestore } = useFirebase();
-  const { isPro, tier, savedPromptCount, savedPromptLimit, managedRefinementsUsedToday, managedRefinementLimit } = useContext(SubscriptionContext);
+  const { isPro, tier, planLabel, savedPromptCount, savedPromptLimit, managedRefinementsUsedToday, managedRefinementLimit } = useContext(SubscriptionContext);
+  const { refineryTransfer } = useWorkflow();
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [activeTab, setActiveTab] = useState('refinery');
@@ -36,6 +40,16 @@ export function PromptRefineryApp() {
   }, [isPro, user, firestore]);
 
   const { data: projects, isLoading: isLoadingProjects } = useCollection<Project>(projectsQuery);
+  const activeProjects = useMemo(() => projects?.filter((project) => project.status !== 'trashed') ?? null, [projects]);
+
+  useEffect(() => {
+    if (!refineryTransfer) return;
+    if (refineryTransfer.projectId) {
+      const target = activeProjects?.find((project) => project.id === refineryTransfer.projectId);
+      if (target) setSelectedProject(target);
+    }
+    setActiveTab('refinery');
+  }, [activeProjects, refineryTransfer]);
 
   const handleSelectProject = (project: Project | null) => {
     setSelectedProject(project);
@@ -99,7 +113,7 @@ export function PromptRefineryApp() {
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Badge variant={isPro ? 'default' : 'outline'} className="gap-1">
                 <Crown className="h-3 w-3" />
-                {isPro ? 'Pro' : 'Free'}
+                {planLabel}
               </Badge>
               {!isPro && (
                 <Button onClick={handleUpgradeClick} disabled={isStartingCheckout} size="sm">
@@ -118,7 +132,7 @@ export function PromptRefineryApp() {
           <span>Managed refinements today: {managedRefinementsUsedToday}/{managedRefinementLimit ?? 'unlimited'}</span>
         </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-5 gap-1 max-w-4xl mx-auto">
+        <TabsList className="grid h-auto w-full grid-cols-7 gap-1 max-w-5xl mx-auto">
           <TabsTrigger value="refinery" className="gap-1 px-2" aria-label="Refinery">
             <Wand2 className="h-4 w-4" />
             <span className="hidden md:inline">Refinery</span>
@@ -139,11 +153,19 @@ export function PromptRefineryApp() {
             <FolderKanban className="h-4 w-4" />
             <span className="hidden md:inline">Projects {!isPro && '(Pro)'}</span>
           </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-1 px-2" aria-label={isPro ? 'Analytics' : 'Analytics, Pro feature'} disabled={!isPro}>
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden md:inline">Analytics</span>
+          </TabsTrigger>
+          <TabsTrigger value="shared" className="gap-1 px-2" aria-label={isPro ? 'Shared' : 'Shared, Pro feature'} disabled={!isPro}>
+            <Users className="h-4 w-4" />
+            <span className="hidden md:inline">Shared</span>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="refinery" className="mt-6">
           <RefineryTab
             selectedProject={isPro ? selectedProject : null}
-            projects={isPro ? projects : null}
+            projects={isPro ? activeProjects : null}
             isLoadingProjects={isLoadingProjects}
             allowProjectSelection={isPro}
             onSelectProject={handleSelectProject}
@@ -154,7 +176,7 @@ export function PromptRefineryApp() {
           <EvaluatorTab />
         </TabsContent>
         <TabsContent value="converter" className="mt-6">
-          <ConverterTab />
+          <ConverterTab projects={isPro ? activeProjects : null} selectedProject={selectedProject} />
         </TabsContent>
         <TabsContent value="saved" className="mt-6">
           <SavedPromptsTab />
@@ -182,6 +204,12 @@ export function PromptRefineryApp() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+        <TabsContent value="analytics" className="mt-6">
+          {isPro ? <AnalyticsTab /> : null}
+        </TabsContent>
+        <TabsContent value="shared" className="mt-6">
+          {isPro ? <SharedTab /> : null}
         </TabsContent>
       </Tabs>
     </div>

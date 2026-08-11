@@ -2,7 +2,7 @@
 
 ## Stored Data
 
-The app may store account metadata, subscription metadata, saved prompts, projects, project sessions, entitlement grants, audit logs, and privacy-safe usage metadata.
+The app may store account metadata, subscription metadata, saved prompts, projects, project sessions, project memory entries, evaluation history, share grants, hashed Clarift API keys, promo redemptions, entitlement grants, audit logs, and privacy-safe usage metadata.
 
 ## Data Not Stored By Default
 
@@ -12,6 +12,7 @@ The app may store account metadata, subscription metadata, saved prompts, projec
 - Raw provider responses in logs.
 - Uploaded document contents in logs.
 - Prompt, saved prompt, or project memory content in analytics by default.
+- Plaintext Clarift API keys or promo codes. Only HMAC hashes and non-sensitive prefixes are retained.
 
 ## Usage Metadata
 
@@ -30,4 +31,6 @@ Before launch, add an account export/deletion procedure covering saved prompts, 
 - Audit logs: retain for security and compliance review.
 - Usage events: aggregate daily/monthly; delete or compact raw events after the chosen retention window.
 - Support requests: retain for support accountability.
+- Trashed projects: purge after 30 days unless restored.
+- Revoked shares and API-key metadata: retain for security auditing; their secret values are never recoverable.
 - Deleted accounts: mark as `deleted_pending` before final deletion workflow.

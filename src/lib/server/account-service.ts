@@ -2,6 +2,8 @@ import { Timestamp } from 'firebase-admin/firestore';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 
 import type { PromptTechnique } from '@/lib/constants';
+import { PROJECT_TEMPLATES } from '@/lib/constants';
+import { estimateTokenCounts, normalizedSearchTerms } from '@/lib/stage2-utils';
 import {
   FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
   FREE_SAVED_PROMPT_LIMIT,
@@ -43,6 +45,8 @@ interface SavedPromptInput {
     promptType: string;
     createdAt: string;
   }>;
+  folder?: string | null;
+  tags?: string[];
 }
 
 interface ProjectSessionInput {
@@ -251,6 +255,9 @@ export async function savePromptForUser(firebaseIdToken: string | undefined, pro
 
     transaction.create(savedPromptRef, {
       ...prompt,
+      folder: prompt.folder?.slice(0, 80) || null,
+      tags: (prompt.tags ?? []).slice(0, 10),
+      searchTerms: normalizedSearchTerms(prompt.name, prompt.originalPrompt, prompt.refinedPrompt, prompt.folder, ...(prompt.tags ?? [])),
       userId: decodedToken.uid,
       creationTimestamp: Timestamp.now(),
       saveTimestamp: Timestamp.now(),
@@ -294,13 +301,88 @@ export async function deleteProjectForUser(firebaseIdToken: string | undefined, 
   assertActiveAccount(profile, 'manage project context');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to manage project context.');
 
+  const purgeAt = new Date();
+  purgeAt.setUTCDate(purgeAt.getUTCDate() + 30);
+  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}`).set({
+    status: 'trashed',
+    trashedAt: Timestamp.now(),
+    purgeAt: Timestamp.fromDate(purgeAt),
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+}
+
+export async function updateSavedPromptMetadataForUser(
+  firebaseIdToken: string | undefined,
+  promptId: string,
+  metadata: { name: string; folder?: string | null; tags: string[] }
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'organize saved prompts');
+  const ref = getAdminFirestore().doc(`users/${decodedToken.uid}/savedPrompts/${promptId}`);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('The saved prompt no longer exists.');
+  const data = snapshot.data() ?? {};
+  const name = metadata.name.trim().slice(0, 160);
+  const folder = metadata.folder?.trim().slice(0, 80) || null;
+  const tags = Array.from(new Set(metadata.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))).slice(0, 10);
+  await ref.set({
+    name,
+    folder,
+    tags,
+    searchTerms: normalizedSearchTerms(name, String(data.originalPrompt ?? ''), String(data.refinedPrompt ?? ''), folder, ...tags),
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+}
+
+export async function saveEvaluationRunForUser(
+  firebaseIdToken: string | undefined,
+  input: {
+    prompt: string;
+    guidelines: string[];
+    combinedScore: number;
+    results: unknown[];
+  }
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'save evaluation history');
+  const ref = getAdminFirestore().collection(`users/${decodedToken.uid}/evaluationRuns`).doc();
+  await ref.create({
+    ...input,
+    userId: decodedToken.uid,
+    promptFingerprint: normalizedSearchTerms(input.prompt).slice(0, 20).join('-'),
+    createdAt: Timestamp.now(),
+  });
+  return { id: ref.id };
+}
+
+export async function restoreProjectForUser(firebaseIdToken: string | undefined, projectId: string) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'restore projects');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
+  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}`).set({
+    status: 'active',
+    trashedAt: null,
+    purgeAt: null,
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+}
+
+export async function permanentlyDeleteProjectForUser(firebaseIdToken: string | undefined, projectId: string) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'permanently delete projects');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
   const firestore = getAdminFirestore();
-  await firestore.recursiveDelete(firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`));
+  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const snapshot = await projectRef.get();
+  if (!snapshot.exists || snapshot.data()?.status !== 'trashed') {
+    throw new Error('Move the project to Trash before deleting it permanently.');
+  }
+  await firestore.recursiveDelete(projectRef);
 }
 
 export async function createProjectForUser(
   firebaseIdToken: string | undefined,
-  project: { name: string; description: string }
+  project: { name: string; description: string; templateId?: string | null }
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'create projects');
@@ -309,15 +391,146 @@ export async function createProjectForUser(
   const firestore = getAdminFirestore();
   const projectRef = firestore.collection(`users/${decodedToken.uid}/projects`).doc();
   const now = Timestamp.now();
+  const template = PROJECT_TEMPLATES.find((candidate) => candidate.id === project.templateId);
   await projectRef.create({
     userId: decodedToken.uid,
     name: project.name,
     description: project.description,
+    templateId: template?.id ?? null,
+    defaultTechnique: template?.promptType ?? 'Zero-shot',
+    defaultGuidelines: template?.guidelines ?? [],
+    status: 'active',
+    trashedAt: null,
+    purgeAt: null,
+    searchTerms: normalizedSearchTerms(project.name, project.description),
     createdAt: now,
     updatedAt: now,
   });
 
-  return { id: projectRef.id };
+  return {
+    id: projectRef.id,
+    defaultTechnique: template?.promptType ?? 'Zero-shot',
+    defaultGuidelines: template?.guidelines ?? [],
+  };
+}
+
+export async function createProjectMemoryEntryForUser(
+  firebaseIdToken: string | undefined,
+  projectId: string,
+  entry: {
+    kind: 'refinement' | 'response' | 'converter' | 'note' | 'evaluation';
+    title: string;
+    content: string;
+    sourceRef?: string | null;
+  }
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'update project memory');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
+  const firestore = getAdminFirestore();
+  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const projectSnapshot = await projectRef.get();
+  if (!projectSnapshot.exists || projectSnapshot.data()?.status === 'trashed') {
+    throw new Error('The selected project is unavailable.');
+  }
+
+  const entryRef = projectRef.collection('memoryEntries').doc();
+  const now = Timestamp.now();
+  const content = entry.content.slice(0, 100000);
+  const batch = firestore.batch();
+  batch.create(entryRef, {
+    projectId,
+    ownerUid: decodedToken.uid,
+    actorUid: decodedToken.uid,
+    kind: entry.kind,
+    title: entry.title.slice(0, 160),
+    content,
+    active: true,
+    tokenEstimate: estimateTokenCounts(content).gemini,
+    sourceRef: entry.sourceRef ?? null,
+    searchTerms: normalizedSearchTerms(entry.title, content),
+    createdAt: now,
+    updatedAt: now,
+  });
+  batch.update(projectRef, { updatedAt: now });
+  await batch.commit();
+  return { id: entryRef.id };
+}
+
+export async function updateProjectMemoryEntryForUser(
+  firebaseIdToken: string | undefined,
+  projectId: string,
+  entryId: string,
+  updates: { title?: string; content?: string; active?: boolean }
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'edit project memory');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
+  const firestore = getAdminFirestore();
+  const entryRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}/memoryEntries/${entryId}`);
+  const snapshot = await entryRef.get();
+  if (!snapshot.exists) throw new Error('The selected memory entry no longer exists.');
+  const current = snapshot.data() ?? {};
+  const title = updates.title?.slice(0, 160) ?? current.title ?? '';
+  const content = updates.content?.slice(0, 100000) ?? current.content ?? '';
+  await entryRef.set({
+    title,
+    content,
+    active: updates.active ?? current.active ?? true,
+    tokenEstimate: estimateTokenCounts(content).gemini,
+    searchTerms: normalizedSearchTerms(title, content),
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+}
+
+export async function deleteProjectMemoryEntryForUser(
+  firebaseIdToken: string | undefined,
+  projectId: string,
+  entryId: string
+) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'delete project memory');
+  await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
+  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}/memoryEntries/${entryId}`).delete();
+}
+
+export async function searchProjectMemoryForUser(firebaseIdToken: string | undefined, search: string) {
+  const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
+  assertActiveAccount(profile, 'search project memory');
+  await assertProEntitlement(decodedToken.uid, 'Cross-project search is available on Pro.');
+  const terms = normalizedSearchTerms(search).slice(0, 8);
+  if (terms.length === 0) return [];
+  const snapshot = await getAdminFirestore()
+    .collectionGroup('memoryEntries')
+    .where('ownerUid', '==', decodedToken.uid)
+    .where('searchTerms', 'array-contains', terms[0])
+    .limit(100)
+    .get();
+  type SearchableMemoryEntry = {
+    id: string;
+    projectId?: unknown;
+    title?: unknown;
+    kind?: unknown;
+    content?: unknown;
+    searchTerms?: unknown;
+  };
+  return snapshot.docs
+    .map((document): SearchableMemoryEntry => ({
+      ...(document.data() as Omit<SearchableMemoryEntry, 'id'>),
+      id: document.id,
+    }))
+    .filter((entry) => {
+      const searchTerms = Array.isArray(entry.searchTerms) ? entry.searchTerms.map(String) : [];
+      return terms.every((term) => searchTerms.includes(term));
+    })
+    .slice(0, 50)
+    .map((entry) => ({
+      id: String(entry.id),
+      projectId: String(entry.projectId ?? ''),
+      title: String(entry.title ?? 'Memory entry'),
+      kind: String(entry.kind ?? 'note'),
+      snippet: String(entry.content ?? '').slice(0, 240),
+    }));
 }
 
 export async function addProjectSessionForUser(
@@ -337,12 +550,27 @@ export async function addProjectSessionForUser(
   }
 
   const sessionRef = projectRef.collection('projectSessions').doc();
+  const memoryRef = projectRef.collection('memoryEntries').doc();
   const now = Timestamp.now();
   const batch = firestore.batch();
   batch.create(sessionRef, {
     ...session,
     projectId,
     timestamp: now,
+  });
+  batch.create(memoryRef, {
+    projectId,
+    ownerUid: decodedToken.uid,
+    actorUid: decodedToken.uid,
+    kind: 'refinement',
+    title: session.rawPrompt.slice(0, 160),
+    content: `Raw prompt:\n${session.rawPrompt}\n\nRefined prompt:\n${session.refinedPrompt}`.slice(0, 100000),
+    active: true,
+    tokenEstimate: estimateTokenCounts(`${session.rawPrompt}\n${session.refinedPrompt}`).gemini,
+    sourceRef: sessionRef.id,
+    searchTerms: normalizedSearchTerms(session.rawPrompt, session.refinedPrompt),
+    createdAt: now,
+    updatedAt: now,
   });
   batch.update(projectRef, { updatedAt: now });
   await batch.commit();
@@ -370,6 +598,21 @@ export async function updateProjectSessionResponseForUser(
 
   const batch = firestore.batch();
   batch.update(sessionRef, { llmResponse });
+  const memoryRef = projectRef.collection('memoryEntries').doc(`response-${sessionId}`);
+  batch.set(memoryRef, {
+    projectId,
+    ownerUid: decodedToken.uid,
+    actorUid: decodedToken.uid,
+    kind: 'response',
+    title: 'Response note',
+    content: llmResponse,
+    active: true,
+    tokenEstimate: estimateTokenCounts(llmResponse).gemini,
+    sourceRef: sessionId,
+    searchTerms: normalizedSearchTerms(llmResponse),
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
   batch.update(projectRef, { updatedAt: Timestamp.now() });
   await batch.commit();
 }

@@ -59,6 +59,9 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_PROMOTION_CODES',
   'ENABLE_SUPPORT_ACCESS_REQUESTS',
   'ENABLE_MANAGED_OPENROUTER',
+  'ENABLE_PUBLIC_API',
+  'ENABLE_PROJECT_SHARING',
+  'ENABLE_USAGE_ANALYTICS',
 ] as const;
 
 function hasValue(environment: Environment, variable: string) {
@@ -106,6 +109,14 @@ export function getOptionalProductionWarnings(environment: Environment): string[
 
   if (!hasValue(environment, 'GEMINI_API_KEY')) {
     warnings.push('Managed Gemini fallback is not configured. BYOK Gemini remains available.');
+  }
+
+  if (isEnabled(environment, 'ENABLE_PROMOTION_CODES') && !hasValue(environment, 'PROMO_CODE_PEPPER')) {
+    warnings.push('ENABLE_PROMOTION_CODES is true but PROMO_CODE_PEPPER is missing.');
+  }
+
+  if (isEnabled(environment, 'ENABLE_PUBLIC_API') && !hasValue(environment, 'CLARIFT_API_KEY_PEPPER')) {
+    warnings.push('ENABLE_PUBLIC_API is true but CLARIFT_API_KEY_PEPPER is missing.');
   }
 
   return warnings;

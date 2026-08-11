@@ -3,41 +3,49 @@ export const PROMPT_TECHNIQUES = [
     value: 'Zero-shot',
     label: 'Zero-shot',
     description: 'Just instructions, no examples. Best for simple/common tasks, fast prototyping.',
+    example: 'Draft a concise launch announcement for a note-taking app.',
   },
   {
     value: 'Few-shot',
     label: 'Few-shot',
     description: 'Add a few examples. Best for custom labels, formats, styles.',
+    example: 'Classify feedback after showing two examples of positive and negative labels.',
   },
   {
     value: 'Chain-of-thought',
     label: 'Chain-of-thought',
     description: 'Show step-by-step reasoning. Best for math, logic, multi-step reasoning.',
+    example: 'Break a migration plan into ordered checks, dependencies, and validation steps.',
   },
   {
     value: 'Tree-of-thoughts',
     label: 'Tree-of-thoughts',
     description: 'Explore multiple reasoning branches. Best for planning, search-like problems.',
+    example: 'Compare three launch strategies, evaluate each, then select the strongest path.',
   },
   {
     value: 'Role / persona',
     label: 'Role / persona',
     description: '“Act as X” role control. Best for tone/domain control, simulations.',
+    example: 'Act as a product counsel and review this launch claim for compliance risk.',
   },
   {
     value: 'Prompt chaining',
     label: 'Prompt chaining',
     description: 'Multi-prompt pipelines. Best for complex apps and workflows.',
+    example: 'Research the topic, outline the answer, draft it, then run a final quality pass.',
   },
   {
     value: 'ReAct',
     label: 'ReAct',
     description: 'Interleave reasoning and tool use. Best for agents that call APIs/tools/databases.',
+    example: 'Inspect the issue, query the relevant records, decide, then report supporting evidence.',
   },
   {
     value: 'Meta / reflection',
     label: 'Meta / reflection',
     description: 'Model reasons about its own process. Best for explanations, quality and safety refinement.',
+    example: 'Draft the response, critique weak assumptions, then produce a corrected final version.',
   },
 ] as const;
 
@@ -127,3 +135,33 @@ export const LLM_COUNCIL_GUIDELINES = [
 ] as const;
   
 export type LlmCouncilGuideline = (typeof LLM_COUNCIL_GUIDELINES)[number]['value'];
+
+export const PROJECT_TEMPLATES = [
+  {
+    id: 'prd-development',
+    name: 'PRD Development',
+    description: 'Product discovery, requirements, acceptance criteria, and rollout memory.',
+    promptType: 'Role / persona',
+    guidelines: ['Be specific and provide context', 'Specify the desired output format', 'Check your assumptions'],
+  },
+  {
+    id: 'marketing-copy',
+    name: 'Marketing Copy',
+    description: 'Audience, positioning, campaign variants, and brand voice.',
+    promptType: 'Few-shot',
+    guidelines: ['Be specific and provide context', 'Provide examples (few-shot prompting)', 'Use a persona or role for the model'],
+  },
+  {
+    id: 'code-documentation',
+    name: 'Code Documentation',
+    description: 'Architecture notes, API references, examples, and migration documentation.',
+    promptType: 'Zero-shot',
+    guidelines: ['Use delimiters', 'Specify the desired output format', 'Break down complex tasks into smaller steps'],
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  name: string;
+  description: string;
+  promptType: PromptTechnique;
+  guidelines: readonly LlmCouncilGuideline[];
+}>;

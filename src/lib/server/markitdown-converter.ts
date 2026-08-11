@@ -9,7 +9,10 @@ const execFileAsync = promisify(execFile);
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 11 * 1024 * 1024;
-export const MAX_MARKDOWN_CHARACTERS = 12000;
+export const MAX_BATCH_FILES = 10;
+export const MAX_BATCH_REQUEST_BYTES = 25 * 1024 * 1024;
+export const MAX_MARKDOWN_CHARACTERS = 100000;
+export const MAX_MERGED_MARKDOWN_CHARACTERS = 500000;
 export const PACKAGED_MARKITDOWN_COMMAND = 'packaged';
 
 export class MarkitdownRuntimeUnavailableError extends Error {
@@ -306,7 +309,7 @@ export async function convertBufferToMarkdown(input: {
       }
     );
 
-    if (!stdout.trim()) {
+    if (!stdout.trim() && extension !== '.pdf') {
       throw new MarkitdownDocumentError('No readable text was found in this document.');
     }
 

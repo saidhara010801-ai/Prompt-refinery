@@ -142,20 +142,6 @@ service cloud.firestore {
     	return request.resource.data.promptId == resource.data.promptId;
     }
 
-    /**
-     * Validates required ownership fields when a new SavedPrompt document is created.
-     */
-    function hasValidSavedPromptDataOnCreate(userId) {
-      return request.resource.data.userId == userId;
-    }
-    
-    /**
-     * Enforces immutability of critical fields for a SavedPrompt document on update.
-     */
-    function isUpdatingImmutableSavedPromptData() {
-      return request.resource.data.userId == resource.data.userId;
-    }
-
     // ------------------------------------------------------------------------
     // Collection Rules
     // ------------------------------------------------------------------------
@@ -244,6 +230,20 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /users/{userId}/projects/{projectId}/memoryEntries/{entryId} {
+      allow get, list: if isProUser(userId);
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId}/evaluationRuns/{runId} {
+      allow get, list: if isOwner(userId);
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId}/usageEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     match /adminEntitlements/{document=**} {
       allow read, write: if false;
     }
@@ -265,6 +265,26 @@ service cloud.firestore {
     }
 
     match /supportAccessRequests/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /resourceShares/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /promoCodes/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /promoRedemptions/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /promoRateLimits/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /apiKeys/{document=**} {
       allow read, write: if false;
     }
   }

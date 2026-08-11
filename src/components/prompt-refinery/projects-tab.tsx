@@ -4,12 +4,18 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { collection, orderBy, query } from 'firebase/firestore';
 import {
   FolderKanban,
+  ArchiveRestore,
+  Clock3,
+  FolderX,
   LogOut,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Send,
+  Search,
+  Save,
+  StickyNote,
   Trash2,
 } from 'lucide-react';
 
@@ -21,16 +27,26 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   createProjectAction,
+  createProjectMemoryEntryAction,
+  deleteProjectMemoryEntryAction,
   deleteProjectAction,
+  permanentlyDeleteProjectAction,
+  restoreProjectAction,
+  searchProjectMemoryAction,
+  updateProjectMemoryEntryAction,
   updateProjectSessionResponseAction,
 } from '@/app/project-actions';
 import { RefineryTab } from './refinery-tab';
 import { Project } from './project-types';
+import { ShareDialog } from './share-dialog';
+import type { ProjectMemoryEntry } from './stage2-types';
+import { PROJECT_TEMPLATES } from '@/lib/constants';
 
 interface ProjectSession {
   id: string;
@@ -90,15 +106,25 @@ export function ProjectsTab({
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [templateId, setTemplateId] = useState('');
   const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({});
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<'chat' | 'memory'>('chat');
+  const [showTrash, setShowTrash] = useState(false);
+  const [memoryDrafts, setMemoryDrafts] = useState<Record<string, { title: string; content: string }>>({});
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; projectId: string; title: string; kind: string; snippet: string }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const selectedProjectId = selectedProject?.id ?? null;
-  const projectOptions = selectedProject && !projects?.some((project) => project.id === selectedProject.id)
-    ? [selectedProject, ...(projects ?? [])]
-    : (projects ?? []);
+  const activeProjectOptions = (projects ?? []).filter((project) => project.status !== 'trashed');
+  const projectOptions = selectedProject && !activeProjectOptions.some((project) => project.id === selectedProject.id)
+    ? [selectedProject, ...activeProjectOptions]
+    : activeProjectOptions;
 
   const sessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProjectId) return null;
@@ -109,6 +135,14 @@ export function ProjectsTab({
   }, [user, firestore, selectedProjectId]);
 
   const { data: sessions, isLoading: isLoadingSessions } = useCollection<ProjectSession>(sessionsQuery);
+  const memoryQuery = useMemoFirebase(() => {
+    if (!user || !firestore || !selectedProjectId) return null;
+    return query(
+      collection(firestore, `users/${user.uid}/projects/${selectedProjectId}/memoryEntries`),
+      orderBy('createdAt', 'desc')
+    );
+  }, [user, firestore, selectedProjectId]);
+  const { data: memoryEntries, isLoading: isLoadingMemory } = useCollection<ProjectMemoryEntry>(memoryQuery);
   const selectedSession = useMemo(
     () => sessions?.find((session) => session.id === selectedSessionId) ?? null,
     [sessions, selectedSessionId]
@@ -149,6 +183,7 @@ export function ProjectsTab({
     setSelectedSessionId(null);
     setPendingSessionId(null);
     setIsComposing(false);
+    setWorkspaceView(project?.status === 'trashed' ? 'memory' : 'chat');
     onSelectProject(project);
   };
 
@@ -162,18 +197,24 @@ export function ProjectsTab({
         firebaseIdToken: await user.getIdToken(),
         name: name.trim(),
         description: description.trim(),
+        templateId: templateId || undefined,
       });
       onSelectProject({
         id: result.id,
         userId: user.uid,
         name: name.trim(),
         description: description.trim(),
+        templateId: templateId || null,
+        defaultTechnique: result.defaultTechnique,
+        defaultGuidelines: [...result.defaultGuidelines],
+        status: 'active',
       });
       setSelectedSessionId(null);
       setPendingSessionId(null);
       setIsComposing(true);
       setName('');
       setDescription('');
+      setTemplateId('');
       toast({
         title: 'Project Created',
         description: 'New refinements can now use this project memory.',
@@ -200,8 +241,8 @@ export function ProjectsTab({
       }
 
       toast({
-        title: 'Project Deleted',
-        description: 'The project and its memory sessions have been removed.',
+        title: 'Project Moved to Trash',
+        description: 'You can restore it for 30 days before permanent deletion.',
       });
     } catch (error) {
       toast({
@@ -212,12 +253,95 @@ export function ProjectsTab({
     }
   };
 
+  const handleRestoreProject = async (project: Project) => {
+    if (!user) return;
+    try {
+      await restoreProjectAction({ firebaseIdToken: await user.getIdToken(), projectId: project.id });
+      toast({ title: 'Project Restored', description: `${project.name} is active again.` });
+      setShowTrash(false);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Restore Project', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
+  const handlePermanentDelete = async (project: Project) => {
+    if (!user) return;
+    try {
+      await permanentlyDeleteProjectAction({ firebaseIdToken: await user.getIdToken(), projectId: project.id });
+      if (selectedProjectId === project.id) handleSelectProject(null);
+      toast({ title: 'Project Permanently Deleted', description: 'The project and all memory were removed.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Delete Project', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!user || searchText.trim().length < 2) return;
+    setIsSearching(true);
+    try {
+      setSearchResults(await searchProjectMemoryAction({ firebaseIdToken: await user.getIdToken(), search: searchText }));
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Search Failed', description: error instanceof Error ? error.message : 'Please try again.' });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleCreateNote = async () => {
+    if (!user || !selectedProjectId || !noteTitle.trim() || !noteContent.trim()) return;
+    try {
+      await createProjectMemoryEntryAction({
+        firebaseIdToken: await user.getIdToken(),
+        projectId: selectedProjectId,
+        kind: 'note',
+        title: noteTitle.trim(),
+        content: noteContent.trim(),
+      });
+      setNoteTitle('');
+      setNoteContent('');
+      toast({ title: 'Memory Note Added', description: 'The note can now be selected as refinement context.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Add Note', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
+  const handleUpdateMemory = async (entry: ProjectMemoryEntry, active = entry.active) => {
+    if (!user || !selectedProjectId) return;
+    const draft = memoryDrafts[entry.id] ?? { title: entry.title, content: entry.content };
+    try {
+      await updateProjectMemoryEntryAction({
+        firebaseIdToken: await user.getIdToken(),
+        projectId: selectedProjectId,
+        entryId: entry.id,
+        title: draft.title,
+        content: draft.content,
+        active,
+      });
+      toast({ title: 'Memory Updated', description: active ? 'This entry is available as context.' : 'This entry is excluded from future context.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Update Memory', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
+  const handleDeleteMemory = async (entryId: string) => {
+    if (!user || !selectedProjectId) return;
+    try {
+      await deleteProjectMemoryEntryAction({ firebaseIdToken: await user.getIdToken(), projectId: selectedProjectId, entryId });
+      toast({ title: 'Memory Entry Deleted' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Delete Memory', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  };
+
   const handleNewChat = () => {
-    if (!selectedProject) return;
+    if (!selectedProject || selectedProject.status === 'trashed') return;
+    setWorkspaceView('chat');
     setPendingSessionId(null);
     setSelectedSessionId(null);
     setIsComposing(true);
   };
+
+  const visibleProjects = (projects ?? []).filter((project) => showTrash ? project.status === 'trashed' : project.status !== 'trashed');
 
   const handleProjectRefinementSaved = (sessionId: string) => {
     setPendingSessionId(sessionId);
@@ -292,7 +416,33 @@ export function ProjectsTab({
         ) : (
           <ScrollArea className="h-[624px]">
             <div className="space-y-5 p-4">
-              <form onSubmit={handleCreateProject} className="space-y-3">
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <Input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all project memory" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleSearch(); } }} />
+                  <Button type="button" variant="outline" size="icon" onClick={handleSearch} disabled={isSearching || searchText.trim().length < 2}><Search className="h-4 w-4" /><span className="sr-only">Search projects</span></Button>
+                </div>
+                {searchResults.length > 0 && (
+                  <div className="space-y-1 rounded-md border p-2">
+                    {searchResults.slice(0, 6).map((result) => (
+                      <button key={`${result.projectId}-${result.id}`} type="button" className="w-full rounded p-2 text-left text-xs hover:bg-muted" onClick={() => {
+                        const project = projects?.find((candidate) => candidate.id === result.projectId) ?? null;
+                        handleSelectProject(project);
+                        setWorkspaceView('memory');
+                      }}>
+                        <span className="block truncate font-semibold">{result.title}</span>
+                        <span className="line-clamp-2 text-muted-foreground">{result.snippet}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" size="sm" variant={!showTrash ? 'default' : 'outline'} onClick={() => setShowTrash(false)}><FolderKanban className="h-4 w-4" />Active</Button>
+                <Button type="button" size="sm" variant={showTrash ? 'default' : 'outline'} onClick={() => setShowTrash(true)}><FolderX className="h-4 w-4" />Trash</Button>
+              </div>
+
+              {!showTrash && <form onSubmit={handleCreateProject} className="space-y-3">
                 <div className="space-y-2">
                   <Label htmlFor="projectName">Name</Label>
                   <Input
@@ -301,6 +451,13 @@ export function ProjectsTab({
                     onChange={(event) => setName(event.target.value)}
                     placeholder="Product launch prompts"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="projectTemplate">Template</Label>
+                  <Select value={templateId || '__blank__'} onValueChange={(value) => setTemplateId(value === '__blank__' ? '' : value)}>
+                    <SelectTrigger id="projectTemplate"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="__blank__">Blank project</SelectItem>{PROJECT_TEMPLATES.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="projectDescription">Description</Label>
@@ -316,7 +473,7 @@ export function ProjectsTab({
                   <Plus className="h-4 w-4" />
                   Create Project
                 </Button>
-              </form>
+              </form>}
 
               <Separator />
 
@@ -327,7 +484,7 @@ export function ProjectsTab({
                     <Skeleton className="h-14 w-full" />
                   </>
                 )}
-                {!isLoadingProjects && projects && projects.length > 0 && projects.map((project) => (
+                {!isLoadingProjects && visibleProjects.length > 0 && visibleProjects.map((project) => (
                   <div
                     key={project.id}
                     className={cn(
@@ -343,18 +500,22 @@ export function ProjectsTab({
                       <p className="truncate text-sm font-semibold">{project.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(project.updatedAt)}</p>
                     </button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteProject(project)}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                      <span className="sr-only">Delete project</span>
-                    </Button>
+                    {project.status === 'trashed' ? (
+                      <div className="flex">
+                        <Button variant="ghost" size="icon" onClick={() => handleRestoreProject(project)}><ArchiveRestore className="h-4 w-4" /><span className="sr-only">Restore project</span></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handlePermanentDelete(project)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Delete forever</span></Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteProject(project)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Move project to trash</span></Button>
+                    )}
                   </div>
                 ))}
-                {!isLoadingProjects && (!projects || projects.length === 0) && (
-                  <p className="py-5 text-center text-sm text-muted-foreground">No projects yet.</p>
+                {!isLoadingProjects && visibleProjects.length === 0 && (
+                  <p className="py-5 text-center text-sm text-muted-foreground">{showTrash ? 'Trash is empty.' : 'No projects yet.'}</p>
                 )}
               </div>
 
-              {selectedProject && (
+              {selectedProject && selectedProject.status !== 'trashed' && (
                 <>
                   <Separator />
                   <div className="space-y-3">
@@ -409,8 +570,15 @@ export function ProjectsTab({
             {selectedProject?.description && (
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{selectedProject.description}</p>
             )}
+            {selectedProject?.defaultGuidelines?.length ? <div className="mt-2 flex flex-wrap gap-1">{selectedProject.defaultGuidelines.map((guideline) => <span key={guideline} className="rounded border px-2 py-0.5 text-xs text-muted-foreground">{guideline}</span>)}</div> : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {selectedProject && selectedProject.status !== 'trashed' && (
+              <div className="flex rounded-md border p-1">
+                <Button type="button" size="sm" variant={workspaceView === 'chat' ? 'secondary' : 'ghost'} onClick={() => setWorkspaceView('chat')}><MessageSquareText className="h-4 w-4" />Chat</Button>
+                <Button type="button" size="sm" variant={workspaceView === 'memory' ? 'secondary' : 'ghost'} onClick={() => { setWorkspaceView('memory'); setIsComposing(false); }}><Clock3 className="h-4 w-4" />Memory</Button>
+              </div>
+            )}
             <Select
               value={selectedProjectId ?? ALL_PROJECTS_VALUE}
               onValueChange={(projectId) => {
@@ -434,14 +602,15 @@ export function ProjectsTab({
             </Select>
             {selectedProject && (
               <>
+                {selectedProject.status !== 'trashed' && <ShareDialog resourceType="project" resourceId={selectedProject.id} resourceName={selectedProject.name} />}
                 <Button type="button" variant="outline" onClick={() => handleSelectProject(null)}>
                   <LogOut className="h-4 w-4" />
                   Leave Project
                 </Button>
-                <Button type="button" onClick={handleNewChat}>
+                {selectedProject.status !== 'trashed' && <Button type="button" onClick={handleNewChat}>
                   <Send className="h-4 w-4" />
                   New Chat
-                </Button>
+                </Button>}
               </>
             )}
           </div>
@@ -455,7 +624,7 @@ export function ProjectsTab({
               </div>
             )}
 
-            {selectedProject && isComposing && (
+            {selectedProject && workspaceView === 'chat' && isComposing && (
               <RefineryTab
                 selectedProject={selectedProject}
                 projectWorkspace
@@ -463,7 +632,7 @@ export function ProjectsTab({
               />
             )}
 
-            {selectedProject && !isComposing && !isLoadingSessions && !selectedSession && !pendingSessionId && (
+            {selectedProject && workspaceView === 'chat' && !isComposing && !isLoadingSessions && !selectedSession && !pendingSessionId && (
               <div className="flex min-h-[440px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
                 <p>No chats in this project yet.</p>
                 <Button type="button" onClick={handleNewChat}>
@@ -473,14 +642,14 @@ export function ProjectsTab({
               </div>
             )}
 
-            {selectedProject && !isComposing && (isLoadingSessions || pendingSessionId) && (
+            {selectedProject && workspaceView === 'chat' && !isComposing && (isLoadingSessions || pendingSessionId) && (
               <div className="space-y-4">
                 <Skeleton className="ml-auto h-24 w-4/5" />
                 <Skeleton className="h-36 w-11/12" />
               </div>
             )}
 
-            {selectedProject && !isComposing && selectedSession && (
+            {selectedProject && workspaceView === 'chat' && !isComposing && selectedSession && (
               <>
                 <div className="flex justify-center">
                   <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
@@ -531,6 +700,36 @@ export function ProjectsTab({
                   </Button>
                 </div>
               </>
+            )}
+
+            {selectedProject && workspaceView === 'memory' && (
+              <div className="space-y-5">
+                {selectedProject.status !== 'trashed' && (
+                  <div className="space-y-3 rounded-md border p-4">
+                    <div className="flex items-center gap-2 font-semibold"><StickyNote className="h-4 w-4 text-primary" />Add Memory Note</div>
+                    <Input value={noteTitle} onChange={(event) => setNoteTitle(event.target.value)} placeholder="Note title" />
+                    <Textarea value={noteContent} onChange={(event) => setNoteContent(event.target.value)} placeholder="Project decision, constraint, source note, or reusable context" className="min-h-24" />
+                    <Button type="button" size="sm" onClick={handleCreateNote} disabled={!noteTitle.trim() || !noteContent.trim()}><Plus className="h-4 w-4" />Add Note</Button>
+                  </div>
+                )}
+
+                {isLoadingMemory && <div className="space-y-3"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>}
+                {!isLoadingMemory && memoryEntries?.map((entry) => {
+                  const draft = memoryDrafts[entry.id] ?? { title: entry.title, content: entry.content };
+                  return (
+                    <div key={entry.id} className="space-y-3 rounded-md border p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div><p className="text-xs uppercase text-muted-foreground">{entry.kind}</p><p className="text-xs text-muted-foreground">{formatDate(entry.createdAt)} · about {entry.tokenEstimate} tokens</p></div>
+                        {selectedProject.status !== 'trashed' && <div className="flex items-center gap-2"><Label htmlFor={`memory-active-${entry.id}`} className="text-xs">Use as context</Label><Switch id={`memory-active-${entry.id}`} checked={entry.active !== false} onCheckedChange={(active) => handleUpdateMemory(entry, active)} /><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteMemory(entry.id)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Delete memory entry</span></Button></div>}
+                      </div>
+                      <Input value={draft.title} readOnly={selectedProject.status === 'trashed'} onChange={(event) => setMemoryDrafts((current) => ({ ...current, [entry.id]: { ...draft, title: event.target.value } }))} />
+                      <Textarea value={draft.content} readOnly={selectedProject.status === 'trashed'} onChange={(event) => setMemoryDrafts((current) => ({ ...current, [entry.id]: { ...draft, content: event.target.value } }))} className="min-h-28" />
+                      {selectedProject.status !== 'trashed' && <Button type="button" variant="outline" size="sm" onClick={() => handleUpdateMemory(entry)}><Save className="h-4 w-4" />Save Changes</Button>}
+                    </div>
+                  );
+                })}
+                {!isLoadingMemory && (!memoryEntries || memoryEntries.length === 0) && <div className="py-12 text-center text-sm text-muted-foreground">No memory entries yet.</div>}
+              </div>
             )}
           </div>
         </ScrollArea>

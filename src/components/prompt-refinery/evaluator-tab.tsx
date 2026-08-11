@@ -1,286 +1,145 @@
 'use client';
 
-import { useState, useContext } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Scale, Lightbulb, CheckCircle, XCircle, Gauge } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useContext, useMemo, useState } from 'react';
+import { collection, limit, orderBy, query } from 'firebase/firestore';
+import { CheckCircle, Gauge, History, Lightbulb, Scale, Wand2, XCircle } from 'lucide-react';
+import { Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 
+import { evaluateGuidelinesAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
-import { LLM_COUNCIL_GUIDELINES, LlmCouncilGuideline } from '@/lib/constants';
-import { evaluateGuidelineAction } from '@/app/actions';
-import { ApiKeyContext } from '@/context/api-key-context';
-import { SettingsContext } from '@/context/settings-context';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { useFirebase } from '@/firebase';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { ApiKeyContext } from '@/context/api-key-context';
+import { useWorkflow } from '@/context/workflow-context';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { LLM_COUNCIL_GUIDELINES } from '@/lib/constants';
+import type { EvaluationRun } from './stage2-types';
 
-const formSchema = z.object({
-  prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
-  guideline: z.enum(LLM_COUNCIL_GUIDELINES.map(g => g.value) as [LlmCouncilGuideline, ...LlmCouncilGuideline[]]),
-});
-
-type FormValues = z.infer<typeof formSchema>;
-
-interface EvaluationResult {
-  shouldInclude: boolean;
-  reason: string;
-  score: number;
-  dimensionScores: {
-    clarity: number;
-    context: number;
-    structure: number;
-    specificity: number;
-  };
-  recommendations: string[];
-}
-
-const dimensionLabels: Record<keyof EvaluationResult['dimensionScores'], string> = {
+const dimensionLabels = {
   clarity: 'Clarity',
   context: 'Context',
   structure: 'Structure',
   specificity: 'Specificity',
 };
 
-function getErrorToast(error: unknown): { title: string; description: string } {
-  const errorName = error instanceof Error ? error.name : '';
-  const errorMessage = error instanceof Error ? error.message : '';
-
-  if (errorName === 'ApiKeyMissingError' || errorMessage.includes('API key is missing')) {
-    return {
-      title: 'API Key Missing',
-      description: 'Add your Gemini API key in Settings, then try evaluating again.',
-    };
-  }
-
-  if (errorName === 'ApiKeyInvalidError' || errorMessage.includes('API key looks invalid')) {
-    return {
-      title: 'Invalid API Key',
-      description: 'Check your Gemini API key in Settings and save the corrected key.',
-    };
-  }
-
-  if (errorName === 'AuthenticationRequiredError' || errorMessage.includes('Sign in')) {
-    return {
-      title: 'Sign In Required',
-      description: 'Sign in again, then try evaluating the prompt.',
-    };
-  }
-
-  if (errorName === 'AccountStatusBlockedError' || errorMessage.includes('account is')) {
-    return {
-      title: 'Account Restricted',
-      description: errorMessage,
-    };
-  }
-
-  if (errorName === 'ApiQuotaError' || errorMessage.includes('quota')) {
-    return {
-      title: 'Gemini Quota Issue',
-      description: errorMessage || 'Gemini is rate limited or out of quota. Try again later.',
-    };
-  }
-
-  return {
-    title: 'An error occurred',
-    description: errorMessage || 'Please try again later.',
-  };
-}
-
 export function EvaluatorTab() {
+  const [prompt, setPrompt] = useState('');
+  const [selectedGuidelines, setSelectedGuidelines] = useState<string[]>([LLM_COUNCIL_GUIDELINES[0].value]);
   const [isLoading, setIsLoading] = useState(false);
-  const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
-  const { toast } = useToast();
+  const [evaluation, setEvaluation] = useState<EvaluationRun | null>(null);
   const { apiKey } = useContext(ApiKeyContext);
-  const { triggerAnimation } = useContext(SettingsContext);
-  const { user } = useFirebase();
+  const { user, firestore } = useFirebase();
+  const { toast } = useToast();
+  const { sendToRefinery } = useWorkflow();
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      prompt: '',
-      guideline: 'Be specific and provide context',
-    },
-  });
+  const historyQuery = useMemoFirebase(() => user && firestore ? query(
+    collection(firestore, `users/${user.uid}/evaluationRuns`),
+    orderBy('createdAt', 'desc'),
+    limit(20)
+  ) : null, [user, firestore]);
+  const { data: history, isLoading: isLoadingHistory } = useCollection<EvaluationRun>(historyQuery);
+  const trend = useMemo(() => (history ?? []).slice().reverse().map((run, index) => ({
+    name: `#${index + 1}`,
+    score: run.combinedScore,
+  })), [history]);
 
-  const onSubmit = async (data: FormValues) => {
+  const toggleGuideline = (guideline: string, checked: boolean) => {
+    setSelectedGuidelines((current) => checked
+      ? Array.from(new Set([...current, guideline]))
+      : current.filter((value) => value !== guideline));
+  };
+
+  const evaluate = async () => {
+    if (!user || prompt.trim().length < 10 || selectedGuidelines.length === 0) return;
     setIsLoading(true);
     setEvaluation(null);
     try {
-      const firebaseIdToken = await user?.getIdToken();
-      const result = await evaluateGuidelineAction({
-        ...data,
-        userQuery: data.prompt,
+      const result = await evaluateGuidelinesAction({
+        firebaseIdToken: await user.getIdToken(),
+        prompt: prompt.trim(),
+        guidelines: selectedGuidelines,
         apiKey: apiKey || undefined,
-        firebaseIdToken,
       });
-      setEvaluation(result);
+      setEvaluation({ ...result, prompt: prompt.trim(), guidelines: selectedGuidelines });
     } catch (error) {
-      const errorToast = getErrorToast(error);
-      if (error instanceof Error && (error.name === 'ApiKeyMissingError' || error.name === 'ApiKeyInvalidError')) {
-        triggerAnimation();
-      }
-      toast({
-        variant: 'destructive',
-        title: errorToast.title,
-        description: errorToast.description,
-      });
+      toast({ variant: 'destructive', title: 'Evaluation Failed', description: error instanceof Error ? error.message : 'Please try again.' });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const applyFix = () => {
+    if (!evaluation) return;
+    const recommendations = evaluation.results.flatMap((result) => result.recommendations);
+    sendToRefinery({
+      source: 'evaluator',
+      prompt: evaluation.prompt,
+      attachments: [{
+        name: 'evaluation-recommendations.md',
+        mimeType: 'text/markdown',
+        content: `# Evaluation recommendations\n\n${recommendations.map((recommendation) => `- ${recommendation}`).join('\n')}`,
+      }],
+    });
+    toast({ title: 'Fix Sent to Refinery', description: 'The prompt and evaluation recommendations are ready to refine.' });
+  };
+
   return (
-    <div className="grid md:grid-cols-2 gap-8">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <Card className="border-primary/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Scale className="text-primary" />
-            <span>Evaluate a Guideline</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="prompt"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Your Prompt</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="e.g., Tell me about space."
-                        className="min-h-[150px] font-code"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="guideline"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Guideline to Evaluate</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a guideline" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {LLM_COUNCIL_GUIDELINES.map((guide) => (
-                          <SelectItem key={guide.value} value={guide.value}>
-                            {guide.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" disabled={isLoading} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                {isLoading ? 'Evaluating...' : 'Evaluate with AI'}
-              </Button>
-            </form>
-          </Form>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Scale className="text-primary" />Evaluate Guidelines</CardTitle></CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label htmlFor="evaluation-prompt" className="text-sm font-medium">Your Prompt</label>
+            <Textarea id="evaluation-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Enter the prompt to evaluate." className="min-h-40 font-code" />
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3"><p className="text-sm font-medium">Guidelines</p><button type="button" className="text-xs text-primary" onClick={() => setSelectedGuidelines(LLM_COUNCIL_GUIDELINES.map((guideline) => guideline.value))}>Select all</button></div>
+            {LLM_COUNCIL_GUIDELINES.map((guideline) => (
+              <label key={guideline.value} className="flex items-start gap-3 rounded-md border p-3 text-sm">
+                <Checkbox checked={selectedGuidelines.includes(guideline.value)} onCheckedChange={(checked) => toggleGuideline(guideline.value, checked === true)} />
+                <span>{guideline.label}</span>
+              </label>
+            ))}
+          </div>
+          <Button type="button" className="w-full" onClick={evaluate} disabled={isLoading || !user || prompt.trim().length < 10 || selectedGuidelines.length === 0}>{isLoading ? 'Evaluating...' : `Evaluate ${selectedGuidelines.length} Guideline${selectedGuidelines.length === 1 ? '' : 's'}`}</Button>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-                <Lightbulb className="text-primary" />
-                <span>AI Evaluation</span>
-            </CardTitle>
-        </CardHeader>
-        <CardContent className="min-h-[300px]">
-          <AnimatePresence mode="wait">
-            {isLoading && (
-              <motion.div
-                key="loader"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-4"
-              >
-                <Skeleton className="h-8 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-              </motion.div>
-            )}
+      <div className="space-y-6">
+        <Card>
+          <CardHeader><CardTitle className="flex flex-wrap items-center justify-between gap-3"><span className="flex items-center gap-2"><Lightbulb className="text-primary" />Evaluation Scorecard</span>{evaluation && <Button type="button" size="sm" onClick={applyFix}><Wand2 className="h-4 w-4" />Apply Fix</Button>}</CardTitle></CardHeader>
+          <CardContent className="min-h-80">
+            {isLoading && <div className="space-y-3"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-32 w-full" /></div>}
             {!isLoading && evaluation && (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-4"
-              >
-                <div className={`flex items-center gap-2 font-bold text-lg ${evaluation.shouldInclude ? 'text-green-500' : 'text-red-500'}`}>
-                  {evaluation.shouldInclude ? <CheckCircle /> : <XCircle />}
-                  <span>
-                    {evaluation.shouldInclude ? 'Recommended to Include' : 'Not Recommended to Include'}
-                  </span>
-                </div>
-                <div className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <Gauge className="h-4 w-4 text-primary" />
-                      <span>Prompt Quality Score</span>
-                    </div>
-                    <span className="text-2xl font-bold">{evaluation.score}</span>
+              <div className="space-y-5">
+                <div className="rounded-md border p-4"><div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-2 font-semibold"><Gauge className="h-4 w-4 text-primary" />Combined Score</span><span className="text-2xl font-bold">{evaluation.combinedScore}</span></div><Progress value={evaluation.combinedScore} /></div>
+                {evaluation.results.map((result) => (
+                  <div key={result.guideline} className="space-y-3 rounded-md border p-4">
+                    <div className="flex items-start gap-2 font-semibold">{result.shouldInclude ? <CheckCircle className="h-5 w-5 shrink-0 text-green-600" /> : <XCircle className="h-5 w-5 shrink-0 text-red-500" />}<span>{result.guideline}</span><span className="ml-auto">{result.score}</span></div>
+                    <p className="text-sm text-muted-foreground">{result.reason}</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">{Object.entries(result.dimensionScores).map(([dimension, score]) => <div key={dimension} className="rounded bg-muted p-2 text-center"><span className="block text-muted-foreground">{dimensionLabels[dimension as keyof typeof dimensionLabels]}</span><strong>{score}</strong></div>)}</div>
+                    {result.recommendations.length > 0 && <ul className="space-y-1 text-sm">{result.recommendations.map((recommendation, index) => <li key={`${result.guideline}-${index}`} className="rounded bg-muted/60 p-2">{recommendation}</li>)}</ul>}
                   </div>
-                  <Progress value={evaluation.score} />
-                </div>
-                <div className="space-y-3">
-                  <h3 className="font-semibold">Sub-Dimension Scores</h3>
-                  {Object.entries(evaluation.dimensionScores).map(([dimension, score]) => (
-                    <div key={dimension} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>{dimensionLabels[dimension as keyof EvaluationResult['dimensionScores']]}</span>
-                        <span className="font-medium">{score}</span>
-                      </div>
-                      <Progress value={score} className="h-2" />
-                    </div>
-                  ))}
-                </div>
-                <div>
-                    <h3 className="font-semibold mb-2">Reasoning:</h3>
-                    <p className="text-muted-foreground">{evaluation.reason}</p>
-                </div>
-                {evaluation.recommendations.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2">Recommendations:</h3>
-                    <ul className="space-y-2 text-sm text-muted-foreground">
-                      {evaluation.recommendations.map((recommendation, index) => (
-                        <li key={`${recommendation}-${index}`} className="rounded-md border bg-background p-3">
-                          {recommendation}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </motion.div>
-            )}
-            {!isLoading && !evaluation && (
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <p>{`The AI's evaluation will appear here.`}</p>
+                ))}
               </div>
             )}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
+            {!isLoading && !evaluation && <div className="flex min-h-64 items-center justify-center text-center text-sm text-muted-foreground">The combined scorecard will appear here.</div>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><History className="h-5 w-5 text-primary" />Score Trend</CardTitle></CardHeader>
+          <CardContent>
+            {isLoadingHistory && <Skeleton className="h-48 w-full" />}
+            {!isLoadingHistory && trend.length > 1 && <div className="h-52 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={trend}><XAxis dataKey="name" /><YAxis domain={[0, 100]} /><ChartTooltip /><Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} /></LineChart></ResponsiveContainer></div>}
+            {!isLoadingHistory && trend.length <= 1 && <p className="py-10 text-center text-sm text-muted-foreground">Run at least two evaluations to see a trend.</p>}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

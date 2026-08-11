@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Clarift Prompt Refinery",
+  "version": "1.0.0",
+  "description": "Refine prompts inline on ChatGPT, Gemini, and Claude using your Clarift and provider API keys.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://clarift--clarift-e4f6f.us-east4.hosted.app/*",
+    "http://localhost:9002/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Clarift settings"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
