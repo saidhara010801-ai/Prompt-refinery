@@ -22,6 +22,7 @@ export function PromptRefineryApp() {
   const { isPro, tier, savedPromptCount, savedPromptLimit, managedRefinementsUsedToday, managedRefinementLimit } = useContext(SubscriptionContext);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [activeTab, setActiveTab] = useState('refinery');
 
   const handleUpgradeClick = async () => {
     if (!user) {
@@ -93,7 +94,7 @@ export function PromptRefineryApp() {
           <span>Saved prompts: {savedPromptCount}/{savedPromptLimit ?? 'unlimited'}</span>
           <span>Managed refinements today: {managedRefinementsUsedToday}/{managedRefinementLimit ?? 'unlimited'}</span>
         </div>
-      <Tabs defaultValue="refinery" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-5 gap-1 max-w-4xl mx-auto">
           <TabsTrigger value="refinery" className="gap-1 px-2" aria-label="Refinery">
             <Wand2 className="h-4 w-4" />
@@ -133,6 +134,7 @@ export function PromptRefineryApp() {
             <ProjectsTab
               selectedProjectId={selectedProject?.id ?? null}
               onSelectProject={setSelectedProject}
+              onStartRefinement={() => setActiveTab('refinery')}
             />
           ) : (
             <Card>

@@ -293,13 +293,22 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
                     )}
                   />
                 </CardContent>
-                <CardFooter>
+                <CardFooter className="flex flex-col gap-4">
                   <Button
                     type="submit"
                     className="w-full"
                     disabled={isLoading}
                   >
                     {isLoading ? 'Creating Account...' : 'Sign Up'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={onSignInWithGoogle}
+                    disabled={isLoading}
+                  >
+                    Continue with Google
                   </Button>
                 </CardFooter>
               </form>

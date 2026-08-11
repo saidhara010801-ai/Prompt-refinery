@@ -4,6 +4,12 @@ import test from 'node:test';
 
 import { getTokenCounts } from '../src/ai/flows/get-token-counts';
 import { formatOutput } from '../src/lib/output-formats';
+import {
+  canConvertWithTextFallback,
+  convertTextLikeBufferToMarkdown,
+  parseMarkitdownCommand,
+  safeConversionExtension,
+} from '../src/lib/server/markitdown-converter';
 import { getCheckoutReturnOrigin } from '../src/lib/server/checkout-origin';
 import {
   clearRequestRateLimitsForTests,
@@ -290,6 +296,52 @@ test('output formatting supports plain, Markdown, and JSON copy styles', () => {
     promptType: 'Zero-shot',
     originalPrompt: 'Raw',
     refinedPrompt: 'Refined',
+  });
+});
+
+test('format converter supports text-like files without external MarkItDown', () => {
+  assert.equal(safeConversionExtension('brief.PDF'), '.pdf');
+  assert.equal(safeConversionExtension('archive.exe'), '');
+  assert.equal(canConvertWithTextFallback('notes.md'), true);
+  assert.equal(canConvertWithTextFallback('deck.pptx'), false);
+
+  assert.deepEqual(
+    convertTextLikeBufferToMarkdown('data.csv', Buffer.from('name,count\nAlpha,2\nBeta,3')),
+    {
+      content: '| name | count |\n| --- | --- |\n| Alpha | 2 |\n| Beta | 3 |',
+      truncated: false,
+    }
+  );
+
+  assert.deepEqual(
+    convertTextLikeBufferToMarkdown('config.json', Buffer.from('{"enabled":true}')),
+    {
+      content: '```json\n{\n  "enabled": true\n}\n```',
+      truncated: false,
+    }
+  );
+
+  assert.deepEqual(
+    convertTextLikeBufferToMarkdown('page.html', Buffer.from('<h1>Title</h1><p>Body &amp; details.</p>')),
+    {
+      content: 'Title\nBody & details.',
+      truncated: false,
+    }
+  );
+});
+
+test('format converter parses MarkItDown command with arguments', () => {
+  assert.deepEqual(parseMarkitdownCommand(undefined), {
+    command: 'markitdown',
+    args: [],
+  });
+  assert.deepEqual(parseMarkitdownCommand('python -m markitdown'), {
+    command: 'python',
+    args: ['-m', 'markitdown'],
+  });
+  assert.deepEqual(parseMarkitdownCommand('"C:\\Program Files\\Python\\python.exe" -m markitdown'), {
+    command: 'C:\\Program Files\\Python\\python.exe',
+    args: ['-m', 'markitdown'],
   });
 });
 
@@ -657,6 +709,15 @@ test('Clarift brand metadata and customer surfaces use the supplied identity', (
   for (const customerSurface of [layout, app, checkout]) {
     assert.doesNotMatch(customerSurface, /The Prompt Refinery|Prompt Refinery Pro/);
   }
+});
+
+test('Google sign-in uses account selection and redirect fallback', () => {
+  const loginHelper = readFileSync('src/firebase/non-blocking-login.tsx', 'utf8');
+  const loginPage = readFileSync('src/components/auth/login-page.tsx', 'utf8');
+
+  assert.match(loginHelper, /prompt:\s*'select_account'/);
+  assert.match(loginHelper, /signInWithRedirect/);
+  assert.equal((loginPage.match(/Continue with Google/g) ?? []).length, 2);
 });
 
 test('production responses define strict security headers without blocking Firebase services', () => {
