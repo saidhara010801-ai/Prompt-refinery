@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { getTokenCounts } from '../src/ai/flows/get-token-counts';
@@ -349,19 +350,18 @@ test('format converter parses MarkItDown command with arguments', () => {
 });
 
 test('format converter resolves the packaged App Hosting runtime beside the standalone server', () => {
+  const workspace = join(process.cwd(), 'workspace');
   const candidates = packagedMarkitdownCommandCandidates({
-    cwd: 'C:\\workspace',
-    entrypoint: 'C:\\workspace\\.next\\standalone\\server.js',
-    platform: 'linux',
+    cwd: workspace,
+    entrypoint: join(workspace, '.next', 'standalone', 'server.js'),
   });
   const packagedPython = candidates[0];
 
   assert.match(packagedPython, /\.next[\\/]standalone[\\/]\.markitdown-runtime/);
   assert.deepEqual(
     resolveMarkitdownCommand('packaged', {
-      cwd: 'C:\\workspace',
-      entrypoint: 'C:\\workspace\\.next\\standalone\\server.js',
-      platform: 'linux',
+      cwd: workspace,
+      entrypoint: join(workspace, '.next', 'standalone', 'server.js'),
       exists: (candidate) => candidate === packagedPython,
     }),
     {
