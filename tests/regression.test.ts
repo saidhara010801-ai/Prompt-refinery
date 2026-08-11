@@ -720,6 +720,22 @@ test('Google sign-in uses account selection and redirect fallback', () => {
   assert.equal((loginPage.match(/Continue with Google/g) ?? []).length, 2);
 });
 
+test('project refinements stay in the project workspace and support explicit project switching', () => {
+  const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
+  const projectsTab = readFileSync('src/components/prompt-refinery/projects-tab.tsx', 'utf8');
+  const refineryTab = readFileSync('src/components/prompt-refinery/refinery-tab.tsx', 'utf8');
+
+  assert.match(refineryTab, /<SelectItem value=\{NO_PROJECT_VALUE\}>No project<\/SelectItem>/);
+  assert.match(refineryTab, /const savedSession = await addProjectSessionAction/);
+  assert.match(refineryTab, /onProjectRefinementSaved\?\.\(savedSession\.id\)/);
+  assert.match(projectsTab, /<SelectItem value=\{ALL_PROJECTS_VALUE\}>All projects<\/SelectItem>/);
+  assert.match(projectsTab, />\s*Leave Project\s*</);
+  assert.match(projectsTab, /selectedProject && isComposing && \(/);
+  assert.match(projectsTab, /<RefineryTab[\s\S]*projectWorkspace/);
+  assert.doesNotMatch(projectsTab, /onStartRefinement/);
+  assert.match(app, /setRequestedProjectSessionId\(sessionId\);\s*setActiveTab\('projects'\)/);
+});
+
 test('production responses define strict security headers without blocking Firebase services', () => {
   const nextConfig = readFileSync('next.config.ts', 'utf8');
 

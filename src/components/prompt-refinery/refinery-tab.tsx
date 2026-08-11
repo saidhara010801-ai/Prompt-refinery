@@ -25,7 +25,7 @@ import { collection, limit, orderBy, query } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { ApiKeyContext } from '@/context/api-key-context';
 import { SettingsContext } from '@/context/settings-context';
-import { Project } from './projects-tab';
+import { Project } from './project-types';
 import { Badge } from '../ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { isFreeTechnique } from '@/lib/subscription';
@@ -81,7 +81,15 @@ interface ProjectSessionMemory {
 
 interface RefineryTabProps {
   selectedProject: Project | null;
+  projects?: Project[] | null;
+  isLoadingProjects?: boolean;
+  allowProjectSelection?: boolean;
+  onSelectProject?: (project: Project | null) => void;
+  onProjectRefinementSaved?: (sessionId: string) => void;
+  projectWorkspace?: boolean;
 }
+
+const NO_PROJECT_VALUE = '__no_project__';
 
 function buildProjectMemory(project: Project | null, sessions: ProjectSessionMemory[] | null): string | undefined {
   if (!project) {
@@ -245,7 +253,15 @@ function buildDiffTokens(originalPrompt: string, refinedPrompt: string) {
   });
 }
 
-export function RefineryTab({ selectedProject }: RefineryTabProps) {
+export function RefineryTab({
+  selectedProject,
+  projects,
+  isLoadingProjects = false,
+  allowProjectSelection = false,
+  onSelectProject,
+  onProjectRefinementSaved,
+  projectWorkspace = false,
+}: RefineryTabProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isTokenizing, setIsTokenizing] = useState(false);
   const [refinedPrompt, setRefinedPrompt] = useState<string | null>(null);
@@ -273,6 +289,9 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
   }, [user, firestore, selectedProject]);
 
   const { data: projectSessions } = useCollection<ProjectSessionMemory>(projectSessionsQuery);
+  const projectOptions = selectedProject && !projects?.some((project) => project.id === selectedProject.id)
+    ? [selectedProject, ...(projects ?? [])]
+    : (projects ?? []);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -344,24 +363,27 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
       setPromptVersions(nextVersions);
 
       if (user && firestore && selectedProject) {
-        addProjectSessionAction({
-          firebaseIdToken: firebaseIdToken ?? await user.getIdToken(),
-          projectId: selectedProject.id,
-          session: {
-            rawPrompt: data.prompt,
-            refinedPrompt: result.refinedPrompt,
-            promptType: data.promptType,
-            version: nextVersion.version,
-            versions: nextVersions,
-          },
-        }).catch((error) => {
+        try {
+          const savedSession = await addProjectSessionAction({
+            firebaseIdToken: firebaseIdToken ?? await user.getIdToken(),
+            projectId: selectedProject.id,
+            session: {
+              rawPrompt: data.prompt,
+              refinedPrompt: result.refinedPrompt,
+              promptType: data.promptType,
+              version: nextVersion.version,
+              versions: nextVersions,
+            },
+          });
+          onProjectRefinementSaved?.(savedSession.id);
+        } catch (error) {
           console.error('Could not store project session:', error);
           toast({
             variant: 'destructive',
             title: 'Project Memory Not Saved',
             description: 'The refined prompt is ready, but this session could not be added to project memory.',
           });
-        });
+        }
       }
     } catch (error) {
       const errorToast = getErrorToast(error);
@@ -504,7 +526,7 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
     : [];
 
   return (
-    <div className="grid md:grid-cols-2 gap-8">
+    <div className={`grid gap-6 ${projectWorkspace ? 'xl:grid-cols-2' : 'md:grid-cols-2'}`}>
       <Card className="border-primary/20">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -515,6 +537,32 @@ export function RefineryTab({ selectedProject }: RefineryTabProps) {
             <p className="text-sm text-muted-foreground">
               Using project memory from {selectedProject.name}
             </p>
+          )}
+          {allowProjectSelection && onSelectProject && (
+            <div className="space-y-2 pt-2">
+              <Label htmlFor="refinery-project">Project</Label>
+              <Select
+                value={selectedProject?.id ?? NO_PROJECT_VALUE}
+                onValueChange={(projectId) => {
+                  onSelectProject(
+                    projectId === NO_PROJECT_VALUE
+                      ? null
+                      : projectOptions.find((project) => project.id === projectId) ?? null
+                  );
+                }}
+                disabled={isLoadingProjects}
+              >
+                <SelectTrigger id="refinery-project">
+                  <SelectValue placeholder={isLoadingProjects ? 'Loading projects...' : 'Choose a project'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT_VALUE}>No project</SelectItem>
+                  {projectOptions.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </CardHeader>
         <CardContent>

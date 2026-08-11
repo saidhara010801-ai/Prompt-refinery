@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { collection, orderBy, query } from 'firebase/firestore';
 import {
   FolderKanban,
+  LogOut,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -22,26 +23,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   createProjectAction,
   deleteProjectAction,
   updateProjectSessionResponseAction,
 } from '@/app/project-actions';
-
-export interface Project {
-  id: string;
-  userId: string;
-  name: string;
-  description?: string;
-  createdAt?: {
-    seconds: number;
-    nanoseconds: number;
-  };
-  updatedAt?: {
-    seconds: number;
-    nanoseconds: number;
-  };
-}
+import { RefineryTab } from './refinery-tab';
+import { Project } from './project-types';
 
 interface ProjectSession {
   id: string;
@@ -65,10 +54,15 @@ interface ProjectSession {
 }
 
 interface ProjectsTabProps {
-  selectedProjectId: string | null;
+  projects: Project[] | null;
+  isLoadingProjects: boolean;
+  selectedProject: Project | null;
   onSelectProject: (project: Project | null) => void;
-  onStartRefinement: () => void;
+  requestedSessionId?: string | null;
+  onRequestedSessionSelected?: () => void;
 }
+
+const ALL_PROJECTS_VALUE = '__all_projects__';
 
 function formatDate(timestamp?: { seconds: number }) {
   if (!timestamp?.seconds) {
@@ -84,7 +78,14 @@ function getChatTitle(session: ProjectSession) {
     : session.rawPrompt;
 }
 
-export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinement }: ProjectsTabProps) {
+export function ProjectsTab({
+  projects,
+  isLoadingProjects,
+  selectedProject,
+  onSelectProject,
+  requestedSessionId,
+  onRequestedSessionSelected,
+}: ProjectsTabProps) {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
   const [name, setName] = useState('');
@@ -92,17 +93,12 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
   const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({});
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
-  const projectsQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return query(
-      collection(firestore, `users/${user.uid}/projects`),
-      orderBy('updatedAt', 'desc')
-    );
-  }, [user, firestore]);
-
-  const { data: projects, isLoading } = useCollection<Project>(projectsQuery);
-  const selectedProject = projects?.find((project) => project.id === selectedProjectId) ?? null;
+  const [isComposing, setIsComposing] = useState(false);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  const selectedProjectId = selectedProject?.id ?? null;
+  const projectOptions = selectedProject && !projects?.some((project) => project.id === selectedProject.id)
+    ? [selectedProject, ...(projects ?? [])]
+    : (projects ?? []);
 
   const sessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProjectId) return null;
@@ -119,6 +115,26 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
   );
 
   useEffect(() => {
+    if (requestedSessionId) {
+      setPendingSessionId(requestedSessionId);
+    }
+  }, [requestedSessionId]);
+
+  useEffect(() => {
+    if (pendingSessionId) {
+      if (!sessions?.some((session) => session.id === pendingSessionId)) {
+        return;
+      }
+
+      setSelectedSessionId(pendingSessionId);
+      setPendingSessionId(null);
+      setIsComposing(false);
+      if (pendingSessionId === requestedSessionId) {
+        onRequestedSessionSelected?.();
+      }
+      return;
+    }
+
     if (!sessions || sessions.length === 0) {
       setSelectedSessionId(null);
       return;
@@ -127,7 +143,14 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
     if (!selectedSessionId || !sessions.some((session) => session.id === selectedSessionId)) {
       setSelectedSessionId(sessions[0].id);
     }
-  }, [sessions, selectedSessionId]);
+  }, [sessions, selectedSessionId, pendingSessionId, requestedSessionId, onRequestedSessionSelected]);
+
+  const handleSelectProject = (project: Project | null) => {
+    setSelectedSessionId(null);
+    setPendingSessionId(null);
+    setIsComposing(false);
+    onSelectProject(project);
+  };
 
   const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -147,6 +170,8 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
         description: description.trim(),
       });
       setSelectedSessionId(null);
+      setPendingSessionId(null);
+      setIsComposing(true);
       setName('');
       setDescription('');
       toast({
@@ -171,7 +196,7 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
         projectId: project.id,
       });
       if (selectedProjectId === project.id) {
-        onSelectProject(null);
+        handleSelectProject(null);
       }
 
       toast({
@@ -189,8 +214,14 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
 
   const handleNewChat = () => {
     if (!selectedProject) return;
-    onSelectProject(selectedProject);
-    onStartRefinement();
+    setPendingSessionId(null);
+    setSelectedSessionId(null);
+    setIsComposing(true);
+  };
+
+  const handleProjectRefinementSaved = (sessionId: string) => {
+    setPendingSessionId(sessionId);
+    setIsComposing(false);
   };
 
   const handleSaveResponse = async (session: ProjectSession) => {
@@ -290,13 +321,13 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
               <Separator />
 
               <div className="space-y-2">
-                {isLoading && (
+                {isLoadingProjects && (
                   <>
                     <Skeleton className="h-14 w-full" />
                     <Skeleton className="h-14 w-full" />
                   </>
                 )}
-                {!isLoading && projects && projects.length > 0 && projects.map((project) => (
+                {!isLoadingProjects && projects && projects.length > 0 && projects.map((project) => (
                   <div
                     key={project.id}
                     className={cn(
@@ -307,7 +338,7 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left"
-                      onClick={() => onSelectProject(project)}
+                      onClick={() => handleSelectProject(project)}
                     >
                       <p className="truncate text-sm font-semibold">{project.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(project.updatedAt)}</p>
@@ -318,7 +349,7 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
                     </Button>
                   </div>
                 ))}
-                {!isLoading && (!projects || projects.length === 0) && (
+                {!isLoadingProjects && (!projects || projects.length === 0) && (
                   <p className="py-5 text-center text-sm text-muted-foreground">No projects yet.</p>
                 )}
               </div>
@@ -379,12 +410,41 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{selectedProject.description}</p>
             )}
           </div>
-          {selectedProject && (
-            <Button type="button" onClick={handleNewChat}>
-              <Send className="h-4 w-4" />
-              New Chat
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Select
+              value={selectedProjectId ?? ALL_PROJECTS_VALUE}
+              onValueChange={(projectId) => {
+                handleSelectProject(
+                  projectId === ALL_PROJECTS_VALUE
+                    ? null
+                    : projectOptions.find((project) => project.id === projectId) ?? null
+                );
+              }}
+              disabled={isLoadingProjects}
+            >
+              <SelectTrigger className="w-[190px]" aria-label="Switch project">
+                <SelectValue placeholder="Choose project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_PROJECTS_VALUE}>All projects</SelectItem>
+                {projectOptions.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedProject && (
+              <>
+                <Button type="button" variant="outline" onClick={() => handleSelectProject(null)}>
+                  <LogOut className="h-4 w-4" />
+                  Leave Project
+                </Button>
+                <Button type="button" onClick={handleNewChat}>
+                  <Send className="h-4 w-4" />
+                  New Chat
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         <ScrollArea className="h-[624px]">
@@ -395,7 +455,15 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
               </div>
             )}
 
-            {selectedProject && !isLoadingSessions && !selectedSession && (
+            {selectedProject && isComposing && (
+              <RefineryTab
+                selectedProject={selectedProject}
+                projectWorkspace
+                onProjectRefinementSaved={handleProjectRefinementSaved}
+              />
+            )}
+
+            {selectedProject && !isComposing && !isLoadingSessions && !selectedSession && !pendingSessionId && (
               <div className="flex min-h-[440px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
                 <p>No chats in this project yet.</p>
                 <Button type="button" onClick={handleNewChat}>
@@ -405,14 +473,14 @@ export function ProjectsTab({ selectedProjectId, onSelectProject, onStartRefinem
               </div>
             )}
 
-            {selectedProject && isLoadingSessions && (
+            {selectedProject && !isComposing && (isLoadingSessions || pendingSessionId) && (
               <div className="space-y-4">
                 <Skeleton className="ml-auto h-24 w-4/5" />
                 <Skeleton className="h-36 w-11/12" />
               </div>
             )}
 
-            {selectedProject && selectedSession && (
+            {selectedProject && !isComposing && selectedSession && (
               <>
                 <div className="flex justify-center">
                   <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">

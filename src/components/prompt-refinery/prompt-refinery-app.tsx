@@ -1,28 +1,51 @@
 'use client';
 
 import { useContext, useState } from 'react';
+import { collection, orderBy, query } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefineryTab } from './refinery-tab';
 import { EvaluatorTab } from './evaluator-tab';
 import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
-import { Project, ProjectsTab } from './projects-tab';
+import { ProjectsTab } from './projects-tab';
+import { Project } from './project-types';
 import { ConverterTab } from './converter-tab';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Crown, FileText, FolderKanban, Gauge, Library, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
-import { useFirebase } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function PromptRefineryApp() {
   const { toast } = useToast();
-  const { user } = useFirebase();
+  const { user, firestore } = useFirebase();
   const { isPro, tier, savedPromptCount, savedPromptLimit, managedRefinementsUsedToday, managedRefinementLimit } = useContext(SubscriptionContext);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [activeTab, setActiveTab] = useState('refinery');
+  const [requestedProjectSessionId, setRequestedProjectSessionId] = useState<string | null>(null);
+
+  const projectsQuery = useMemoFirebase(() => {
+    if (!isPro || !user || !firestore) return null;
+    return query(
+      collection(firestore, `users/${user.uid}/projects`),
+      orderBy('updatedAt', 'desc')
+    );
+  }, [isPro, user, firestore]);
+
+  const { data: projects, isLoading: isLoadingProjects } = useCollection<Project>(projectsQuery);
+
+  const handleSelectProject = (project: Project | null) => {
+    setSelectedProject(project);
+    setRequestedProjectSessionId(null);
+  };
+
+  const handleProjectRefinementSaved = (sessionId: string) => {
+    setRequestedProjectSessionId(sessionId);
+    setActiveTab('projects');
+  };
 
   const handleUpgradeClick = async () => {
     if (!user) {
@@ -118,7 +141,14 @@ export function PromptRefineryApp() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="refinery" className="mt-6">
-          <RefineryTab selectedProject={isPro ? selectedProject : null} />
+          <RefineryTab
+            selectedProject={isPro ? selectedProject : null}
+            projects={isPro ? projects : null}
+            isLoadingProjects={isLoadingProjects}
+            allowProjectSelection={isPro}
+            onSelectProject={handleSelectProject}
+            onProjectRefinementSaved={handleProjectRefinementSaved}
+          />
         </TabsContent>
         <TabsContent value="evaluator" className="mt-6">
           <EvaluatorTab />
@@ -132,9 +162,12 @@ export function PromptRefineryApp() {
         <TabsContent value="projects" className="mt-6">
           {isPro ? (
             <ProjectsTab
-              selectedProjectId={selectedProject?.id ?? null}
-              onSelectProject={setSelectedProject}
-              onStartRefinement={() => setActiveTab('refinery')}
+              projects={projects}
+              isLoadingProjects={isLoadingProjects}
+              selectedProject={selectedProject}
+              onSelectProject={handleSelectProject}
+              requestedSessionId={requestedProjectSessionId}
+              onRequestedSessionSelected={() => setRequestedProjectSessionId(null)}
             />
           ) : (
             <Card>
