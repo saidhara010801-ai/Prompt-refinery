@@ -1,14 +1,14 @@
 # Clarift browser extension
 
-This Manifest V3 extension supports Chrome and Microsoft Edge. It adds an inline **Refine with Clarift** action to prompt editors on ChatGPT, Claude, Gemini, Copilot, Perplexity, Poe, Grok, and Google AI Studio. On another chatbot site, click the Clarift toolbar icon and choose **Enable on this page**.
+This Manifest V3 extension adds **Refine with Clarift** to ChatGPT, Claude, Gemini, Copilot, Perplexity, Poe, Grok, and Google AI Studio. It uses Clarift managed inference and never asks for, stores, or transmits a Gemini or OpenRouter provider key. Short-lived access tokens remain in Chrome session storage; the rotating device refresh token is revocable from Clarift.
 
-## Load for local testing
+## Load for testing
 
-1. Download the extension test package from Clarift Settings > Browser Extension and extract it.
-2. Create a Clarift API key under Clarift Settings > Public API.
-3. Open `chrome://extensions` or `edge://extensions` and enable Developer mode.
-4. Choose **Load unpacked** and select the extracted folder containing `manifest.json`.
-5. Pin Clarift in the browser toolbar, open its settings, and enter the Clarift key plus a Gemini or OpenRouter provider key.
-6. Open a supported chatbot and focus its prompt editor. On another chatbot, click the Clarift toolbar icon and enable it for the current page.
+1. Download the extension package from Clarift Settings > Extension and extract it.
+2. Open `chrome://extensions` or `edge://extensions`, enable Developer mode, and choose **Load unpacked**.
+3. Select the extracted folder containing `manifest.json`.
+4. Open the extension settings and choose **Connect Clarift Account**.
+5. Approve the connection in the Clarift tab. The extension receives a revocable device session tied to the personal workspace.
+6. Open a supported chatbot and focus its prompt editor. Use the toolbar action to enable Clarift on another compatible site.
 
-The extension stores both keys in browser sync storage. Clarift never persists the provider key; it is forwarded only for the active refinement request.
+Access tokens are short-lived and automatically refreshed. Signing out revokes the installation and removes its local session tokens.

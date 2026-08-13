@@ -24,8 +24,8 @@ export function BrowserExtensionPanel({ enabled }: { enabled: boolean }) {
       </Button>
       <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
         <li>Extract the downloaded ZIP, then load that folder from the browser&apos;s Extensions page with Developer mode enabled.</li>
-        <li>{enabled ? 'Create a Browser extension key under Public API below.' : 'A Pro account is required to create the Clarift API key.'}</li>
-        <li>Open the Clarift toolbar icon, add the Clarift and provider API keys, then enable it on your chatbot page.</li>
+        <li>{enabled ? 'Open the extension settings and choose Connect Clarift Account.' : 'Sign in to Clarift before connecting the extension.'}</li>
+        <li>Approve the account link in the Clarift tab, then enable it on your chatbot page. No provider key is required.</li>
       </ol>
       <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
         <Settings2 className="h-3.5 w-3.5" />

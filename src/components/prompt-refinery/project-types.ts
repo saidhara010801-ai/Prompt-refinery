@@ -1,6 +1,9 @@
 export interface Project {
   id: string;
   userId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  createdBy?: string;
   name: string;
   description?: string;
   templateId?: string | null;

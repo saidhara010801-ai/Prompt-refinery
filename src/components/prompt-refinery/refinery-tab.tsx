@@ -4,7 +4,7 @@ import { ChangeEvent, useState, useContext, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText, Play, FolderPlus } from 'lucide-react';
+import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -18,19 +18,17 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
-import { refinePromptAction, getTokenCountsAction, testRefinedPromptAction } from '@/app/actions';
+import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { OutputActions } from './output-actions';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, limit, orderBy, query } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
-import { ApiKeyContext } from '@/context/api-key-context';
-import { SettingsContext } from '@/context/settings-context';
 import { Project } from './project-types';
 import { Badge } from '../ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { isFreeTechnique } from '@/lib/subscription';
 import { savePromptAction } from '@/app/subscription-actions';
-import { addProjectSessionAction, createProjectMemoryEntryAction } from '@/app/project-actions';
+import { addProjectSessionAction } from '@/app/project-actions';
 import { useWorkflow } from '@/context/workflow-context';
 import type { ProjectMemoryEntry } from './stage2-types';
 
@@ -103,15 +101,11 @@ function getErrorToast(error: unknown): { title: string; description: string } {
   const errorMessage = error instanceof Error ? error.message : '';
 
   if (
-    errorName === 'ApiKeyMissingError' ||
-    errorName === 'OpenRouterApiKeyMissingError' ||
-    errorMessage.includes('API key is missing')
+    errorName === 'ProviderKeyMissingError'
   ) {
     return {
-      title: errorName === 'OpenRouterApiKeyMissingError' ? 'OpenRouter API Key Missing' : 'API Key Missing',
-      description: errorName === 'OpenRouterApiKeyMissingError'
-        ? 'Add your OpenRouter API key in Settings, then try refining again.'
-        : 'Add your Gemini API key in Settings, then try refining again.',
+      title: 'Provider Key Missing',
+      description: errorMessage,
     };
   }
 
@@ -142,12 +136,18 @@ function getErrorToast(error: unknown): { title: string; description: string } {
     };
   }
 
-  if (errorName === 'ManagedRateLimitError') {
+  if (errorName === 'InsufficientCreditsError') {
+    return { title: 'More Credits Needed', description: errorMessage };
+  }
+
+  if (errorName === 'ManagedRateLimitError' || errorName === 'ConcurrencyLimitError') {
     return {
-      title: 'Daily Limit Reached',
+      title: 'Clarift Is Busy',
       description: errorMessage,
     };
   }
+
+  if (errorName === 'ProviderTimeoutError') return { title: 'Refinement Timed Out', description: errorMessage };
 
   if (errorName === 'AuthenticationRequiredError') {
     return {
@@ -198,12 +198,13 @@ function readFileAsDataUri(file: File): Promise<string> {
   });
 }
 
-async function convertDocumentToMarkdown(file: File): Promise<string> {
+async function convertDocumentToMarkdown(file: File, firebaseIdToken: string): Promise<string> {
   const formData = new FormData();
   formData.set('file', file);
 
   const response = await fetch('/api/markitdown', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${firebaseIdToken}` },
     body: formData,
   });
   const result = await response.json() as { content?: string; error?: string };
@@ -259,21 +260,19 @@ export function RefineryTab({
   const [explanationMode, setExplanationMode] = useState(true);
   const [maxCharacters, setMaxCharacters] = useState('');
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
-  const [isTestingPrompt, setIsTestingPrompt] = useState(false);
-  const [testResponse, setTestResponse] = useState<{ content: string; latencyMs: number } | null>(null);
+  const [refinementMode, setRefinementMode] = useState<'quick_refine' | 'guided_fix' | 'full_council'>('quick_refine');
+  const [inferencePreference, setInferencePreference] = useState<{ mode: 'managed' | 'byok'; provider: 'gemini' | 'openrouter' }>({ mode: 'managed', provider: 'gemini' });
   const [diffFromVersion, setDiffFromVersion] = useState(1);
   const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { apiKey, openRouterApiKey, aiProvider, openRouterModels } = useContext(ApiKeyContext);
-  const { triggerAnimation } = useContext(SettingsContext);
-  const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
+  const { isPro, savedPromptCount, savedPromptLimit, taskCosts, refreshTenant, capabilities } = useContext(SubscriptionContext);
   const { refineryTransfer, clearRefineryTransfer } = useWorkflow();
 
   const projectSessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProject) return null;
     return query(
-      collection(firestore, `users/${user.uid}/projects/${selectedProject.id}/memoryEntries`),
+      collection(firestore, `projects/${selectedProject.id}/memoryEntries`),
       orderBy('updatedAt', 'desc'),
       limit(25)
     );
@@ -291,6 +290,17 @@ export function RefineryTab({
       promptType: 'Zero-shot',
     },
   });
+
+  useEffect(() => {
+    const readPreference = () => {
+      const provider = localStorage.getItem('clariftByokProvider') === 'openrouter' ? 'openrouter' : 'gemini';
+      const mode = capabilities.byok && localStorage.getItem('clariftInferenceMode') === 'byok' ? 'byok' : 'managed';
+      setInferencePreference({ mode, provider });
+    };
+    readPreference();
+    window.addEventListener('clarift-provider-preference', readPreference);
+    return () => window.removeEventListener('clarift-provider-preference', readPreference);
+  }, [capabilities.byok]);
 
   useEffect(() => {
     const technique = PROMPT_TECHNIQUES.find((candidate) => candidate.value === selectedProject?.defaultTechnique)?.value;
@@ -363,10 +373,10 @@ export function RefineryTab({
       const firebaseIdToken = await user?.getIdToken();
       const result = await refinePromptAction({
         ...data,
-        provider: aiProvider,
-        apiKey: apiKey || undefined,
-        openRouterApiKey: openRouterApiKey || undefined,
-        openRouterModels,
+        task: refinementMode,
+        inferenceMode: inferencePreference.mode,
+        provider: inferencePreference.provider,
+        idempotencyKey: crypto.randomUUID(),
         projectMemory,
         explanationMode,
         maxCharacters: maxCharacters ? Number(maxCharacters) : undefined,
@@ -376,6 +386,7 @@ export function RefineryTab({
       setRefinedPrompt(result.refinedPrompt);
       setRawPromptAtResult(data.prompt);
       setRefinements(result.refinements);
+      await refreshTenant();
 
       const previousVersions = data.prompt === rawPromptAtResult ? promptVersions : [];
       const nextVersion: PromptVersion = {
@@ -389,7 +400,6 @@ export function RefineryTab({
       setPromptVersions(nextVersions);
       setDiffFromVersion(Math.max(1, nextVersion.version - 1));
       setDiffToVersion(nextVersion.version);
-      setTestResponse(null);
 
       if (user && firestore && selectedProject) {
         try {
@@ -416,17 +426,6 @@ export function RefineryTab({
       }
     } catch (error) {
       const errorToast = getErrorToast(error);
-      if (
-        error instanceof Error &&
-        (
-          error.name === 'ApiKeyMissingError' ||
-          error.name === 'ApiKeyInvalidError' ||
-          error.name === 'OpenRouterApiKeyMissingError' ||
-          error.name === 'OpenRouterApiKeyInvalidError'
-        )
-      ) {
-        triggerAnimation();
-      }
       toast({
         variant: 'destructive',
         title: errorToast.title,
@@ -445,6 +444,8 @@ export function RefineryTab({
       return;
     }
 
+    if (!user) return;
+    const firebaseIdToken = await user.getIdToken();
     const convertedAttachments = await Promise.all(files.map(async (file) => {
       try {
         if (file.size > 10 * 1024 * 1024) {
@@ -472,7 +473,7 @@ export function RefineryTab({
         return {
           name: file.name,
           mimeType: file.type || 'application/octet-stream',
-          content: await convertDocumentToMarkdown(file),
+          content: await convertDocumentToMarkdown(file, firebaseIdToken),
         };
       } catch (error) {
         toast({
@@ -550,44 +551,6 @@ export function RefineryTab({
     }
   };
 
-  const handleTestPrompt = async () => {
-    if (!user || !refinedPrompt) return;
-    setIsTestingPrompt(true);
-    setTestResponse(null);
-    try {
-      const result = await testRefinedPromptAction({
-        firebaseIdToken: await user.getIdToken(),
-        prompt: refinedPrompt,
-        provider: aiProvider,
-        apiKey: apiKey || undefined,
-        openRouterApiKey: openRouterApiKey || undefined,
-        model: aiProvider === 'openrouter' ? openRouterModels.formatter : undefined,
-      });
-      setTestResponse(result);
-    } catch (error) {
-      const errorToast = getErrorToast(error);
-      toast({ variant: 'destructive', title: errorToast.title, description: errorToast.description });
-    } finally {
-      setIsTestingPrompt(false);
-    }
-  };
-
-  const handleSaveTestResponse = async () => {
-    if (!user || !selectedProject || !testResponse) return;
-    try {
-      await createProjectMemoryEntryAction({
-        firebaseIdToken: await user.getIdToken(),
-        projectId: selectedProject.id,
-        kind: 'response',
-        title: 'Integrated model test response',
-        content: testResponse.content,
-      });
-      toast({ title: 'Saved to Project Memory', description: 'The model response is available to future refinements.' });
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Could Not Save Response', description: error instanceof Error ? error.message : 'Please try again.' });
-    }
-  };
-
   const diffTokens = rawPromptAtResult && refinedPrompt
     ? buildDiffTokens(rawPromptAtResult, refinedPrompt)
     : [];
@@ -640,6 +603,35 @@ export function RefineryTab({
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <div className="space-y-2">
+                <Label>Refinement Mode</Label>
+                <div className="grid grid-cols-3 gap-1 rounded-md border bg-muted p-1">
+                  {([
+                    ['quick_refine', 'Quick Refine'],
+                    ['guided_fix', 'Guided Fix'],
+                    ['full_council', 'Full Council'],
+                  ] as const).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      size="sm"
+                      variant={refinementMode === value ? 'default' : 'ghost'}
+                      onClick={() => setRefinementMode(value)}
+                      className="h-auto min-h-9 whitespace-normal px-2 py-2"
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {refinementMode === 'quick_refine' && 'A focused pass for everyday prompts.'}
+                  {refinementMode === 'guided_fix' && 'Three expert passes for prompts that need structure and critique.'}
+                  {refinementMode === 'full_council' && 'Five specialist passes and a final synthesis for complex work.'}
+                  {' '}{inferencePreference.mode === 'managed'
+                    ? `Cost: ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}.`
+                    : `Using encrypted ${inferencePreference.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} BYOK; no managed credits.`}
+                </p>
+              </div>
               {selectedProject && relevantMemoryEntries.length > 0 && (
                 <div className="space-y-2 rounded-md border p-3">
                   <p className="text-sm font-semibold">Relevant project memory</p>
@@ -795,8 +787,10 @@ export function RefineryTab({
                   placeholder="e.g., 2000"
                 />
               </div>
-              <Button type="submit" disabled={isLoading} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                {isLoading ? 'Refining...' : 'Refine with AI Council'}
+              <Button type="submit" disabled={isLoading || !user} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+                {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
+                  ? `Refine · ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}`
+                  : 'Refine with My Provider Key'}
               </Button>
               {!isPro && (
                 <p className="text-xs text-muted-foreground">
@@ -920,19 +914,6 @@ export function RefineryTab({
                     </AccordionItem>
                   </Accordion>
                 )}
-
-                <div className="space-y-3 rounded-md border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div><p className="font-semibold">Test with {aiProvider === 'openrouter' ? 'OpenRouter' : 'Gemini'}</p><p className="text-xs text-muted-foreground">Uses your provider key and does not consume Clarift-managed credits.</p></div>
-                    <Button type="button" variant="outline" onClick={handleTestPrompt} disabled={!isPro || isTestingPrompt}><Play className="h-4 w-4" />{isTestingPrompt ? 'Testing...' : isPro ? 'Run Test' : 'Pro'}</Button>
-                  </div>
-                  {testResponse && (
-                    <div className="space-y-2">
-                      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-code text-xs"><code>{testResponse.content}</code></pre>
-                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>{testResponse.latencyMs} ms</span>{selectedProject && <Button type="button" variant="ghost" size="sm" onClick={handleSaveTestResponse}><FolderPlus className="h-4 w-4" />Save to Memory</Button>}</div>
-                    </div>
-                  )}
-                </div>
 
                 {isTokenizing && (
                   <div className="space-y-2">

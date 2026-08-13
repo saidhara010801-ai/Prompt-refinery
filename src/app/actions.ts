@@ -1,12 +1,11 @@
 'use server';
 
-import { refinePromptWithAICouncil, RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
-import { evaluatePromptGuidelineInclusion, EvaluatePromptGuidelineInclusionInput } from "@/ai/flows/evaluate-prompt-guideline-inclusion";
+import { randomUUID } from 'node:crypto';
+
+import { RefinePromptWithAICouncilInput } from "@/ai/flows/refine-prompt-with-ai-council";
 import { getTokenCounts, GetTokenCountsInput } from "@/ai/flows/get-token-counts";
-import { assertProFeatureAccess, assertRefinementAccess, getVerifiedUserProfile, releaseManagedRefinement, reserveManagedRefinement } from "@/lib/server/account-service";
-import { assertActiveAccount } from "@/lib/server/user-access";
+import { assertRefinementAccess } from "@/lib/server/account-service";
 import {
-    MAX_API_KEY_CHARACTERS,
     MAX_ATTACHMENT_DATA_URI_CHARACTERS,
     MAX_ATTACHMENT_MIME_TYPE_CHARACTERS,
     MAX_ATTACHMENT_NAME_CHARACTERS,
@@ -21,13 +20,10 @@ import {
     MAX_TOKEN_ESTIMATE_CHARACTERS,
 } from "@/lib/input-limits";
 import { z } from "zod";
-import { genkit, generation } from '@/ai/genkit';
-import { googleAI } from '@genkit-ai/google-genai';
-import { createOpenRouterChatCompletion } from '@/ai/flows/openrouter-client';
-import { evaluatePromptGuidelinesBatch } from '@/ai/flows/evaluate-prompt-guidelines-batch';
 import { saveEvaluationRunForUser } from '@/lib/server/account-service';
-import { recordUsageEventFromToken } from '@/lib/server/usage-analytics';
-import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '@/lib/openrouter-models';
+import { withDefaultOpenRouterModels } from '@/lib/openrouter-models';
+import { executeEvaluation, executeRefinement } from '@/lib/server/ai-gateway';
+import { resolveTenantFromToken } from '@/lib/server/tenant-service';
 
 const refineSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS, `Prompt must be ${MAX_PROMPT_CHARACTERS} characters or fewer.`),
@@ -41,9 +37,7 @@ const refineSchema = z.object({
       'ReAct',
       'Meta / reflection',
     ]),
-    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     provider: z.enum(["gemini", "openrouter"]).optional(),
-    openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     openRouterModels: z.object({
         specifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
         simplifier: z.string().min(1).max(MAX_MODEL_ID_CHARACTERS),
@@ -61,14 +55,16 @@ const refineSchema = z.object({
         content: z.string().max(MAX_ATTACHMENT_TEXT_CHARACTERS),
         dataUri: z.string().max(MAX_ATTACHMENT_DATA_URI_CHARACTERS).optional(),
     })).max(MAX_ATTACHMENTS).optional(),
+    task: z.enum(['quick_refine', 'guided_fix', 'full_council']).optional(),
+    inferenceMode: z.enum(['managed', 'byok']).optional(),
+    idempotencyKey: z.string().min(8).max(200).optional(),
 });
 
 const tokenCounterSchema = z.object({
     text: z.string().max(MAX_TOKEN_ESTIMATE_CHARACTERS),
-    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
 });
 
-type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts" | "test prompt";
+type ActionKind = "refine prompt" | "evaluate guideline" | "get token counts";
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -112,27 +108,27 @@ function isEmptyOutputError(error: unknown): boolean {
     return error instanceof Error && error.name === "EmptyAIOutputError";
 }
 
-function toUserFacingError(error: unknown, actionKind: ActionKind, hasApiKey: boolean): Error {
-    if (!hasApiKey || isApiKeyMissingError(error)) {
-        const missingKeyError = new Error("Your Gemini API key is missing. Add it in Settings, then try again.");
-        missingKeyError.name = "ApiKeyMissingError";
+function toUserFacingError(error: unknown, actionKind: ActionKind): Error {
+    if (isApiKeyMissingError(error)) {
+        const missingKeyError = new Error("Clarift could not resolve a provider credential. Try managed inference or configure encrypted BYOK in Advanced settings.");
+        missingKeyError.name = "ProviderKeyMissingError";
         return missingKeyError;
     }
 
     if (isApiKeyInvalidError(error)) {
-        const invalidKeyError = new Error("Your Gemini API key looks invalid. Check the key in Settings and try again.");
-        invalidKeyError.name = "ApiKeyInvalidError";
+        const invalidKeyError = new Error("The configured provider credential was rejected. Revalidate encrypted BYOK in Advanced settings or use managed inference.");
+        invalidKeyError.name = "ProviderKeyInvalidError";
         return invalidKeyError;
     }
 
     if (isQuotaError(error)) {
-        const quotaError = new Error("Gemini is reporting a quota or rate-limit issue. Wait a bit or use a key with available quota.");
-        quotaError.name = "ApiQuotaError";
+        const quotaError = new Error("The selected provider is reporting a quota or rate-limit issue. Wait a moment and try again.");
+        quotaError.name = "ProviderQuotaError";
         return quotaError;
     }
 
     if (isEmptyOutputError(error)) {
-        const emptyOutputError = new Error("Gemini did not return a usable structured response. Please try again.");
+        const emptyOutputError = new Error("The provider did not return a usable structured response. Please try again.");
         emptyOutputError.name = "EmptyAIOutputError";
         return emptyOutputError;
     }
@@ -142,126 +138,61 @@ function toUserFacingError(error: unknown, actionKind: ActionKind, hasApiKey: bo
     return genericError;
 }
 
-function toProviderError(error: unknown, actionKind: ActionKind, provider: "gemini" | "openrouter", hasApiKey: boolean): Error {
-    if (provider === "gemini") {
-        return toUserFacingError(error, actionKind, hasApiKey);
-    }
-
-    if (!hasApiKey) {
-        const missingKeyError = new Error("Your OpenRouter API key is missing. Add it in Settings, then try again.");
-        missingKeyError.name = "OpenRouterApiKeyMissingError";
-        return missingKeyError;
-    }
-
-    if (isApiKeyInvalidError(error)) {
-        const invalidKeyError = new Error("Your OpenRouter API key looks invalid. Check the key in Settings and try again.");
-        invalidKeyError.name = "OpenRouterApiKeyInvalidError";
-        return invalidKeyError;
-    }
-
-    if (isQuotaError(error)) {
-        const quotaError = new Error("OpenRouter is reporting a quota or rate-limit issue. Wait a bit or use a key with available credits.");
-        quotaError.name = "OpenRouterQuotaError";
-        return quotaError;
-    }
-
-    if (isOpenRouterError(error)) {
-        const openRouterError = new Error(`OpenRouter could not ${actionKind}. Check your selected model IDs and try again.`);
-        openRouterError.name = "OpenRouterRequestError";
-        return openRouterError;
-    }
-
-    return toUserFacingError(error, actionKind, true);
-}
-
-export async function refinePromptAction(data: RefinePromptWithAICouncilInput & { firebaseIdToken?: string }) {
+export async function refinePromptAction(data: RefinePromptWithAICouncilInput & {
+    firebaseIdToken?: string;
+    task?: 'quick_refine' | 'guided_fix' | 'full_council';
+    inferenceMode?: 'managed' | 'byok';
+    idempotencyKey?: string;
+}) {
     const parsed = refineSchema.safeParse(data);
     if (!parsed.success) {
         throw new Error(parsed.error.errors.map(e => e.message).join(', '));
     }
 
-    const provider = parsed.data.provider ?? "gemini";
-    const usesManagedProvider = provider === "openrouter"
-        ? !parsed.data.openRouterApiKey && Boolean(process.env.OPENROUTER_API_KEY)
-        : !parsed.data.apiKey && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
-    let managedReservation: { uid: string; usageDate: string } | null = null;
-
     try {
+        if (!parsed.data.firebaseIdToken) {
+            const error = new Error('Sign in before using managed refinement.');
+            error.name = 'AuthenticationRequiredError';
+            throw error;
+        }
         await assertRefinementAccess(parsed.data.firebaseIdToken, parsed.data.promptType, Boolean(parsed.data.projectMemory));
-        const usesCustomOpenRouterModels = provider === "openrouter" && parsed.data.openRouterModels && (
-            parsed.data.openRouterModels.specifier !== DEFAULT_OPENROUTER_MODELS.specifier ||
-            parsed.data.openRouterModels.simplifier !== DEFAULT_OPENROUTER_MODELS.simplifier ||
-            parsed.data.openRouterModels.stylist !== DEFAULT_OPENROUTER_MODELS.stylist ||
-            parsed.data.openRouterModels.critic !== DEFAULT_OPENROUTER_MODELS.critic ||
-            parsed.data.openRouterModels.formatter !== DEFAULT_OPENROUTER_MODELS.formatter
-        );
-        if (usesCustomOpenRouterModels) {
-            await assertProFeatureAccess(
-                parsed.data.firebaseIdToken,
-                "Custom OpenRouter council routing is available on Pro. Upgrade or restore the default model IDs."
-            );
-        }
-        if (usesManagedProvider) {
-            managedReservation = await reserveManagedRefinement(parsed.data.firebaseIdToken);
-        }
-
-        const { firebaseIdToken: _firebaseIdToken, ...flowData } = parsed.data;
-        const input = provider === "openrouter"
-            ? {
-                ...flowData,
-                openRouterApiKey: parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY,
-                openRouterModels: withDefaultOpenRouterModels(parsed.data.openRouterModels),
-            }
-            : flowData;
-
-        const result = await refinePromptWithAICouncil(input);
-        await recordUsageEventFromToken(parsed.data.firebaseIdToken, {
-            kind: 'refinement',
-            technique: parsed.data.promptType,
-            provider,
+        const context = await resolveTenantFromToken(parsed.data.firebaseIdToken);
+        const {
+            firebaseIdToken: _firebaseIdToken,
+            provider: _provider,
+            task: requestedTask,
+            inferenceMode,
+            idempotencyKey,
+            ...refinement
+        } = parsed.data;
+        const task = requestedTask ?? 'full_council';
+        const gateway = await executeRefinement({
+            context,
+            task,
+            inferenceMode: inferenceMode ?? 'managed',
+            preferredProvider: _provider,
+            idempotencyKey: idempotencyKey ?? `${context.principalId}:${Date.now()}:${randomUUID()}`,
+            source: 'app',
+            refinement: {
+                ...refinement,
+                openRouterModels: withDefaultOpenRouterModels(refinement.openRouterModels),
+            },
         });
-        return result;
+        return { ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged };
     } catch (error) {
-        console.error("Error refining prompt:", error);
-        if (managedReservation) {
-            await releaseManagedRefinement(managedReservation.uid, managedReservation.usageDate)
-                .catch((releaseError) => console.error("Error releasing managed refinement reservation:", releaseError));
-        }
-        const hasApiKey = provider === "openrouter" ? Boolean(parsed.data.openRouterApiKey || process.env.OPENROUTER_API_KEY) : Boolean(parsed.data.apiKey);
+        console.error("Error refining prompt:", { name: error instanceof Error ? error.name : 'UnknownError' });
         if (error instanceof Error && (
             error.name === "ProFeatureRequiredError" ||
             error.name === "ManagedRateLimitError" ||
-            error.name === "AuthenticationRequiredError"
+            error.name === "AuthenticationRequiredError" ||
+            error.name === "InsufficientCreditsError" ||
+            error.name === "ProviderKeyMissingError" ||
+            error.name === "ConcurrencyLimitError" ||
+            error.name === "ProviderTimeoutError"
         )) {
             throw error;
         }
-        throw toProviderError(error, "refine prompt", provider, hasApiKey);
-    }
-}
-
-const evaluateSchema = z.object({
-    prompt: z.string().min(1, "Prompt cannot be empty.").max(MAX_PROMPT_CHARACTERS),
-    guideline: z.string().min(1, "Guideline must be selected.").max(MAX_GUIDELINE_CHARACTERS),
-    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
-    userQuery: z.string().max(MAX_PROMPT_CHARACTERS),
-    firebaseIdToken: z.string().max(MAX_FIREBASE_ID_TOKEN_CHARACTERS).optional(),
-});
-
-export async function evaluateGuidelineAction(data: EvaluatePromptGuidelineInclusionInput & { firebaseIdToken?: string }) {
-    const parsed = evaluateSchema.safeParse(data);
-    if (!parsed.success) {
-        throw new Error(parsed.error.errors.map(e => e.message).join(', '));
-    }
-
-    try {
-        const { profile } = await getVerifiedUserProfile(parsed.data.firebaseIdToken);
-        assertActiveAccount(profile, "call provider APIs");
-        const { firebaseIdToken: _firebaseIdToken, ...flowData } = parsed.data;
-        const result = await evaluatePromptGuidelineInclusion(flowData);
-        return result;
-    } catch (error) {
-        console.error("Error evaluating guideline:", error);
-        throw toUserFacingError(error, "evaluate guideline", Boolean(parsed.data.apiKey));
+        throw toUserFacingError(error, "refine prompt");
     }
 }
 
@@ -275,95 +206,47 @@ export async function getTokenCountsAction(data: GetTokenCountsInput) {
         return await getTokenCounts(parsed.data);
     } catch (error) {
         console.error("Error getting token counts:", error);
-        throw toUserFacingError(error, "get token counts", true);
+        throw toUserFacingError(error, "get token counts");
     }
 }
 
 const batchEvaluateSchema = z.object({
     prompt: z.string().min(1).max(MAX_PROMPT_CHARACTERS),
     guidelines: z.array(z.string().min(1).max(MAX_GUIDELINE_CHARACTERS)).min(1).max(8),
-    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
     firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
 });
 
 export async function evaluateGuidelinesAction(data: z.infer<typeof batchEvaluateSchema>) {
     const parsed = batchEvaluateSchema.parse(data);
-    const { profile } = await getVerifiedUserProfile(parsed.firebaseIdToken);
-    assertActiveAccount(profile, 'evaluate guidelines');
     try {
-        const evaluation = await evaluatePromptGuidelinesBatch({
+        const context = await resolveTenantFromToken(parsed.firebaseIdToken);
+        const gateway = await executeEvaluation({
+            context,
+            task: 'evaluate',
+            inferenceMode: 'managed',
+            idempotencyKey: `${context.principalId}:evaluation:${Date.now()}:${randomUUID()}`,
+            source: 'app',
             prompt: parsed.prompt,
             guidelines: parsed.guidelines,
-            apiKey: parsed.apiKey,
         });
+        const evaluation = gateway.result;
         const saved = await saveEvaluationRunForUser(parsed.firebaseIdToken, {
             prompt: parsed.prompt,
             guidelines: parsed.guidelines,
             combinedScore: evaluation.combinedScore,
             results: evaluation.results,
         });
-        await recordUsageEventFromToken(parsed.firebaseIdToken, { kind: 'evaluation', score: evaluation.combinedScore });
-        return { ...evaluation, id: saved.id };
+        return { ...evaluation, id: saved.id, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged };
     } catch (error) {
         console.error('Error evaluating guidelines:', error);
-        throw toUserFacingError(error, 'evaluate guideline', Boolean(parsed.apiKey));
-    }
-}
-
-const testPromptSchema = z.object({
-    prompt: z.string().min(1).max(MAX_REFINED_PROMPT_CHARACTERS),
-    provider: z.enum(['gemini', 'openrouter']),
-    apiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
-    openRouterApiKey: z.string().max(MAX_API_KEY_CHARACTERS).optional(),
-    model: z.string().max(MAX_MODEL_ID_CHARACTERS).optional(),
-    firebaseIdToken: z.string().min(1).max(MAX_FIREBASE_ID_TOKEN_CHARACTERS),
-});
-
-export async function testRefinedPromptAction(data: z.infer<typeof testPromptSchema>) {
-    const parsed = testPromptSchema.parse(data);
-    await assertProFeatureAccess(parsed.firebaseIdToken, 'Integrated model testing is available on Pro.');
-    const startedAt = Date.now();
-
-    try {
-        let content: string;
-        if (parsed.provider === 'openrouter') {
-            if (!parsed.openRouterApiKey) {
-                const error = new Error('Add your OpenRouter API key in Settings before testing.');
-                error.name = 'OpenRouterApiKeyMissingError';
-                throw error;
-            }
-            content = await createOpenRouterChatCompletion({
-                apiKey: parsed.openRouterApiKey,
-                model: parsed.model || DEFAULT_OPENROUTER_MODELS.formatter,
-                messages: [{ role: 'user', content: parsed.prompt }],
-                temperature: 0.3,
-                jsonMode: false,
-            });
-        } else {
-            if (!parsed.apiKey) {
-                const error = new Error('Add your Gemini API key in Settings before testing.');
-                error.name = 'ApiKeyMissingError';
-                throw error;
-            }
-            const testAi = genkit({ plugins: [googleAI({ apiKey: parsed.apiKey })], model: generation });
-            const response = await testAi.generate({ prompt: parsed.prompt });
-            content = response.text;
-        }
-
-        if (!content?.trim()) throw new Error('The model returned an empty response.');
-        await recordUsageEventFromToken(parsed.firebaseIdToken, { kind: 'model_test', provider: parsed.provider });
-        return { content: content.slice(0, 20000), latencyMs: Date.now() - startedAt };
-    } catch (error) {
-        if (error instanceof Error && (
-            error.name === 'ApiKeyMissingError' ||
-            error.name === 'OpenRouterApiKeyMissingError' ||
-            error.name === 'ProFeatureRequiredError'
-        )) throw error;
-        throw toProviderError(
-            error,
-            'test prompt',
-            parsed.provider,
-            parsed.provider === 'openrouter' ? Boolean(parsed.openRouterApiKey) : Boolean(parsed.apiKey)
-        );
+        if (error instanceof Error && [
+            'AuthenticationRequiredError',
+            'InsufficientCreditsError',
+            'ProviderKeyMissingError',
+            'ConcurrencyLimitError',
+            'ProviderTimeoutError',
+            'ManagedRateLimitError',
+        ].includes(error.name)) throw error;
+        throw toUserFacingError(error, 'evaluate guideline');
     }
 }

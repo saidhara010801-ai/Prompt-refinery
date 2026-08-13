@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { createHash, randomUUID } from 'node:crypto';
+import { Timestamp } from 'firebase-admin/firestore';
 
-import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
+import { getClientIp } from '@/lib/server/request-rate-limit';
 import {
   convertBufferToMarkdown,
   isMarkitdownRuntimeUnavailableError,
@@ -12,22 +14,32 @@ import {
 } from '@/lib/server/markitdown-converter';
 import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts } from '@/lib/stage2-utils';
 import { assertProFeatureAccess } from '@/lib/server/account-service';
-import { getBearerTokenFromRequest } from '@/lib/server/user-access';
-import { recordUsageEventFromToken } from '@/lib/server/usage-analytics';
+import { AuthorizationError, getBearerTokenFromRequest } from '@/lib/server/user-access';
+import { resolveTenantFromToken } from '@/lib/server/tenant-service';
+import { consumeDistributedLimit } from '@/lib/server/distributed-limits';
+import { recordTenantUsage } from '@/lib/server/usage-meter';
+import { getAdminFirestore } from '@/lib/server/firebase-admin';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  const rateLimit = consumeRequestLimit({
-    bucket: 'markitdown',
-    key: getClientIp(request),
-    limit: 10,
-    windowMs: 60 * 1000,
-  });
-  if (!rateLimit.allowed) {
+  const startedAt = Date.now();
+  const firebaseIdToken = getBearerTokenFromRequest(request);
+  if (!firebaseIdToken) return NextResponse.json({ error: 'Sign in to convert documents.' }, { status: 401 });
+  let context;
+  try {
+    context = await resolveTenantFromToken(firebaseIdToken);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Your session could not be verified.' }, { status: error instanceof AuthorizationError ? error.status : 401 });
+  }
+  const [ipRateLimit, userRateLimit] = await Promise.all([
+    consumeDistributedLimit({ bucket: 'conversion-ip', key: getClientIp(request), limit: 10, windowMs: 60_000 }),
+    consumeDistributedLimit({ bucket: 'conversion-user', key: context.principalId, limit: 20, windowMs: 60_000 }),
+  ]);
+  if (!ipRateLimit.allowed || !userRateLimit.allowed) {
     return NextResponse.json({ error: 'Too many conversion requests. Wait a minute and try again.' }, {
       status: 429,
-      headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      headers: { 'Retry-After': String(Math.max(ipRateLimit.retryAfterSeconds, userRateLimit.retryAfterSeconds)) },
     });
   }
 
@@ -59,7 +71,7 @@ export async function POST(request: Request) {
 
   if (files.length > 1) {
     try {
-      await assertProFeatureAccess(getBearerTokenFromRequest(request), 'Batch conversion is available on Pro.');
+      await assertProFeatureAccess(firebaseIdToken, 'Batch conversion is available on Pro.');
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Batch conversion is available on Pro.' }, { status: 403 });
     }
@@ -80,6 +92,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const requestId = randomUUID();
     const documents = [];
     for (const file of files) {
       const result = await convertBufferToMarkdown({
@@ -98,7 +111,40 @@ export async function POST(request: Request) {
         structure: analyzeMarkdownStructure(result.content),
       });
     }
-    await recordUsageEventFromToken(getBearerTokenFromRequest(request), { kind: 'conversion', itemCount: documents.length });
+    const metadataBatch = getAdminFirestore().batch();
+    for (const [index, file] of files.entries()) {
+      const document = documents[index];
+      const attachmentRef = getAdminFirestore().collection('attachments').doc();
+      metadataBatch.create(attachmentRef, {
+        tenantId: context.tenantId,
+        workspaceId: context.workspaceId,
+        createdBy: context.principalId,
+        requestId,
+        sourceName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+        contentHash: createHash('sha256').update(document.content).digest('hex'),
+        convertedCharacters: document.content.length,
+        truncated: document.truncated,
+        status: 'converted',
+        createdAt: Timestamp.now(),
+      });
+    }
+    await metadataBatch.commit();
+    await recordTenantUsage({
+      requestId,
+      tenantId: context.tenantId,
+      workspaceId: context.workspaceId,
+      principalId: context.principalId,
+      task: 'convert_document',
+      inferenceMode: 'system',
+      provider: 'markitdown',
+      creditsCharged: 0,
+      status: 'succeeded',
+      latencyMs: Date.now() - startedAt,
+      source: 'app',
+      itemCount: documents.length,
+    });
 
     if (batchFiles.length === 0 && documents.length === 1) {
       return NextResponse.json({

@@ -230,6 +230,16 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    function isActiveTenantMember(tenantId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/tenantMembers/$(tenantId + '_' + request.auth.uid)).data.status == 'active';
+    }
+
+    function isTenantRole(tenantId, roles) {
+      return isActiveTenantMember(tenantId) &&
+        get(/databases/$(database)/documents/tenantMembers/$(tenantId + '_' + request.auth.uid)).data.role in roles;
+    }
+
     match /users/{userId}/projects/{projectId}/memoryEntries/{entryId} {
       allow get, list: if isProUser(userId);
       allow create, update, delete: if false;
@@ -241,6 +251,111 @@ service cloud.firestore {
     }
 
     match /users/{userId}/usageEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /tenants/{tenantId} {
+      allow get: if isActiveTenantMember(tenantId);
+      allow list, create, update, delete: if false;
+    }
+
+    match /tenantMembers/{membershipId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /workspaces/{workspaceId} {
+      allow get, list: if isActiveTenantMember(resource.data.tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /projects/{projectId} {
+      allow get, list: if isActiveTenantMember(resource.data.tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /projects/{projectId}/projectSessions/{sessionId} {
+      allow get, list: if isActiveTenantMember(
+        get(/databases/$(database)/documents/projects/$(projectId)).data.tenantId
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /projects/{projectId}/memoryEntries/{entryId} {
+      allow get, list: if isActiveTenantMember(
+        get(/databases/$(database)/documents/projects/$(projectId)).data.tenantId
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /savedPrompts/{promptId} {
+      allow get, list: if isActiveTenantMember(resource.data.tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /evaluations/{evaluationId} {
+      allow get, list: if isActiveTenantMember(resource.data.tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /attachments/{attachmentId} {
+      allow get, list: if isActiveTenantMember(resource.data.tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /creditWallets/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /creditReservations/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /creditLedger/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /tenantEntitlements/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /tenantProviderKeys/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /paymentOrders/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /paymentEvents/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /billingSubscriptions/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /requestRateLimits/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /requestConcurrency/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /gatewayRequests/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /providerCircuits/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /extensionLinkCodes/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /extensionDevices/{document=**} {
       allow read, write: if false;
     }
 

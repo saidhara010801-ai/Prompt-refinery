@@ -20,6 +20,8 @@ import {
   type NormalizedUserProfile,
   type SubscriptionSource,
 } from './user-access';
+import { ensurePersonalTenant } from './tenant-service';
+import { migrateUserTenantData } from './tenant-migration';
 
 interface UserProfile {
   subscriptionTier?: SubscriptionTier;
@@ -131,6 +133,8 @@ async function ensureUserProfile(decodedToken: DecodedIdToken) {
 export async function getVerifiedUserProfile(firebaseIdToken?: string) {
   const decodedToken = await verifyUser(firebaseIdToken);
   const userRef = await ensureUserProfile(decodedToken);
+  await ensurePersonalTenant(decodedToken.uid);
+  await migrateUserTenantData(decodedToken.uid);
   const snapshot = await userRef.get();
   const profile = normalizeUserProfile(decodedToken.uid, snapshot.data() as Record<string, unknown> | undefined);
   return {
@@ -142,7 +146,11 @@ export async function getVerifiedUserProfile(firebaseIdToken?: string) {
 
 async function assertProEntitlement(uid: string, message: string) {
   const entitlement = await getEffectiveUserEntitlement(uid);
-  if (!entitlement.isPro) {
+  const context = await ensurePersonalTenant(uid);
+  const tenantEntitlement = await getAdminFirestore().doc(`tenantEntitlements/${context.tenantId}`).get();
+  const hasTenantIndividual = tenantEntitlement.data()?.plan === 'individual' &&
+    ['active', 'authenticated'].includes(String(tenantEntitlement.data()?.status || ''));
+  if (!entitlement.isPro && !hasTenantIndividual) {
     throw new TierEnforcementError(message);
   }
 }
@@ -237,7 +245,8 @@ export async function releaseManagedRefinement(uid: string, usageDate: string) {
 export async function savePromptForUser(firebaseIdToken: string | undefined, prompt: SavedPromptInput) {
   const { decodedToken, userRef } = await getVerifiedUserProfile(firebaseIdToken);
   const firestore = getAdminFirestore();
-  const savedPromptRef = firestore.collection(`users/${decodedToken.uid}/savedPrompts`).doc();
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const savedPromptRef = firestore.collection('savedPrompts').doc();
 
   await firestore.runTransaction(async (transaction) => {
     const userSnapshot = await transaction.get(userRef);
@@ -259,6 +268,9 @@ export async function savePromptForUser(firebaseIdToken: string | undefined, pro
       tags: (prompt.tags ?? []).slice(0, 10),
       searchTerms: normalizedSearchTerms(prompt.name, prompt.originalPrompt, prompt.refinedPrompt, prompt.folder, ...(prompt.tags ?? [])),
       userId: decodedToken.uid,
+      tenantId: tenant.tenantId,
+      workspaceId: tenant.workspaceId,
+      createdBy: decodedToken.uid,
       creationTimestamp: Timestamp.now(),
       saveTimestamp: Timestamp.now(),
     });
@@ -274,7 +286,8 @@ export async function savePromptForUser(firebaseIdToken: string | undefined, pro
 export async function deleteSavedPromptForUser(firebaseIdToken: string | undefined, promptId: string) {
   const { decodedToken, userRef } = await getVerifiedUserProfile(firebaseIdToken);
   const firestore = getAdminFirestore();
-  const savedPromptRef = firestore.doc(`users/${decodedToken.uid}/savedPrompts/${promptId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const savedPromptRef = firestore.doc(`savedPrompts/${promptId}`);
 
   await firestore.runTransaction(async (transaction) => {
     const [userSnapshot, promptSnapshot] = await Promise.all([
@@ -285,6 +298,7 @@ export async function deleteSavedPromptForUser(firebaseIdToken: string | undefin
     if (!promptSnapshot.exists) {
       return;
     }
+    if (promptSnapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The saved prompt is unavailable.');
 
     const profile = normalizeUserProfile(decodedToken.uid, userSnapshot.data() as Record<string, unknown> | undefined);
     assertActiveAccount(profile, 'delete saved prompts');
@@ -303,7 +317,11 @@ export async function deleteProjectForUser(firebaseIdToken: string | undefined, 
 
   const purgeAt = new Date();
   purgeAt.setUTCDate(purgeAt.getUTCDate() + 30);
-  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}`).set({
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const ref = getAdminFirestore().doc(`projects/${projectId}`);
+  const snapshot = await ref.get();
+  if (!snapshot.exists || snapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
+  await ref.set({
     status: 'trashed',
     trashedAt: Timestamp.now(),
     purgeAt: Timestamp.fromDate(purgeAt),
@@ -318,9 +336,10 @@ export async function updateSavedPromptMetadataForUser(
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'organize saved prompts');
-  const ref = getAdminFirestore().doc(`users/${decodedToken.uid}/savedPrompts/${promptId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const ref = getAdminFirestore().doc(`savedPrompts/${promptId}`);
   const snapshot = await ref.get();
-  if (!snapshot.exists) throw new Error('The saved prompt no longer exists.');
+  if (!snapshot.exists || snapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The saved prompt no longer exists.');
   const data = snapshot.data() ?? {};
   const name = metadata.name.trim().slice(0, 160);
   const folder = metadata.folder?.trim().slice(0, 80) || null;
@@ -345,10 +364,14 @@ export async function saveEvaluationRunForUser(
 ) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'save evaluation history');
-  const ref = getAdminFirestore().collection(`users/${decodedToken.uid}/evaluationRuns`).doc();
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const ref = getAdminFirestore().collection('evaluations').doc();
   await ref.create({
     ...input,
     userId: decodedToken.uid,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    createdBy: decodedToken.uid,
     promptFingerprint: normalizedSearchTerms(input.prompt).slice(0, 20).join('-'),
     createdAt: Timestamp.now(),
   });
@@ -359,7 +382,11 @@ export async function restoreProjectForUser(firebaseIdToken: string | undefined,
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'restore projects');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
-  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}`).set({
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const ref = getAdminFirestore().doc(`projects/${projectId}`);
+  const snapshot = await ref.get();
+  if (!snapshot.exists || snapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
+  await ref.set({
     status: 'active',
     trashedAt: null,
     purgeAt: null,
@@ -372,9 +399,10 @@ export async function permanentlyDeleteProjectForUser(firebaseIdToken: string | 
   assertActiveAccount(profile, 'permanently delete projects');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
   const firestore = getAdminFirestore();
-  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.doc(`projects/${projectId}`);
   const snapshot = await projectRef.get();
-  if (!snapshot.exists || snapshot.data()?.status !== 'trashed') {
+  if (!snapshot.exists || snapshot.data()?.tenantId !== tenant.tenantId || snapshot.data()?.status !== 'trashed') {
     throw new Error('Move the project to Trash before deleting it permanently.');
   }
   await firestore.recursiveDelete(projectRef);
@@ -389,11 +417,15 @@ export async function createProjectForUser(
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to create a project.');
 
   const firestore = getAdminFirestore();
-  const projectRef = firestore.collection(`users/${decodedToken.uid}/projects`).doc();
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.collection('projects').doc();
   const now = Timestamp.now();
   const template = PROJECT_TEMPLATES.find((candidate) => candidate.id === project.templateId);
   await projectRef.create({
     userId: decodedToken.uid,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    createdBy: decodedToken.uid,
     name: project.name,
     description: project.description,
     templateId: template?.id ?? null,
@@ -428,9 +460,10 @@ export async function createProjectMemoryEntryForUser(
   assertActiveAccount(profile, 'update project memory');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
   const firestore = getAdminFirestore();
-  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.doc(`projects/${projectId}`);
   const projectSnapshot = await projectRef.get();
-  if (!projectSnapshot.exists || projectSnapshot.data()?.status === 'trashed') {
+  if (!projectSnapshot.exists || projectSnapshot.data()?.tenantId !== tenant.tenantId || projectSnapshot.data()?.status === 'trashed') {
     throw new Error('The selected project is unavailable.');
   }
 
@@ -442,6 +475,8 @@ export async function createProjectMemoryEntryForUser(
     projectId,
     ownerUid: decodedToken.uid,
     actorUid: decodedToken.uid,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
     kind: entry.kind,
     title: entry.title.slice(0, 160),
     content,
@@ -467,7 +502,11 @@ export async function updateProjectMemoryEntryForUser(
   assertActiveAccount(profile, 'edit project memory');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
   const firestore = getAdminFirestore();
-  const entryRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}/memoryEntries/${entryId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.doc(`projects/${projectId}`);
+  const projectSnapshot = await projectRef.get();
+  if (!projectSnapshot.exists || projectSnapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
+  const entryRef = projectRef.collection('memoryEntries').doc(entryId);
   const snapshot = await entryRef.get();
   if (!snapshot.exists) throw new Error('The selected memory entry no longer exists.');
   const current = snapshot.data() ?? {};
@@ -491,18 +530,23 @@ export async function deleteProjectMemoryEntryForUser(
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'delete project memory');
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro.');
-  await getAdminFirestore().doc(`users/${decodedToken.uid}/projects/${projectId}/memoryEntries/${entryId}`).delete();
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = getAdminFirestore().doc(`projects/${projectId}`);
+  const project = await projectRef.get();
+  if (!project.exists || project.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
+  await projectRef.collection('memoryEntries').doc(entryId).delete();
 }
 
 export async function searchProjectMemoryForUser(firebaseIdToken: string | undefined, search: string) {
   const { decodedToken, profile } = await getVerifiedUserProfile(firebaseIdToken);
   assertActiveAccount(profile, 'search project memory');
   await assertProEntitlement(decodedToken.uid, 'Cross-project search is available on Pro.');
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
   const terms = normalizedSearchTerms(search).slice(0, 8);
   if (terms.length === 0) return [];
   const snapshot = await getAdminFirestore()
     .collectionGroup('memoryEntries')
-    .where('ownerUid', '==', decodedToken.uid)
+    .where('tenantId', '==', tenant.tenantId)
     .where('searchTerms', 'array-contains', terms[0])
     .limit(100)
     .get();
@@ -543,9 +587,10 @@ export async function addProjectSessionForUser(
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to store project sessions.');
 
   const firestore = getAdminFirestore();
-  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.doc(`projects/${projectId}`);
   const projectSnapshot = await projectRef.get();
-  if (!projectSnapshot.exists) {
+  if (!projectSnapshot.exists || projectSnapshot.data()?.tenantId !== tenant.tenantId) {
     throw new Error('The selected project no longer exists.');
   }
 
@@ -556,12 +601,17 @@ export async function addProjectSessionForUser(
   batch.create(sessionRef, {
     ...session,
     projectId,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    createdBy: decodedToken.uid,
     timestamp: now,
   });
   batch.create(memoryRef, {
     projectId,
     ownerUid: decodedToken.uid,
     actorUid: decodedToken.uid,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
     kind: 'refinement',
     title: session.rawPrompt.slice(0, 160),
     content: `Raw prompt:\n${session.rawPrompt}\n\nRefined prompt:\n${session.refinedPrompt}`.slice(0, 100000),
@@ -589,7 +639,10 @@ export async function updateProjectSessionResponseForUser(
   await assertProEntitlement(decodedToken.uid, 'Projects and memory are available on Pro. Upgrade to update project memory.');
 
   const firestore = getAdminFirestore();
-  const projectRef = firestore.doc(`users/${decodedToken.uid}/projects/${projectId}`);
+  const tenant = await ensurePersonalTenant(decodedToken.uid);
+  const projectRef = firestore.doc(`projects/${projectId}`);
+  const projectSnapshot = await projectRef.get();
+  if (!projectSnapshot.exists || projectSnapshot.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
   const sessionRef = projectRef.collection('projectSessions').doc(sessionId);
   const sessionSnapshot = await sessionRef.get();
   if (!sessionSnapshot.exists) {
@@ -603,6 +656,8 @@ export async function updateProjectSessionResponseForUser(
     projectId,
     ownerUid: decodedToken.uid,
     actorUid: decodedToken.uid,
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
     kind: 'response',
     title: 'Response note',
     content: llmResponse,

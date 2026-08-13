@@ -1,217 +1,75 @@
 'use client';
 
 import { useContext, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Settings, Type } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
-import { AIProvider, ApiKeyContext, DEFAULT_OPENROUTER_MODELS } from '@/context/api-key-context';
-import { SettingsContext } from '@/context/settings-context';
-import { cn } from '@/lib/utils';
-import { SubscriptionContext } from '@/context/subscription-context';
+import { Database, KeyRound, Settings, Shield, Type, UserRound, WalletCards } from 'lucide-react';
+
 import { ApiKeysPanel } from '@/components/api-keys-panel';
+import { BillingPanel } from '@/components/billing-panel';
 import { BrowserExtensionPanel } from '@/components/browser-extension-panel';
+import { ProviderKeysPanel } from '@/components/provider-keys-panel';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SettingsContext } from '@/context/settings-context';
+import { SubscriptionContext } from '@/context/subscription-context';
+import { useFirebase } from '@/firebase';
+import { cn } from '@/lib/utils';
 
 export function SettingsDialog() {
-  const {
-    apiKey,
-    setApiKey,
-    openRouterApiKey,
-    setOpenRouterApiKey,
-    aiProvider,
-    setAiProvider,
-    openRouterModels,
-    setOpenRouterModels,
-  } = useContext(ApiKeyContext);
   const { animate, setAnimate, fontScale, setFontScale, highContrast, setHighContrast } = useContext(SettingsContext);
-  const { isPro } = useContext(SubscriptionContext);
+  const { isPro, tenantId, workspaceId, capabilities } = useContext(SubscriptionContext);
+  const { user } = useFirebase();
   const [open, setOpen] = useState(false);
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
-    if (!isOpen) {
-      setAnimate(false);
-    }
+    if (!isOpen) setAnimate(false);
   };
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const newApiKey = formData.get('apiKey') as string;
-    const newOpenRouterApiKey = formData.get('openRouterApiKey') as string;
-    const newProvider = formData.get('aiProvider') as AIProvider;
-    setApiKey(newApiKey);
-    setOpenRouterApiKey(newOpenRouterApiKey);
-    setAiProvider(newProvider === 'openrouter' ? 'openrouter' : 'gemini');
-    setOpenRouterModels({
-      specifier: (formData.get('openRouterSpecifierModel') as string) || DEFAULT_OPENROUTER_MODELS.specifier,
-      simplifier: (formData.get('openRouterSimplifierModel') as string) || DEFAULT_OPENROUTER_MODELS.simplifier,
-      stylist: (formData.get('openRouterStylistModel') as string) || DEFAULT_OPENROUTER_MODELS.stylist,
-      critic: (formData.get('openRouterCriticModel') as string) || DEFAULT_OPENROUTER_MODELS.critic,
-      formatter: (formData.get('openRouterFormatterModel') as string) || DEFAULT_OPENROUTER_MODELS.formatter,
-    });
-    handleOpenChange(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="icon" className={cn(animate && 'animate-pulse ring-2 ring-destructive ring-offset-2')}>
-          <Settings className="h-4 w-4" />
-          <span className="sr-only">Settings</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Manage local AI provider settings. API keys are saved only in this browser.
-            {!isPro && ' Upgrade to Pro to customize the five OpenRouter council models.'}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSave}>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-3 sm:grid-cols-4 sm:items-center sm:gap-4">
-              <Label htmlFor="aiProvider" className="sm:text-right">
-                Provider
-              </Label>
-              <select
-                id="aiProvider"
-                name="aiProvider"
-                defaultValue={aiProvider}
-                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-3"
-              >
-                <option value="gemini">Gemini</option>
-                <option value="openrouter">OpenRouter</option>
-              </select>
-
-              <Label htmlFor="apiKey" className="sm:text-right">
-                Gemini API Key
-              </Label>
-              <Input
-                id="apiKey"
-                name="apiKey"
-                defaultValue={apiKey}
-                className="sm:col-span-3"
-                type="password"
-                placeholder="Enter your Gemini API key"
-              />
-
-              <Label htmlFor="openRouterApiKey" className="sm:text-right">
-                OpenRouter Key
-              </Label>
-              <Input
-                id="openRouterApiKey"
-                name="openRouterApiKey"
-                defaultValue={openRouterApiKey}
-                className="sm:col-span-3"
-                type="password"
-                placeholder="Enter your OpenRouter API key"
-              />
-
-              <Label htmlFor="openRouterSpecifierModel" className="sm:text-right">
-                Specifier Model
-              </Label>
-              <Input
-                id="openRouterSpecifierModel"
-                name="openRouterSpecifierModel"
-                defaultValue={openRouterModels.specifier}
-                className="sm:col-span-3"
-                placeholder={DEFAULT_OPENROUTER_MODELS.specifier}
-                disabled={!isPro}
-              />
-
-              <Label htmlFor="openRouterSimplifierModel" className="sm:text-right">
-                Simplifier Model
-              </Label>
-              <Input
-                id="openRouterSimplifierModel"
-                name="openRouterSimplifierModel"
-                defaultValue={openRouterModels.simplifier}
-                className="sm:col-span-3"
-                placeholder={DEFAULT_OPENROUTER_MODELS.simplifier}
-                disabled={!isPro}
-              />
-
-              <Label htmlFor="openRouterStylistModel" className="sm:text-right">
-                Stylist Model
-              </Label>
-              <Input
-                id="openRouterStylistModel"
-                name="openRouterStylistModel"
-                defaultValue={openRouterModels.stylist}
-                className="sm:col-span-3"
-                placeholder={DEFAULT_OPENROUTER_MODELS.stylist}
-                disabled={!isPro}
-              />
-
-              <Label htmlFor="openRouterCriticModel" className="sm:text-right">
-                Critic Model
-              </Label>
-              <Input
-                id="openRouterCriticModel"
-                name="openRouterCriticModel"
-                defaultValue={openRouterModels.critic}
-                className="sm:col-span-3"
-                placeholder={DEFAULT_OPENROUTER_MODELS.critic}
-                disabled={!isPro}
-              />
-
-              <Label htmlFor="openRouterFormatterModel" className="sm:text-right">
-                Formatter Model
-              </Label>
-              <Input
-                id="openRouterFormatterModel"
-                name="openRouterFormatterModel"
-                defaultValue={openRouterModels.formatter}
-                className="sm:col-span-3"
-                placeholder={DEFAULT_OPENROUTER_MODELS.formatter}
-                disabled={!isPro}
-              />
-            </div>
-            <div className="border-t pt-4">
-              <div className="mb-3 flex items-center gap-2">
-                <Type className="h-4 w-4 text-primary" />
-                <h3 className="font-medium">Accessibility</h3>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-4 sm:items-center">
-                <Label htmlFor="fontScale" className="sm:text-right">Text size</Label>
-                <select
-                  id="fontScale"
-                  value={fontScale}
-                  onChange={(event) => setFontScale(Number(event.target.value) as 90 | 100 | 112.5 | 125)}
-                  className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-3"
-                >
-                  <option value={90}>Compact</option>
-                  <option value={100}>Default</option>
-                  <option value={112.5}>Large</option>
-                  <option value={125}>Extra large</option>
-                </select>
-                <Label htmlFor="highContrast" className="sm:text-right">High contrast</Label>
-                <div className="flex items-center gap-3 sm:col-span-3">
-                  <Switch id="highContrast" checked={highContrast} onCheckedChange={setHighContrast} />
-                  <span className="text-sm text-muted-foreground">Strengthen foreground and control contrast.</span>
-                </div>
-              </div>
-            </div>
-            <BrowserExtensionPanel enabled={isPro} />
-            <ApiKeysPanel enabled={isPro} />
+  return <Dialog open={open} onOpenChange={handleOpenChange}>
+    <DialogTrigger asChild>
+      <Button variant="outline" size="icon" className={cn(animate && 'animate-pulse ring-2 ring-destructive ring-offset-2')}>
+        <Settings className="h-4 w-4" /><span className="sr-only">Settings</span>
+      </Button>
+    </DialogTrigger>
+    <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogHeader>
+        <DialogTitle>Settings</DialogTitle>
+        <DialogDescription>Manage your account, personal workspace, credits, security, integrations, and data preferences.</DialogDescription>
+      </DialogHeader>
+      <Tabs defaultValue="account" className="mt-2">
+        <TabsList className="grid h-auto grid-cols-3 gap-1 md:grid-cols-6">
+          <TabsTrigger value="account" aria-label="Account"><UserRound className="h-4 w-4" /><span className="hidden lg:inline">Account</span></TabsTrigger>
+          <TabsTrigger value="billing" aria-label="Plan and credits"><WalletCards className="h-4 w-4" /><span className="hidden lg:inline">Plan</span></TabsTrigger>
+          <TabsTrigger value="security" aria-label="Security"><Shield className="h-4 w-4" /><span className="hidden lg:inline">Security</span></TabsTrigger>
+          <TabsTrigger value="developer" aria-label="Developer API"><KeyRound className="h-4 w-4" /><span className="hidden lg:inline">Developer</span></TabsTrigger>
+          <TabsTrigger value="data" aria-label="Data and accessibility"><Database className="h-4 w-4" /><span className="hidden lg:inline">Data</span></TabsTrigger>
+          <TabsTrigger value="extension" aria-label="Browser extension"><Settings className="h-4 w-4" /><span className="hidden lg:inline">Extension</span></TabsTrigger>
+        </TabsList>
+        <TabsContent value="account" className="space-y-4 pt-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Signed in as</p><p className="truncate font-medium">{user?.email || 'Not signed in'}</p></div>
+            <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Workspace</p><p className="font-medium">Personal</p></div>
           </div>
-          <DialogFooter>
-            <Button type="submit">Save changes</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+          <div className="rounded-md border p-3 text-xs text-muted-foreground"><p>Tenant: {tenantId || 'Initializing'}</p><p>Workspace: {workspaceId || 'Initializing'}</p></div>
+        </TabsContent>
+        <TabsContent value="billing" className="pt-4"><BillingPanel /></TabsContent>
+        <TabsContent value="security" className="pt-4"><ProviderKeysPanel enabled={capabilities.byok} /></TabsContent>
+        <TabsContent value="developer" className="pt-4"><ApiKeysPanel enabled={isPro && capabilities.developerApi} /></TabsContent>
+        <TabsContent value="data" className="space-y-4 pt-4">
+          <div className="flex items-center gap-2"><Type className="h-4 w-4 text-primary" /><h3 className="font-medium">Accessibility</h3></div>
+          <div className="grid gap-4 sm:grid-cols-4 sm:items-center">
+            <Label htmlFor="fontScale" className="sm:text-right">Text size</Label>
+            <select id="fontScale" value={fontScale} onChange={(event) => setFontScale(Number(event.target.value) as 90 | 100 | 112.5 | 125)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-3"><option value={90}>Compact</option><option value={100}>Default</option><option value={112.5}>Large</option><option value={125}>Extra large</option></select>
+            <Label htmlFor="highContrast" className="sm:text-right">High contrast</Label>
+            <div className="flex items-center gap-3 sm:col-span-3"><Switch id="highContrast" checked={highContrast} onCheckedChange={setHighContrast} /><span className="text-sm text-muted-foreground">Strengthen foreground and control contrast.</span></div>
+          </div>
+          <div className="rounded-md border p-3 text-sm text-muted-foreground">Tenant content remains private to the active personal workspace. Billing, usage, credentials, and security records are server-managed and unavailable to browser clients.</div>
+        </TabsContent>
+        <TabsContent value="extension" className="pt-4"><BrowserExtensionPanel enabled={Boolean(user) && capabilities.extension} /></TabsContent>
+      </Tabs>
+    </DialogContent>
+  </Dialog>;
 }

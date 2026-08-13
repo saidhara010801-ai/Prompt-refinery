@@ -23,10 +23,13 @@ async function contentScriptIsReady(tabId) {
 }
 
 async function initialize() {
-  const settings = await chrome.storage.sync.get({ clariftApiKey: '', providerApiKey: '' });
-  configurationStatus.textContent = settings.clariftApiKey && settings.providerApiKey
+  const [persistent, session] = await Promise.all([
+    chrome.storage.local.get({ refreshToken: '' }),
+    chrome.storage.session.get({ accessToken: '' })
+  ]);
+  configurationStatus.textContent = session.accessToken || persistent.refreshToken
     ? 'Ready to refine prompts'
-    : 'Add both API keys in settings';
+    : 'Connect your Clarift account';
 
   const tab = await activeTab();
   if (!tab?.id || !tab.url || !/^https?:/i.test(tab.url)) {

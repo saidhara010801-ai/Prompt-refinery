@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AtSign, Lock, Ticket, User } from 'lucide-react';
+import { AtSign, Lock, Ticket } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -26,7 +26,6 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import {
-  initiateAnonymousSignIn,
   initiateEmailSignIn,
   initiateEmailSignUp,
   initiateGoogleSignIn,
@@ -48,7 +47,7 @@ const signInSchema = z.object({
   password: z.string().min(1, { message: 'Password is required.' }),
 });
 
-export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccount: () => void }) {
+export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const auth = useAuth();
@@ -125,17 +124,6 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
     }
   };
   
-  const onSignInAnonymously = async () => {
-    setIsLoading(true);
-    try {
-      await initiateAnonymousSignIn(auth);
-    } catch (error) {
-        handleAuthError(error)
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
   const onSignInWithGoogle = async (promoCode?: string) => {
     setIsLoading(true);
     try {
@@ -241,25 +229,6 @@ export function LoginPage({ onContinueWithoutAccount }: { onContinueWithoutAccou
                     disabled={isLoading}
                   >
                     Continue with Google
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="w-full"
-                    onClick={onSignInAnonymously}
-                    disabled={isLoading}
-                  >
-                    <User className="mr-2 h-4 w-4" />
-                    Continue as Guest
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={onContinueWithoutAccount}
-                    disabled={isLoading}
-                  >
-                    Continue without signing in
                   </Button>
                 </CardFooter>
               </form>

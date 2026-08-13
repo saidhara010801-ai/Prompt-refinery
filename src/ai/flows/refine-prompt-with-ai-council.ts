@@ -66,6 +66,7 @@ const RefinePromptWithAICouncilInputSchema = z.object({
   explanationMode: z.boolean().optional().describe('Whether to include clear user-facing explanations of refinement decisions.'),
   maxCharacters: z.number().int().min(100).max(MAX_REFINED_PROMPT_CHARACTERS).optional().describe('Optional maximum character target for the final refined prompt.'),
   attachments: z.array(AttachmentContextSchema).max(MAX_ATTACHMENTS).optional().describe('Uploaded file context converted into text or metadata for refinement.'),
+  executionMode: z.enum(['quick_refine', 'guided_fix', 'full_council']).optional().describe('The Clarift refinement mode.'),
 });
 export type RefinePromptWithAICouncilInput = z.infer<typeof RefinePromptWithAICouncilInputSchema>;
 
@@ -245,13 +246,19 @@ Synthesize the best ideas into one final prompt. Return JSON with exactly:
 }
 
 async function refinePromptWithOpenRouter(input: RefinePromptWithAICouncilInput): Promise<RefinePromptWithAICouncilOutput> {
-  const refinements = await Promise.all([
-    runOpenRouterCouncilMember(input, 'specifier'),
-    runOpenRouterCouncilMember(input, 'simplifier'),
-    runOpenRouterCouncilMember(input, 'stylist'),
-    runOpenRouterCouncilMember(input, 'critic'),
-    runOpenRouterCouncilMember(input, 'formatter'),
-  ]);
+  const roles: CouncilRole[] = input.executionMode === 'quick_refine'
+    ? ['specifier']
+    : input.executionMode === 'guided_fix'
+      ? ['specifier', 'simplifier', 'critic']
+      : ['specifier', 'simplifier', 'stylist', 'critic', 'formatter'];
+  const refinements = await Promise.all(roles.map((role) => runOpenRouterCouncilMember(input, role)));
+
+  if (input.executionMode === 'quick_refine') {
+    return RefinePromptWithAICouncilOutputSchema.parse({
+      refinedPrompt: refinements[0].refinedText,
+      refinements,
+    });
+  }
 
   return synthesizeOpenRouterCouncilOutput(input, refinements);
 }
@@ -268,6 +275,11 @@ const refinePromptWithAICouncilPrompt = ai.definePrompt({
 - "The Formatter": Turns the final prompt into a copy-ready structure with clear delimiters and sections.
 
 Your goal is to refine the user-provided prompt using the specified prompting technique, which is "{{promptType}}", while applying the 8 golden rules of prompting.
+
+Clarift mode: {{executionMode}}.
+- quick_refine: return one Specifier refinement and use it as the final prompt.
+- guided_fix: return Specifier, Simplifier, and Critic refinements, then synthesize them.
+- full_council or missing: use all five council members.
 
 The 8 Golden Rules of Prompting:
 1. Be specific and provide context.

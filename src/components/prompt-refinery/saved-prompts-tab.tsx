@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useMemo, useState } from 'react';
-import { collection, orderBy, query } from 'firebase/firestore';
+import { collection, orderBy, query, where } from 'firebase/firestore';
 import { Download, Folder, Search, Send, Tags, Trash2 } from 'lucide-react';
 
 import { deleteSavedPromptAction, updateSavedPromptMetadataAction } from '@/app/subscription-actions';
@@ -63,16 +63,18 @@ function versionsFor(prompt: SavedPrompt): PromptVersion[] {
 export function SavedPromptsTab() {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
-  const { isPro, savedPromptCount, savedPromptLimit } = useContext(SubscriptionContext);
+  const { isPro, savedPromptCount, savedPromptLimit, tenantId, workspaceId } = useContext(SubscriptionContext);
   const { sendToRefinery } = useWorkflow();
   const [search, setSearch] = useState('');
   const [folderFilter, setFolderFilter] = useState('__all__');
   const [drafts, setDrafts] = useState<Record<string, { name: string; folder: string; tags: string }>>({});
 
-  const savedPromptsQuery = useMemoFirebase(() => user && firestore ? query(
-    collection(firestore, `users/${user.uid}/savedPrompts`),
+  const savedPromptsQuery = useMemoFirebase(() => user && firestore && tenantId && workspaceId ? query(
+    collection(firestore, 'savedPrompts'),
+    where('tenantId', '==', tenantId),
+    where('workspaceId', '==', workspaceId),
     orderBy('saveTimestamp', 'desc')
-  ) : null, [user, firestore]);
+  ) : null, [user, firestore, tenantId, workspaceId]);
   const { data: savedPrompts, isLoading } = useCollection<SavedPrompt>(savedPromptsQuery);
 
   const folders = useMemo(() => Array.from(new Set((savedPrompts ?? []).map((prompt) => prompt.folder).filter((folder): folder is string => Boolean(folder)))).sort(), [savedPrompts]);

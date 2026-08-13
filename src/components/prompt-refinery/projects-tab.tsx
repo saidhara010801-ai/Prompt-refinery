@@ -129,7 +129,7 @@ export function ProjectsTab({
   const sessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProjectId) return null;
     return query(
-      collection(firestore, `users/${user.uid}/projects/${selectedProjectId}/projectSessions`),
+      collection(firestore, `projects/${selectedProjectId}/projectSessions`),
       orderBy('timestamp', 'desc')
     );
   }, [user, firestore, selectedProjectId]);
@@ -138,7 +138,7 @@ export function ProjectsTab({
   const memoryQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProjectId) return null;
     return query(
-      collection(firestore, `users/${user.uid}/projects/${selectedProjectId}/memoryEntries`),
+      collection(firestore, `projects/${selectedProjectId}/memoryEntries`),
       orderBy('createdAt', 'desc')
     );
   }, [user, firestore, selectedProjectId]);

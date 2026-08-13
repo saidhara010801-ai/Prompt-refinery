@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, type ReactNode, useEffect, useMemo } from 'react';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { createContext, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { doc } from 'firebase/firestore';
 
 import { useDoc, useFirebase, useMemoFirebase } from '@/firebase';
 import {
@@ -30,7 +30,20 @@ interface SubscriptionContextValue {
   isLoading: boolean;
   source: SubscriptionProfile['subscriptionSource'];
   planLabel: string;
+  tenantId: string | null;
+  workspaceId: string | null;
+  creditBalance: number;
+  reservedCredits: number;
+  availableCredits: number;
+  taskCosts: TaskCosts;
+  tenantPlan: string;
+  tenantPlanStatus: string;
+  capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean };
+  refreshTenant: () => Promise<void>;
 }
+
+type TaskCosts = Record<'quick_refine' | 'guided_fix' | 'full_council' | 'evaluate' | 'apply_fix' | 'convert_document', number>;
+const DEFAULT_TASK_COSTS: TaskCosts = { quick_refine: 1, guided_fix: 2, full_council: 5, evaluate: 1, apply_fix: 2, convert_document: 0 };
 
 export const SubscriptionContext = createContext<SubscriptionContextValue>({
   tier: 'free',
@@ -42,6 +55,16 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   isLoading: true,
   source: null,
   planLabel: 'Free',
+  tenantId: null,
+  workspaceId: null,
+  creditBalance: 0,
+  reservedCredits: 0,
+  availableCredits: 0,
+  taskCosts: DEFAULT_TASK_COSTS,
+  tenantPlan: 'free',
+  tenantPlanStatus: 'active',
+  capabilities: { byok: false, developerApi: false, extension: false, razorpay: false },
+  refreshTenant: async () => undefined,
 });
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
@@ -51,26 +74,37 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     [firestore, user]
   );
   const { data: profile, isLoading } = useDoc<SubscriptionProfile>(userRef);
+  const [tenant, setTenant] = useState<{
+    tenantId: string;
+    workspaceId: string;
+    balance: number;
+    reserved: number;
+    available: number;
+    taskCosts: TaskCosts;
+    plan: string;
+    planStatus: string;
+    capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean };
+  } | null>(null);
 
-  useEffect(() => {
-    if (!user || !userRef || isLoading || profile) {
+  const refreshTenant = useCallback(async () => {
+    if (!user) {
+      setTenant(null);
       return;
     }
-
-    setDoc(userRef, {
-      id: user.uid,
-      email: user.email ?? '',
-      name: user.displayName ?? '',
-      subscriptionTier: 'free',
-      savedPromptCount: 0,
-      managedRefinementsDate: new Date().toISOString().slice(0, 10),
-      managedRefinementsUsedToday: 0,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }).catch((error) => {
-      console.error('Could not initialize user subscription profile:', error);
+    const response = await fetch('/api/account/tenant', {
+      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      cache: 'no-store',
     });
-  }, [isLoading, profile, user, userRef]);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error?.message || 'Could not load your Clarift workspace.');
+    setTenant(payload);
+  }, [user]);
+
+  useEffect(() => {
+    refreshTenant().catch((error) => console.error('Could not initialize personal workspace:', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+    }));
+  }, [refreshTenant]);
 
   useEffect(() => {
     const pendingCode = sessionStorage.getItem('clarift-pending-promo');
@@ -84,7 +118,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SubscriptionContextValue>(() => {
     const tier = profile?.subscriptionTier ?? 'free';
-    const hasPro = isProTier(tier);
+    const hasPro = isProTier(tier) || tenant?.plan === 'individual';
     const today = new Date().toISOString().slice(0, 10);
     const managedUsage = profile?.managedRefinementsDate === today
       ? profile.managedRefinementsUsedToday ?? 0
@@ -100,8 +134,18 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       isLoading,
       source: profile?.subscriptionSource ?? null,
       planLabel: hasPro && profile?.subscriptionSource === 'promo' ? 'Pro — Promo' : hasPro ? 'Pro' : 'Free',
+      tenantId: tenant?.tenantId ?? null,
+      workspaceId: tenant?.workspaceId ?? null,
+      creditBalance: tenant?.balance ?? 0,
+      reservedCredits: tenant?.reserved ?? 0,
+      availableCredits: tenant?.available ?? 0,
+      taskCosts: tenant?.taskCosts ?? DEFAULT_TASK_COSTS,
+      tenantPlan: tenant?.plan ?? 'free',
+      tenantPlanStatus: tenant?.planStatus ?? 'active',
+      capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false },
+      refreshTenant,
     };
-  }, [isLoading, profile]);
+  }, [isLoading, profile, refreshTenant, tenant]);
 
   return (
     <SubscriptionContext.Provider value={value}>

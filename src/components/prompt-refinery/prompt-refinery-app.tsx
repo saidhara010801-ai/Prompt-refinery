@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useMemo, useState } from 'react';
-import { collection, orderBy, query } from 'firebase/firestore';
+import { collection, orderBy, query, where } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefineryTab } from './refinery-tab';
 import { EvaluatorTab } from './evaluator-tab';
@@ -24,7 +24,7 @@ import { SharedTab } from './shared-tab';
 export function PromptRefineryApp() {
   const { toast } = useToast();
   const { user, firestore } = useFirebase();
-  const { isPro, tier, planLabel, savedPromptCount, savedPromptLimit, managedRefinementsUsedToday, managedRefinementLimit } = useContext(SubscriptionContext);
+  const { isPro, tier, planLabel, savedPromptCount, savedPromptLimit, tenantId, workspaceId, availableCredits, reservedCredits } = useContext(SubscriptionContext);
   const { refineryTransfer } = useWorkflow();
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
@@ -32,12 +32,14 @@ export function PromptRefineryApp() {
   const [requestedProjectSessionId, setRequestedProjectSessionId] = useState<string | null>(null);
 
   const projectsQuery = useMemoFirebase(() => {
-    if (!isPro || !user || !firestore) return null;
+    if (!isPro || !user || !firestore || !tenantId || !workspaceId) return null;
     return query(
-      collection(firestore, `users/${user.uid}/projects`),
+      collection(firestore, 'projects'),
+      where('tenantId', '==', tenantId),
+      where('workspaceId', '==', workspaceId),
       orderBy('updatedAt', 'desc')
     );
-  }, [isPro, user, firestore]);
+  }, [isPro, user, firestore, tenantId, workspaceId]);
 
   const { data: projects, isLoading: isLoadingProjects } = useCollection<Project>(projectsQuery);
   const activeProjects = useMemo(() => projects?.filter((project) => project.status !== 'trashed') ?? null, [projects]);
@@ -129,7 +131,7 @@ export function PromptRefineryApp() {
         <div className="mb-6 flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
           <span>Plan: {tier}</span>
           <span>Saved prompts: {savedPromptCount}/{savedPromptLimit ?? 'unlimited'}</span>
-          <span>Managed refinements today: {managedRefinementsUsedToday}/{managedRefinementLimit ?? 'unlimited'}</span>
+          <span>Managed credits: {availableCredits} available{reservedCredits ? `, ${reservedCredits} reserved` : ''}</span>
         </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-7 gap-1 max-w-5xl mx-auto">

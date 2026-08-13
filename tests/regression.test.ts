@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -67,6 +68,11 @@ import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts,
 import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '../src/lib/openrouter-models';
 import { publicApiErrorDetails } from '../src/app/api/v1/_shared';
 import { OPENROUTER_REQUEST_TIMEOUT_MS } from '../src/ai/flows/openrouter-client';
+import { decryptSecret, encryptSecret } from '../src/lib/server/encryption-service';
+import { getTaskCosts, taskCost } from '../src/lib/managed-inference-config';
+import { personalMembershipId, personalTenantId, personalWorkspaceId } from '../src/lib/tenant-ids';
+import { verifyRazorpayCheckoutSignature, verifyRazorpayWebhookSignature } from '../src/lib/razorpay-signatures';
+import { captureProviderUsage, recordOpenRouterUsage } from '../src/lib/server/provider-usage-context';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -351,6 +357,87 @@ test('format converter parses MarkItDown command with arguments', () => {
     command: 'C:\\Program Files\\Python\\python.exe',
     args: ['-m', 'markitdown'],
   });
+});
+
+test('managed task prices are server-owned, bounded, and resilient to invalid configuration', () => {
+  assert.deepEqual(getTaskCosts({}), {
+    quick_refine: 1,
+    guided_fix: 2,
+    full_council: 5,
+    evaluate: 1,
+    apply_fix: 2,
+    convert_document: 0,
+  });
+  assert.equal(taskCost('guided_fix', { CLARIFT_TASK_COSTS_JSON: '{"guided_fix":3}' }), 3);
+  assert.equal(taskCost('full_council', { CLARIFT_TASK_COSTS_JSON: '{"full_council":-4}' }), 5);
+  assert.deepEqual(getTaskCosts({ CLARIFT_TASK_COSTS_JSON: 'not-json' }), getTaskCosts({}));
+});
+
+test('personal tenant identifiers are deterministic and workspace-specific', () => {
+  assert.equal(personalTenantId('uid_123'), 'personal_uid_123');
+  assert.equal(personalWorkspaceId('uid_123'), 'personal_uid_123_default');
+  assert.equal(personalMembershipId('uid_123'), 'personal_uid_123_uid_123');
+  assert.notEqual(personalTenantId('uid_123'), personalTenantId('uid_456'));
+});
+
+test('BYOK secrets use authenticated tenant-bound AES-256-GCM encryption', () => {
+  const environment = { CLARIFT_BYOK_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') };
+  const encrypted = encryptSecret('provider-secret', 'clarift:tenant-a:gemini', environment);
+  assert.notEqual(encrypted.ciphertext, 'provider-secret');
+  assert.equal(decryptSecret(encrypted, 'clarift:tenant-a:gemini', environment), 'provider-secret');
+  assert.throws(() => decryptSecret(encrypted, 'clarift:tenant-b:gemini', environment));
+  assert.throws(() => decryptSecret({ ...encrypted, authTag: Buffer.alloc(16, 1).toString('base64') }, 'clarift:tenant-a:gemini', environment));
+});
+
+test('Razorpay checkout and raw-body webhook signatures reject tampering', () => {
+  const secret = 'test-razorpay-secret';
+  const checkout = { orderId: 'order_123', paymentId: 'pay_123' };
+  const checkoutSignature = createHmac('sha256', secret).update(`${checkout.orderId}|${checkout.paymentId}`).digest('hex');
+  assert.equal(verifyRazorpayCheckoutSignature({ ...checkout, signature: checkoutSignature }, secret), true);
+  assert.equal(verifyRazorpayCheckoutSignature({ ...checkout, paymentId: 'pay_tampered', signature: checkoutSignature }, secret), false);
+
+  const rawBody = '{"event":"order.paid"}';
+  const webhookSignature = createHmac('sha256', secret).update(rawBody).digest('hex');
+  assert.equal(verifyRazorpayWebhookSignature(rawBody, webhookSignature, secret), true);
+  assert.equal(verifyRazorpayWebhookSignature(`${rawBody} `, webhookSignature, secret), false);
+});
+
+test('OpenRouter usage accounting aggregates concurrent-call metadata within one gateway context', async () => {
+  const captured = await captureProviderUsage(async () => {
+    recordOpenRouterUsage({ inputTokens: 10, outputTokens: 4, costUsd: 0.001 });
+    recordOpenRouterUsage({ inputTokens: 8, outputTokens: 3, costUsd: 0.002 });
+    return 'ok';
+  });
+  assert.equal(captured.result, 'ok');
+  assert.deepEqual(captured.usage, { inputTokens: 18, outputTokens: 7, costUsd: 0.003 });
+});
+
+test('managed rollout capabilities fail readiness closed when required secrets are absent', () => {
+  const environment = Object.fromEntries(REQUIRED_PRODUCTION_VARIABLES.map((variable) => [variable, `configured-${variable}`]));
+  for (const variable of FEATURE_FLAG_VARIABLES) environment[variable] = 'false';
+
+  environment.ENABLE_MANAGED_INFERENCE = 'true';
+  assert.equal(getRuntimeReadiness(environment).checks.managedInference, false);
+  environment.CLARIFT_GEMINI_API_KEY = 'managed-key';
+  assert.equal(getRuntimeReadiness(environment).checks.managedInference, true);
+
+  environment.ENABLE_BYOK = 'true';
+  assert.equal(getRuntimeReadiness(environment).checks.byokEncryption, false);
+  environment.CLARIFT_BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64');
+  assert.equal(getRuntimeReadiness(environment).checks.byokEncryption, true);
+
+  environment.ENABLE_RAZORPAY_BILLING = 'true';
+  assert.equal(getRuntimeReadiness(environment).checks.razorpayBilling, false);
+  Object.assign(environment, {
+    RAZORPAY_KEY_ID: 'rzp_test',
+    RAZORPAY_KEY_SECRET: 'secret',
+    RAZORPAY_WEBHOOK_SECRET: 'webhook',
+    RAZORPAY_CATALOG_JSON: JSON.stringify([
+      { code: 'credits_100', kind: 'credit_pack', displayName: '100 credits', amountSubunits: 10000, currency: 'INR', credits: 100 },
+      { code: 'individual_monthly', kind: 'subscription', displayName: 'Individual', razorpayPlanId: 'plan_test', currency: 'INR', creditsPerCycle: 500 },
+    ]),
+  });
+  assert.equal(getRuntimeReadiness(environment).checks.razorpayBilling, true);
 });
 
 test('format converter resolves the packaged App Hosting runtime beside the standalone server', () => {
@@ -715,6 +802,17 @@ test('firestore rules deny browser access to privileged production collections a
     'promoRedemptions',
     'promoRateLimits',
     'apiKeys',
+    'creditWallets',
+    'creditReservations',
+    'creditLedger',
+    'tenantProviderKeys',
+    'paymentOrders',
+    'paymentEvents',
+    'billingSubscriptions',
+    'gatewayRequests',
+    'providerCircuits',
+    'extensionLinkCodes',
+    'extensionDevices',
   ]) {
     assert.ok(rules.includes(`match /${collectionName}/{document=**}`));
   }
@@ -847,6 +945,8 @@ test('production responses define strict security headers without blocking Fireb
     'https://*.firebaseio.com',
     'wss://*.firebaseio.com',
     'https://*.firebaseapp.com',
+    'https://checkout.razorpay.com',
+    'https://*.razorpay.com',
   ]) {
     assert.ok(nextConfig.includes(directive));
   }
@@ -855,14 +955,15 @@ test('production responses define strict security headers without blocking Fireb
   assert.doesNotMatch(nextConfig, /script-src[^"]*'unsafe-eval'/);
 });
 
-test('public AI routes authenticate Clarift API keys before parsing caller input', () => {
-  for (const route of ['refinements', 'evaluations']) {
+test('public AI routes require scoped Clarift tokens before parsing caller input', () => {
+  const expectedScopes = { refinements: 'refinements:write', evaluations: 'evaluations:write' } as const;
+  for (const route of ['refinements', 'evaluations'] as const) {
     const source = readFileSync(`src/app/api/v1/${route}/route.ts`, 'utf8');
-    const authentication = source.indexOf('await authenticatePublicApi(request)');
-    const provider = source.indexOf('getCallerProvider(request)');
+    const authentication = source.indexOf(`await authenticatePublicApi(request, '${expectedScopes[route]}')`);
     const body = source.indexOf('await parsePublicApiJson(request, schema)');
 
-    assert.ok(authentication >= 0 && authentication < provider && authentication < body);
+    assert.ok(authentication >= 0 && authentication < body);
+    assert.doesNotMatch(source, /x-provider-api-key|getCallerProvider/);
   }
 });
 
@@ -936,8 +1037,8 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
 
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '1.1.2');
-  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage']);
+  assert.equal(manifest.version, '2.0.0');
+  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage', 'tabs']);
   for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
     assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));
   }
@@ -947,6 +1048,9 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   assert.match(content, /RESPONSE_TIMEOUT_MS = 115000/);
   assert.match(background, /REQUEST_TIMEOUT_MS = 105000/);
   assert.match(background, /AbortController/);
+  assert.match(background, /\/api\/extension\/refine/);
+  assert.match(background, /\/api\/extension\/refresh/);
+  assert.doesNotMatch(background, /providerApiKey|clariftApiKey|OPENROUTER_API_KEY|GEMINI_API_KEY/);
   assert.match(settings, /\/downloads\/clarift-browser-extension\.zip/);
   assert.ok(archive.includes(Buffer.from('manifest.json')));
   assert.ok(archive.includes(Buffer.from('popup.html')));

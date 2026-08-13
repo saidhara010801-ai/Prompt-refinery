@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useMemo, useState } from 'react';
-import { collection, limit, orderBy, query } from 'firebase/firestore';
+import { collection, limit, orderBy, query, where } from 'firebase/firestore';
 import { CheckCircle, Gauge, History, Lightbulb, Scale, Wand2, XCircle } from 'lucide-react';
 import { Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 
@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiKeyContext } from '@/context/api-key-context';
+import { SubscriptionContext } from '@/context/subscription-context';
 import { useWorkflow } from '@/context/workflow-context';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -31,16 +31,18 @@ export function EvaluatorTab() {
   const [selectedGuidelines, setSelectedGuidelines] = useState<string[]>([LLM_COUNCIL_GUIDELINES[0].value]);
   const [isLoading, setIsLoading] = useState(false);
   const [evaluation, setEvaluation] = useState<EvaluationRun | null>(null);
-  const { apiKey } = useContext(ApiKeyContext);
+  const { tenantId, workspaceId, taskCosts, refreshTenant } = useContext(SubscriptionContext);
   const { user, firestore } = useFirebase();
   const { toast } = useToast();
   const { sendToRefinery } = useWorkflow();
 
-  const historyQuery = useMemoFirebase(() => user && firestore ? query(
-    collection(firestore, `users/${user.uid}/evaluationRuns`),
+  const historyQuery = useMemoFirebase(() => user && firestore && tenantId && workspaceId ? query(
+    collection(firestore, 'evaluations'),
+    where('tenantId', '==', tenantId),
+    where('workspaceId', '==', workspaceId),
     orderBy('createdAt', 'desc'),
     limit(20)
-  ) : null, [user, firestore]);
+  ) : null, [user, firestore, tenantId, workspaceId]);
   const { data: history, isLoading: isLoadingHistory } = useCollection<EvaluationRun>(historyQuery);
   const trend = useMemo(() => (history ?? []).slice().reverse().map((run, index) => ({
     name: `#${index + 1}`,
@@ -62,9 +64,9 @@ export function EvaluatorTab() {
         firebaseIdToken: await user.getIdToken(),
         prompt: prompt.trim(),
         guidelines: selectedGuidelines,
-        apiKey: apiKey || undefined,
       });
       setEvaluation({ ...result, prompt: prompt.trim(), guidelines: selectedGuidelines });
+      await refreshTenant();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Evaluation Failed', description: error instanceof Error ? error.message : 'Please try again.' });
     } finally {
@@ -105,7 +107,7 @@ export function EvaluatorTab() {
               </label>
             ))}
           </div>
-          <Button type="button" className="w-full" onClick={evaluate} disabled={isLoading || !user || prompt.trim().length < 10 || selectedGuidelines.length === 0}>{isLoading ? 'Evaluating...' : `Evaluate ${selectedGuidelines.length} Guideline${selectedGuidelines.length === 1 ? '' : 's'}`}</Button>
+          <Button type="button" className="w-full" onClick={evaluate} disabled={isLoading || !user || prompt.trim().length < 10 || selectedGuidelines.length === 0}>{isLoading ? 'Evaluating...' : `Evaluate ${selectedGuidelines.length} Guideline${selectedGuidelines.length === 1 ? '' : 's'} · ${taskCosts.evaluate} credit${taskCosts.evaluate === 1 ? '' : 's'}`}</Button>
         </CardContent>
       </Card>
 

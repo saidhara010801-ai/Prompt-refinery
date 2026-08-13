@@ -1,4 +1,5 @@
 import { z } from 'genkit';
+import { recordOpenRouterUsage } from '@/lib/server/provider-usage-context';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MAX_OPENROUTER_RESPONSE_CHARACTERS = 300000;
@@ -20,6 +21,11 @@ const OpenRouterChatResponseSchema = z.object({
       finish_reason: z.string().optional().nullable(),
     })
   ),
+  usage: z.object({
+    prompt_tokens: z.number().optional(),
+    completion_tokens: z.number().optional(),
+    cost: z.union([z.number(), z.string()]).optional(),
+  }).optional(),
 });
 
 interface OpenRouterChatInput {
@@ -98,6 +104,12 @@ export async function createOpenRouterChatCompletion(input: OpenRouterChatInput)
   if (!content) {
     throw new OpenRouterError('OpenRouter returned an empty response.');
   }
+
+  recordOpenRouterUsage({
+    inputTokens: parsed.data.usage?.prompt_tokens,
+    outputTokens: parsed.data.usage?.completion_tokens,
+    costUsd: parsed.data.usage?.cost === undefined ? undefined : Number(parsed.data.usage.cost),
+  });
 
   return content;
 }

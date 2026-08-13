@@ -29,6 +29,23 @@ export function publicApiErrorDetails(error: unknown) {
     };
   }
 
+  if (error instanceof Error && [
+    'InsufficientCreditsError',
+    'ManagedRateLimitError',
+    'ConcurrencyLimitError',
+    'ProviderTimeoutError',
+    'ManagedProviderUnavailableError',
+  ].includes(error.name)) {
+    const statuses: Record<string, number> = {
+      InsufficientCreditsError: 402,
+      ManagedRateLimitError: 429,
+      ConcurrencyLimitError: 429,
+      ProviderTimeoutError: 504,
+      ManagedProviderUnavailableError: 503,
+    };
+    return { status: statuses[error.name], body: { error: { code: error.name, message: error.message } } };
+  }
+
   if (error instanceof Error && error.name === 'OpenRouterError') {
     const providerStatus = typeof (error as Error & { status?: unknown }).status === 'number'
       ? (error as Error & { status: number }).status
@@ -84,7 +101,7 @@ export function publicApiErrorDetails(error: unknown) {
     body: {
       error: {
         code: 'ApiRequestError',
-        message: 'Clarift could not complete the request. Check your provider key and settings, then try again.',
+        message: 'Clarift could not complete the request. Please try again shortly.',
       },
     },
   };

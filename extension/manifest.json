@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Clarift Prompt Refinery",
-  "version": "1.1.2",
+  "version": "2.0.0",
   "description": "Refine prompts inline on ChatGPT, Claude, Gemini, and other chatbot interfaces.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "https://clarift--clarift-e4f6f.us-east4.hosted.app/*",
     "http://localhost:9002/*"

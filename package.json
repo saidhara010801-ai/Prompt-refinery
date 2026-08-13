@@ -26,6 +26,7 @@
     "test": "npm run package:extension && tsx --test tests/*.test.ts",
     "check:production-env": "tsx scripts/check-production-env.ts",
     "migrate:project-memory": "tsx scripts/migrate-project-memory.ts",
+    "migrate:personal-tenants": "tsx scripts/migrate-personal-tenants.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

@@ -7,7 +7,7 @@ runConfig:
   concurrency: 40
   maxInstances: 10
 
-# The first production rollout keeps optional paid and managed services disabled.
+# Managed inference and extension account linking are enabled for the release canary.
 # Configure public NEXT_PUBLIC_FIREBASE_* values and OWNER_EMAILS in the backend
 # environment. Add Stripe secret references only after test-mode billing is ready.
 env:
@@ -47,8 +47,24 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  - variable: ENABLE_PUBLIC_API
+  - variable: ENABLE_MANAGED_INFERENCE
     value: "true"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_BYOK
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_RAZORPAY_BILLING
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_EXTENSION_ACCOUNT_LINKING
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_PUBLIC_API
+    value: "false"
     availability:
       - RUNTIME
   - variable: ENABLE_PROJECT_SHARING
@@ -65,6 +81,46 @@ env:
       - RUNTIME
   - variable: PUBLIC_API_RATE_LIMIT_PER_MINUTE
     value: "30"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TRIAL_CREDITS
+    value: "10"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TASK_COSTS_JSON
+    value: '{"quick_refine":1,"guided_fix":2,"full_council":5,"evaluate":1,"apply_fix":2,"convert_document":0}'
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_USER_RPM
+    value: "20"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TENANT_RPM
+    value: "40"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TASK_CONCURRENCY
+    value: "3"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FULL_COUNCIL_CONCURRENCY
+    value: "1"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PROVIDER_TIMEOUT_MS
+    value: "90000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PROVIDER_RETRIES
+    value: "1"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PROVIDER_CIRCUIT_FAILURES
+    value: "5"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PROVIDER_CIRCUIT_COOLDOWN_MS
+    value: "60000"
     availability:
       - RUNTIME
   - variable: PROMO_CODE_PEPPER
