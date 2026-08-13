@@ -1,8 +1,9 @@
 'use client';
 
-import { useContext, useState } from 'react';
-import { Database, KeyRound, Settings, Shield, Type, UserRound, WalletCards } from 'lucide-react';
+import { useContext, useEffect, useState } from 'react';
+import { Database, KeyRound, Settings, Shield, ShieldCheck, Type, UserRound, WalletCards } from 'lucide-react';
 
+import { AdminPanel } from '@/components/admin-dialog';
 import { ApiKeysPanel } from '@/components/api-keys-panel';
 import { BillingPanel } from '@/components/billing-panel';
 import { BrowserExtensionPanel } from '@/components/browser-extension-panel';
@@ -22,6 +23,18 @@ export function SettingsDialog() {
   const { isPro, tenantId, workspaceId, capabilities } = useContext(SubscriptionContext);
   const { user } = useFirebase();
   const [open, setOpen] = useState(false);
+  const [accountRole, setAccountRole] = useState<string>('user');
+
+  useEffect(() => {
+    if (!user) { setAccountRole('user'); return; }
+    user.getIdToken()
+      .then((token) => fetch('/api/account/me', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }))
+      .then(async (response) => response.ok ? response.json() : Promise.reject(new Error('Account lookup failed.')))
+      .then((account) => setAccountRole(account.role ?? 'user'))
+      .catch(() => setAccountRole('user'));
+  }, [user]);
+
+  const isOwner = accountRole === 'owner';
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
@@ -40,18 +53,19 @@ export function SettingsDialog() {
         <DialogDescription>Manage your account, personal workspace, credits, security, integrations, and data preferences.</DialogDescription>
       </DialogHeader>
       <Tabs defaultValue="account" className="mt-2">
-        <TabsList className="grid h-auto grid-cols-3 gap-1 md:grid-cols-6">
+        <TabsList className={`grid h-auto grid-cols-3 gap-1 ${isOwner ? 'md:grid-cols-7' : 'md:grid-cols-6'}`}>
           <TabsTrigger value="account" aria-label="Account"><UserRound className="h-4 w-4" /><span className="hidden lg:inline">Account</span></TabsTrigger>
           <TabsTrigger value="billing" aria-label="Plan and credits"><WalletCards className="h-4 w-4" /><span className="hidden lg:inline">Plan</span></TabsTrigger>
           <TabsTrigger value="security" aria-label="Security"><Shield className="h-4 w-4" /><span className="hidden lg:inline">Security</span></TabsTrigger>
           <TabsTrigger value="developer" aria-label="Developer API"><KeyRound className="h-4 w-4" /><span className="hidden lg:inline">Developer</span></TabsTrigger>
           <TabsTrigger value="data" aria-label="Data and accessibility"><Database className="h-4 w-4" /><span className="hidden lg:inline">Data</span></TabsTrigger>
           <TabsTrigger value="extension" aria-label="Browser extension"><Settings className="h-4 w-4" /><span className="hidden lg:inline">Extension</span></TabsTrigger>
+          {isOwner && <TabsTrigger value="admin" aria-label="Administration"><ShieldCheck className="h-4 w-4" /><span className="hidden lg:inline">Admin</span></TabsTrigger>}
         </TabsList>
         <TabsContent value="account" className="space-y-4 pt-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Signed in as</p><p className="truncate font-medium">{user?.email || 'Not signed in'}</p></div>
-            <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Workspace</p><p className="font-medium">Personal</p></div>
+            <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Access</p><p className="font-medium capitalize">{accountRole}</p></div>
           </div>
           <div className="rounded-md border p-3 text-xs text-muted-foreground"><p>Tenant: {tenantId || 'Initializing'}</p><p>Workspace: {workspaceId || 'Initializing'}</p></div>
         </TabsContent>
@@ -69,6 +83,7 @@ export function SettingsDialog() {
           <div className="rounded-md border p-3 text-sm text-muted-foreground">Tenant content remains private to the active personal workspace. Billing, usage, credentials, and security records are server-managed and unavailable to browser clients.</div>
         </TabsContent>
         <TabsContent value="extension" className="pt-4"><BrowserExtensionPanel enabled={Boolean(user) && capabilities.extension} /></TabsContent>
+        {isOwner && <TabsContent value="admin" className="pt-4"><AdminPanel /></TabsContent>}
       </Tabs>
     </DialogContent>
   </Dialog>;

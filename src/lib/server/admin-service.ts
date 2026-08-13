@@ -13,6 +13,7 @@ import {
   requireOwner,
   requireSupport,
   type AccountStatus,
+  AuthorizationError,
   type CurrentUserContext,
   type EntitlementSource,
   type NormalizedUserProfile,
@@ -22,6 +23,12 @@ import { personalTenantId } from '@/lib/tenant-ids';
 export const ADMIN_MAX_PAGE_SIZE = 25;
 const DEFAULT_PAGE_SIZE = 10;
 const SAFE_ENTITLEMENT_SOURCES = new Set<EntitlementSource>(['manual', 'team', 'beta', 'test']);
+
+export function assertOwnerAccountStatusChange(actorUid: string, targetUid: string, accountStatus: AccountStatus) {
+  if (actorUid === targetUid && accountStatus !== 'active') {
+    throw new AuthorizationError('The active owner cannot suspend, disable, or delete their own account.', 409, 'OwnerSelfLockoutError');
+  }
+}
 
 export interface AdminAuditInput {
   actor: CurrentUserContext | null;
@@ -224,6 +231,7 @@ export async function revokePro(request: NextRequest, targetUid: string) {
 
 export async function updateAccountStatus(request: NextRequest, targetUid: string, accountStatus: Exclude<AccountStatus, 'deleted_pending'> | 'deleted_pending') {
   const actor = await requireOwner(request);
+  assertOwnerAccountStatusChange(actor.uid, targetUid, accountStatus);
   const firestore = getAdminFirestore();
   await firestore.doc(`users/${targetUid}`).set({
     accountStatus,

@@ -269,6 +269,13 @@ export async function getCurrentUserFromRequest(request: NextRequest | Request):
   const userSnapshot = await firestore.doc(`users/${decodedToken.uid}`).get();
   const storedProfile = normalizeUserProfile(decodedToken.uid, userSnapshot.data() as Record<string, unknown> | undefined);
   const role = getBootstrapRole(decodedToken, storedProfile.role);
+  if (role === 'owner' && storedProfile.role !== 'owner') {
+    await userSnapshot.ref.set({
+      email: (decodedToken.email ?? storedProfile.email).toLowerCase(),
+      role: 'owner',
+      updatedAt: Timestamp.now(),
+    }, { merge: true });
+  }
   const profile = {
     ...storedProfile,
     role,

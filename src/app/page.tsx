@@ -12,7 +12,6 @@ import { SettingsProvider } from '@/context/settings-context';
 import { SubscriptionProvider } from '@/context/subscription-context';
 import { Logo } from '@/components/icons/logo';
 import { WorkflowProvider } from '@/context/workflow-context';
-import { AdminDialog } from '@/components/admin-dialog';
 
 function AppContent() {
   const { user, isUserLoading } = useUser();
@@ -43,7 +42,6 @@ function HomePageContent() {
       <header className="flex items-center justify-between gap-3 px-4 pt-4">
         <Logo variant="wordmark" className="h-9 w-28 sm:w-32" />
         <div className="flex items-center gap-2">
-          {user && <AdminDialog />}
           {user && <SettingsDialog />}
           {user && (
             <Button variant="ghost" onClick={handleSignOut}>

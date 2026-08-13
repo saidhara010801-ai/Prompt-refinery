@@ -23,6 +23,7 @@ import {
 } from '../src/lib/server/request-rate-limit';
 import {
   ADMIN_MAX_PAGE_SIZE,
+  assertOwnerAccountStatusChange,
   clampAdminPageSize,
   redactAdminAuditMetadata,
 } from '../src/lib/server/admin-service';
@@ -985,6 +986,25 @@ test('firestore rules deny browser access to privileged production collections a
   ]) {
     assert.match(createProfileRule, new RegExp(`'${creationBlockedField}'`));
   }
+});
+
+test('owner administration stays in Settings and prevents self-lockout', () => {
+  assert.doesNotThrow(() => assertOwnerAccountStatusChange('owner-uid', 'other-uid', 'suspended'));
+  assert.doesNotThrow(() => assertOwnerAccountStatusChange('owner-uid', 'owner-uid', 'active'));
+  assert.throws(() => assertOwnerAccountStatusChange('owner-uid', 'owner-uid', 'disabled'), /active owner/);
+
+  const settings = readFileSync(join(process.cwd(), 'src/components/settings-dialog.tsx'), 'utf8');
+  const adminPanel = readFileSync(join(process.cwd(), 'src/components/admin-dialog.tsx'), 'utf8');
+  const page = readFileSync(join(process.cwd(), 'src/app/page.tsx'), 'utf8');
+  const userAccess = readFileSync(join(process.cwd(), 'src/lib/server/user-access.ts'), 'utf8');
+  assert.match(settings, /isOwner && <TabsTrigger value="admin"/);
+  assert.match(settings, /<AdminPanel \/>/);
+  assert.match(adminPanel, /Overview/);
+  assert.match(adminPanel, /Grant Pro/);
+  assert.match(adminPanel, /Enable AI Beta/);
+  assert.match(adminPanel, /Sensitive values are redacted/);
+  assert.doesNotMatch(page, /AdminDialog/);
+  assert.match(userAccess, /storedProfile\.role !== 'owner'/);
 });
 
 test('Stage 2 conversion metadata is deterministic and detects low-text PDFs', () => {
