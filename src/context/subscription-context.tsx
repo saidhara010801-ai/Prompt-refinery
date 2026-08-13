@@ -38,7 +38,7 @@ interface SubscriptionContextValue {
   taskCosts: TaskCosts;
   tenantPlan: string;
   tenantPlanStatus: string;
-  capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean };
+  capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
   refreshTenant: () => Promise<void>;
 }
 
@@ -63,7 +63,7 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   taskCosts: DEFAULT_TASK_COSTS,
   tenantPlan: 'free',
   tenantPlanStatus: 'active',
-  capabilities: { byok: false, developerApi: false, extension: false, razorpay: false },
+  capabilities: { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
   refreshTenant: async () => undefined,
 });
 
@@ -83,7 +83,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     taskCosts: TaskCosts;
     plan: string;
     planStatus: string;
-    capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean };
+    capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
   } | null>(null);
 
   const refreshTenant = useCallback(async () => {
@@ -142,7 +142,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       taskCosts: tenant?.taskCosts ?? DEFAULT_TASK_COSTS,
       tenantPlan: tenant?.plan ?? 'free',
       tenantPlanStatus: tenant?.planStatus ?? 'active',
-      capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false },
+      capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
       refreshTenant,
     };
   }, [isLoading, profile, refreshTenant, tenant]);

@@ -6,7 +6,14 @@ import { decryptSecret, encryptSecret, type EncryptedSecret } from './encryption
 import { resolveTenantFromToken, type TenantContext } from './tenant-service';
 
 export type ProviderName = 'gemini' | 'openrouter';
+export type InferenceProviderName = ProviderName | 'local';
 export type InferenceMode = 'managed' | 'byok';
+
+export interface ProviderCredential {
+  provider: InferenceProviderName;
+  apiKey?: string;
+  mode: InferenceMode;
+}
 
 function assertByokEnabled() {
   if (process.env.ENABLE_BYOK !== 'true') {
@@ -131,7 +138,7 @@ export async function resolveProviderCredential(input: {
   context: TenantContext;
   mode: InferenceMode;
   preferredProvider?: ProviderName;
-}) {
+}): Promise<ProviderCredential> {
   const provider = input.preferredProvider || (process.env.CLARIFT_MANAGED_PRIMARY_PROVIDER === 'openrouter' ? 'openrouter' : 'gemini');
   if (input.mode === 'byok') {
     assertByokEnabled();
@@ -143,6 +150,7 @@ export async function resolveProviderCredential(input: {
     throw error;
   }
   if (provider === 'openrouter' && process.env.ENABLE_MANAGED_OPENROUTER !== 'true') {
+    if (process.env.ENABLE_LOCAL_INFERENCE_FALLBACK === 'true') return { provider: 'local', mode: input.mode };
     const error = new Error('Managed OpenRouter inference is not enabled.');
     error.name = 'ManagedProviderUnavailableError';
     throw error;
@@ -151,9 +159,19 @@ export async function resolveProviderCredential(input: {
     ? process.env.CLARIFT_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY
     : process.env.CLARIFT_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey?.trim()) {
+    if (process.env.ENABLE_LOCAL_INFERENCE_FALLBACK === 'true') return { provider: 'local', mode: input.mode };
     const error = new Error('Clarift managed inference is temporarily unavailable.');
     error.name = 'ManagedProviderUnavailableError';
     throw error;
   }
   return { provider, apiKey: apiKey.trim(), mode: input.mode } as const;
+}
+
+export function localFallbackCredential(): ProviderCredential {
+  if (process.env.ENABLE_LOCAL_INFERENCE_FALLBACK !== 'true') {
+    const error = new Error('Clarift managed inference is temporarily unavailable.');
+    error.name = 'ManagedProviderUnavailableError';
+    throw error;
+  }
+  return { provider: 'local', mode: 'managed' };
 }

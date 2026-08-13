@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Clarift Prompt Refinery",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Refine prompts inline on ChatGPT, Claude, Gemini, and other chatbot interfaces.",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [

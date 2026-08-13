@@ -51,6 +51,10 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  - variable: ENABLE_LOCAL_INFERENCE_FALLBACK
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: ENABLE_BYOK
     value: "false"
     availability:

@@ -170,7 +170,7 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
             context,
             task,
             inferenceMode: inferenceMode ?? 'managed',
-            preferredProvider: _provider,
+            preferredProvider: inferenceMode === 'byok' ? _provider : undefined,
             idempotencyKey: idempotencyKey ?? `${context.principalId}:${Date.now()}:${randomUUID()}`,
             source: 'app',
             refinement: {
@@ -178,7 +178,7 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
                 openRouterModels: withDefaultOpenRouterModels(refinement.openRouterModels),
             },
         });
-        return { ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged };
+        return { ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider };
     } catch (error) {
         console.error("Error refining prompt:", { name: error instanceof Error ? error.name : 'UnknownError' });
         if (error instanceof Error && (
@@ -236,7 +236,7 @@ export async function evaluateGuidelinesAction(data: z.infer<typeof batchEvaluat
             combinedScore: evaluation.combinedScore,
             results: evaluation.results,
         });
-        return { ...evaluation, id: saved.id, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged };
+        return { ...evaluation, id: saved.id, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider };
     } catch (error) {
         console.error('Error evaluating guidelines:', error);
         if (error instanceof Error && [

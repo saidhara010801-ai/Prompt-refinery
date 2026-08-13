@@ -30,3 +30,28 @@ export function getTaskCosts(environment: Record<string, string | undefined> = p
 export function taskCost(task: ClariftTask, environment?: Record<string, string | undefined>) {
   return getTaskCosts(environment)[task];
 }
+
+export function hasManagedRemoteProvider(environment: Record<string, string | undefined> = process.env) {
+  const gemini = environment.CLARIFT_GEMINI_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_API_KEY;
+  const openRouter = environment.ENABLE_MANAGED_OPENROUTER === 'true'
+    ? environment.CLARIFT_OPENROUTER_API_KEY || environment.OPENROUTER_API_KEY
+    : undefined;
+  return Boolean(gemini?.trim() || openRouter?.trim());
+}
+
+export function isLocalInferenceFallbackActive(environment: Record<string, string | undefined> = process.env) {
+  return environment.ENABLE_LOCAL_INFERENCE_FALLBACK === 'true' && !hasManagedRemoteProvider(environment);
+}
+
+export function getAdvertisedTaskCosts(environment: Record<string, string | undefined> = process.env) {
+  const costs = getTaskCosts(environment);
+  if (!isLocalInferenceFallbackActive(environment)) return costs;
+  return {
+    ...costs,
+    quick_refine: 0,
+    guided_fix: 0,
+    full_council: 0,
+    evaluate: 0,
+    apply_fix: 0,
+  };
+}

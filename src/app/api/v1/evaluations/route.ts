@@ -20,6 +20,6 @@ export async function POST(request: Request) {
       prompt: input.prompt,
       guidelines: input.guidelines,
     });
-    return NextResponse.json({ ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged });
+    return NextResponse.json({ ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider });
   } catch (error) { return publicApiError(error); }
 }

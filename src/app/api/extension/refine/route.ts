@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       source: 'extension',
       refinement: { prompt: input.prompt, promptType: input.technique, explanationMode: false },
     });
-    return NextResponse.json({ refinedPrompt: gateway.result.refinedPrompt, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged }, { headers: extensionCorsHeaders });
+    return NextResponse.json({ refinedPrompt: gateway.result.refinedPrompt, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider }, { headers: extensionCorsHeaders });
   } catch (error) {
     const name = error instanceof Error ? error.name : 'ExtensionRequestError';
     const status = name === 'ExtensionAuthenticationError' ? 401 : name === 'InsufficientCreditsError' ? 402 : name.includes('Limit') ? 429 : 502;

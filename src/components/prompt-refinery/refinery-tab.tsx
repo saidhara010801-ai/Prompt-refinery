@@ -386,6 +386,12 @@ export function RefineryTab({
       setRefinedPrompt(result.refinedPrompt);
       setRawPromptAtResult(data.prompt);
       setRefinements(result.refinements);
+      if (result.provider === 'local') {
+        toast({
+          title: 'Beta fallback used',
+          description: 'Clarift used its built-in structured refinement engine. No managed credits were charged.',
+        });
+      }
       await refreshTenant();
 
       const previousVersions = data.prompt === rawPromptAtResult ? promptVersions : [];
@@ -628,7 +634,9 @@ export function RefineryTab({
                   {refinementMode === 'guided_fix' && 'Three expert passes for prompts that need structure and critique.'}
                   {refinementMode === 'full_council' && 'Five specialist passes and a final synthesis for complex work.'}
                   {' '}{inferencePreference.mode === 'managed'
-                    ? `Cost: ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}.`
+                    ? capabilities.inference === 'local-fallback'
+                      ? 'Beta fallback is active; no provider key or managed credits are required.'
+                      : `Cost: ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}.`
                     : `Using encrypted ${inferencePreference.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} BYOK; no managed credits.`}
                 </p>
               </div>
@@ -789,7 +797,9 @@ export function RefineryTab({
               </div>
               <Button type="submit" disabled={isLoading || !user} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
-                  ? `Refine · ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}`
+                  ? capabilities.inference === 'local-fallback'
+                    ? 'Refine with Beta Fallback'
+                    : `Refine · ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}`
                   : 'Refine with My Provider Key'}
               </Button>
               {!isPro && (

@@ -9,12 +9,20 @@ import {
 import { evaluatePromptGuidelinesBatch, type BatchEvaluationOutput } from '@/ai/flows/evaluate-prompt-guidelines-batch';
 import { reserveCredits, releaseCredits, settleCredits, taskCost, type ClariftTask } from './credit-service';
 import { acquireConcurrencySlot, consumeDistributedLimit, releaseConcurrencySlot } from './distributed-limits';
-import { resolveProviderCredential, type InferenceMode, type ProviderName } from './provider-key-service';
+import {
+  localFallbackCredential,
+  resolveProviderCredential,
+  type InferenceMode,
+  type InferenceProviderName,
+  type ProviderCredential,
+  type ProviderName,
+} from './provider-key-service';
 import type { TenantContext } from './tenant-service';
 import { recordTenantUsage } from './usage-meter';
 import { getAdminFirestore } from './firebase-admin';
 import { acquireProviderCircuit, recordProviderFailure, recordProviderSuccess } from './provider-circuit-breaker';
 import { captureProviderUsage } from './provider-usage-context';
+import { evaluatePromptLocally, refinePromptLocally } from '@/lib/local-inference';
 
 export type GatewaySource = 'app' | 'api' | 'extension';
 
@@ -116,7 +124,7 @@ async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise
 
 export async function runGatewayTask<T>(
   request: GatewayTaskRequest,
-  executor: (credential: Awaited<ReturnType<typeof resolveProviderCredential>>, requestId: string) => Promise<T>
+  executor: (credential: ProviderCredential, requestId: string) => Promise<T>
 ) {
   const requestId = randomUUID();
   const startedAt = Date.now();
@@ -124,7 +132,8 @@ export async function runGatewayTask<T>(
   const idempotencyRef = await claimIdempotency(request, requestId);
   let concurrency: Awaited<ReturnType<typeof acquireConcurrencySlot>> | null = null;
   let reservation: Awaited<ReturnType<typeof reserveCredits>> | null = null;
-  let provider: ProviderName | 'none' = 'none';
+  let provider: InferenceProviderName | 'none' = 'none';
+  let creditsCharged = 0;
   let providerUsage: { inputTokens: number | null; outputTokens: number | null; costUsd: number | null } = {
     inputTokens: null,
     outputTokens: null,
@@ -158,7 +167,12 @@ export async function runGatewayTask<T>(
       key: request.context.tenantId,
       limit: concurrencyLimit,
     });
-    if (mode === 'managed') {
+    let credential = await resolveProviderCredential({
+      context: request.context,
+      mode,
+      preferredProvider: request.preferredProvider,
+    });
+    if (mode === 'managed' && credential.provider !== 'local') {
       reservation = await reserveCredits({
         tenantId: request.context.tenantId,
         workspaceId: request.context.workspaceId,
@@ -173,23 +187,20 @@ export async function runGatewayTask<T>(
         throw error;
       }
     }
-    let credential = await resolveProviderCredential({
-      context: request.context,
-      mode,
-      preferredProvider: request.preferredProvider,
-    });
     const timeoutMs = positiveInteger(process.env.CLARIFT_PROVIDER_TIMEOUT_MS, 90_000);
     const runProvider = async () => {
-      provider = credential.provider;
-      if (mode === 'managed') await acquireProviderCircuit(provider);
+      const currentProvider = credential.provider;
+      provider = currentProvider;
+      const remoteManagedProvider = mode === 'managed' && currentProvider !== 'local';
+      if (mode === 'managed' && currentProvider !== 'local') await acquireProviderCircuit(currentProvider);
       try {
         const captured = await withTimeout(captureProviderUsage(() => executor(credential, requestId)), timeoutMs);
         providerUsage = captured.usage;
-        if (mode === 'managed') await recordProviderSuccess(provider).catch(() => undefined);
+        if (mode === 'managed' && currentProvider !== 'local') await recordProviderSuccess(currentProvider).catch(() => undefined);
         return captured.result;
       } catch (error) {
-        if (mode === 'managed' && shouldCountProviderFailure(error)) {
-          await recordProviderFailure(provider, errorCode(error)).catch(() => undefined);
+        if (remoteManagedProvider && shouldCountProviderFailure(error)) {
+          await recordProviderFailure(currentProvider, errorCode(error)).catch(() => undefined);
         }
         throw error;
       }
@@ -212,22 +223,35 @@ export async function runGatewayTask<T>(
         }
       }
       if (lastError) {
+        if (mode !== 'managed' || !request.allowProviderFallback) throw lastError;
         if (
-          mode !== 'managed' ||
-          !request.allowProviderFallback ||
-          credential.provider !== 'gemini' ||
-          process.env.ENABLE_MANAGED_OPENROUTER !== 'true' ||
-          !shouldRetryProvider(lastError)
-        ) throw lastError;
-        credential = await resolveProviderCredential({ context: request.context, mode, preferredProvider: 'openrouter' });
-        result = await runProvider();
+          credential.provider === 'gemini' &&
+          process.env.ENABLE_MANAGED_OPENROUTER === 'true' &&
+          shouldRetryProvider(lastError)
+        ) {
+          try {
+            credential = await resolveProviderCredential({ context: request.context, mode, preferredProvider: 'openrouter' });
+            result = await runProvider();
+            lastError = null;
+          } catch (openRouterError) {
+            lastError = openRouterError;
+          }
+        }
+        if (lastError && process.env.ENABLE_LOCAL_INFERENCE_FALLBACK === 'true') {
+          credential = localFallbackCredential();
+          result = await runProvider();
+          lastError = null;
+        }
+        if (lastError) throw lastError;
       }
     }
-    if (reservation) await settleCredits(reservation.id);
+    const completedProvider = credential.provider;
+    creditsCharged = mode === 'managed' && completedProvider !== 'local' ? taskCost(request.task) : 0;
+    if (reservation) await settleCredits(reservation.id, creditsCharged);
     await idempotencyRef.set({
       status: 'succeeded',
-      provider,
-      creditsCharged: mode === 'managed' ? taskCost(request.task) : 0,
+      provider: completedProvider,
+      creditsCharged,
       completedAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     }, { merge: true });
@@ -238,16 +262,16 @@ export async function runGatewayTask<T>(
       principalId: request.context.principalId,
       task: request.task,
       inferenceMode: mode,
-      provider,
+      provider: completedProvider,
       inputTokens: providerUsage.inputTokens,
       outputTokens: providerUsage.outputTokens,
       providerCostUsd: providerUsage.costUsd,
-      creditsCharged: mode === 'managed' ? taskCost(request.task) : 0,
+      creditsCharged,
       status: 'succeeded',
       latencyMs: Date.now() - startedAt,
       source: request.source,
     });
-    return { result, requestId, creditsCharged: mode === 'managed' ? taskCost(request.task) : 0 };
+    return { result, requestId, creditsCharged, provider: completedProvider };
   } catch (error) {
     if (reservation) await releaseCredits(reservation.id).catch(() => undefined);
     await idempotencyRef.set({
@@ -278,23 +302,29 @@ export async function runGatewayTask<T>(
 
 export async function executeRefinement(input: GatewayTaskRequest & {
   refinement: Omit<RefinePromptWithAICouncilInput, 'apiKey' | 'openRouterApiKey' | 'provider' | 'executionMode'>;
-}): Promise<{ result: RefinePromptWithAICouncilOutput; requestId: string; creditsCharged: number }> {
+}): Promise<{ result: RefinePromptWithAICouncilOutput; requestId: string; creditsCharged: number; provider: InferenceProviderName }> {
   if (!['quick_refine', 'guided_fix', 'full_council'].includes(input.task)) throw new Error('Invalid refinement task.');
-  return runGatewayTask({ ...input, allowProviderFallback: true }, async (credential) => refinePromptWithAICouncil({
-    ...input.refinement,
-    executionMode: input.task as 'quick_refine' | 'guided_fix' | 'full_council',
-    provider: credential.provider,
-    apiKey: credential.provider === 'gemini' ? credential.apiKey : undefined,
-    openRouterApiKey: credential.provider === 'openrouter' ? credential.apiKey : undefined,
-  }));
+  return runGatewayTask({ ...input, allowProviderFallback: true }, async (credential) => {
+    const executionMode = input.task as 'quick_refine' | 'guided_fix' | 'full_council';
+    if (credential.provider === 'local') return refinePromptLocally({ ...input.refinement, executionMode });
+    return refinePromptWithAICouncil({
+      ...input.refinement,
+      executionMode,
+      provider: credential.provider,
+      apiKey: credential.provider === 'gemini' ? credential.apiKey : undefined,
+      openRouterApiKey: credential.provider === 'openrouter' ? credential.apiKey : undefined,
+    });
+  });
 }
 
 export async function executeEvaluation(input: GatewayTaskRequest & { prompt: string; guidelines: string[] }): Promise<{
   result: BatchEvaluationOutput;
   requestId: string;
   creditsCharged: number;
+  provider: InferenceProviderName;
 }> {
-  return runGatewayTask({ ...input, task: 'evaluate', preferredProvider: 'gemini', allowProviderFallback: false }, async (credential) => {
+  return runGatewayTask({ ...input, task: 'evaluate', preferredProvider: 'gemini', allowProviderFallback: true }, async (credential) => {
+    if (credential.provider === 'local') return evaluatePromptLocally(input.prompt, input.guidelines);
     if (credential.provider !== 'gemini') {
       const error = new Error('Evaluation currently requires Gemini.');
       error.name = 'ProviderNotSupportedError';

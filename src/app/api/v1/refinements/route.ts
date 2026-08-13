@@ -35,6 +35,6 @@ export async function POST(request: Request) {
         maxCharacters: input.maxCharacters,
       },
     });
-    return NextResponse.json({ ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged });
+    return NextResponse.json({ ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider });
   } catch (error) { return publicApiError(error); }
 }

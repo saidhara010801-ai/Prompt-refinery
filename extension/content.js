@@ -110,7 +110,7 @@
       );
       if (!response?.ok) throw new Error(response?.error || 'Clarift request failed.');
       replaceEditorText(activeEditor, response.refinedPrompt);
-      showStatus('Prompt refined.');
+      showStatus(response.provider === 'local' ? 'Prompt refined with Clarift beta fallback.' : 'Prompt refined.');
     } catch (error) {
       showStatus(error.message || 'Clarift request failed.', true);
     } finally {

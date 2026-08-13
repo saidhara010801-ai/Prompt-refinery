@@ -14,6 +14,7 @@ export interface RuntimeReadiness {
     managedOpenRouterGuarded: boolean;
     fileConversionRuntime: boolean;
     managedInference: boolean;
+    localInferenceFallback: boolean;
     byokEncryption: boolean;
     razorpayBilling: boolean;
     apiTokenSecurity: boolean;
@@ -65,6 +66,7 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_SUPPORT_ACCESS_REQUESTS',
   'ENABLE_MANAGED_OPENROUTER',
   'ENABLE_MANAGED_INFERENCE',
+  'ENABLE_LOCAL_INFERENCE_FALLBACK',
   'ENABLE_BYOK',
   'ENABLE_RAZORPAY_BILLING',
   'ENABLE_EXTENSION_ACCOUNT_LINKING',
@@ -140,7 +142,9 @@ export function getOptionalProductionWarnings(environment: Environment): string[
 
   if (!hasValue(environment, 'GEMINI_API_KEY')) {
     if (isEnabled(environment, 'ENABLE_MANAGED_INFERENCE') && !hasValue(environment, 'CLARIFT_GEMINI_API_KEY') && !hasValue(environment, 'GOOGLE_API_KEY')) {
-      warnings.push('Managed Gemini inference is enabled but no managed Gemini key is configured.');
+      warnings.push(isEnabled(environment, 'ENABLE_LOCAL_INFERENCE_FALLBACK')
+        ? 'No managed Gemini key is configured; Clarift will use the zero-cost local beta fallback.'
+        : 'Managed Gemini inference is enabled but no managed Gemini key is configured.');
     }
   }
 
@@ -183,13 +187,17 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
   const modelAllowlists = ['OPENROUTER_ALLOWED_MODELS', 'GEMINI_ALLOWED_MODELS']
     .every((variable) => hasValue(environment, variable));
   const emergencyFeatureFlags = getMissingFeatureFlags(environment).length === 0;
-  const managedOpenRouterFallback = hasValue(environment, 'OPENROUTER_API_KEY');
+  const managedOpenRouterFallback = !isEnabled(environment, 'ENABLE_MANAGED_OPENROUTER') ||
+    hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || hasValue(environment, 'OPENROUTER_API_KEY');
   const managedOpenRouterGuarded = !isEnabled(environment, 'ENABLE_MANAGED_OPENROUTER') ||
     (managedOpenRouterFallback && modelAllowlists && quotaConfig);
   const fileConversionRuntime = !isEnabled(environment, 'ENABLE_FILE_CONVERSION') ||
     hasValue(environment, 'MARKITDOWN_COMMAND');
+  const localInferenceFallback = isEnabled(environment, 'ENABLE_LOCAL_INFERENCE_FALLBACK');
   const managedInference = !isEnabled(environment, 'ENABLE_MANAGED_INFERENCE') ||
-    hasValue(environment, 'CLARIFT_GEMINI_API_KEY') || hasValue(environment, 'GEMINI_API_KEY') || hasValue(environment, 'GOOGLE_API_KEY');
+    hasValue(environment, 'CLARIFT_GEMINI_API_KEY') || hasValue(environment, 'GEMINI_API_KEY') || hasValue(environment, 'GOOGLE_API_KEY') ||
+    (isEnabled(environment, 'ENABLE_MANAGED_OPENROUTER') && (hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || hasValue(environment, 'OPENROUTER_API_KEY'))) ||
+    localInferenceFallback;
   const byokEncryption = !isEnabled(environment, 'ENABLE_BYOK') || hasValidByokKey(environment);
   const razorpayBilling = !isEnabled(environment, 'ENABLE_RAZORPAY_BILLING') || [
     'RAZORPAY_KEY_ID',
@@ -228,6 +236,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       managedOpenRouterGuarded,
       fileConversionRuntime,
       managedInference,
+      localInferenceFallback,
       byokEncryption,
       razorpayBilling,
       apiTokenSecurity,

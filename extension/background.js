@@ -58,7 +58,7 @@ async function refine(current, prompt, retry = true) {
       throw new Error(result?.error?.message || 'Clarift could not refine this prompt.');
     }
     if (typeof result.refinedPrompt !== 'string' || !result.refinedPrompt.trim()) throw new Error('Clarift returned an incomplete refinement.');
-    return result.refinedPrompt;
+    return { refinedPrompt: result.refinedPrompt, provider: result.provider || 'managed' };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Clarift took too long to respond. Please try again.');
     throw error;
@@ -76,7 +76,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   settings().then(async (current) => {
     if (!current.accessToken && current.refreshToken) current = await refreshSession(current);
     if (!current.accessToken) throw new Error('Open Clarift extension settings and connect your account.');
-    sendResponse({ ok: true, refinedPrompt: await refine(current, message.prompt) });
+    const result = await refine(current, message.prompt);
+    sendResponse({ ok: true, ...result });
   }).catch((error) => sendResponse({ ok: false, error: error.message || 'Clarift request failed.' }));
   return true;
 });

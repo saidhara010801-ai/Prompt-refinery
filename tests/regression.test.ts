@@ -69,7 +69,14 @@ import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '../src/l
 import { publicApiErrorDetails } from '../src/app/api/v1/_shared';
 import { OPENROUTER_REQUEST_TIMEOUT_MS } from '../src/ai/flows/openrouter-client';
 import { decryptSecret, encryptSecret } from '../src/lib/server/encryption-service';
-import { getTaskCosts, taskCost } from '../src/lib/managed-inference-config';
+import {
+  getAdvertisedTaskCosts,
+  getTaskCosts,
+  hasManagedRemoteProvider,
+  isLocalInferenceFallbackActive,
+  taskCost,
+} from '../src/lib/managed-inference-config';
+import { evaluatePromptLocally, refinePromptLocally } from '../src/lib/local-inference';
 import { personalMembershipId, personalTenantId, personalWorkspaceId } from '../src/lib/tenant-ids';
 import { verifyRazorpayCheckoutSignature, verifyRazorpayWebhookSignature } from '../src/lib/razorpay-signatures';
 import { captureProviderUsage, recordOpenRouterUsage } from '../src/lib/server/provider-usage-context';
@@ -371,6 +378,38 @@ test('managed task prices are server-owned, bounded, and resilient to invalid co
   assert.equal(taskCost('guided_fix', { CLARIFT_TASK_COSTS_JSON: '{"guided_fix":3}' }), 3);
   assert.equal(taskCost('full_council', { CLARIFT_TASK_COSTS_JSON: '{"full_council":-4}' }), 5);
   assert.deepEqual(getTaskCosts({ CLARIFT_TASK_COSTS_JSON: 'not-json' }), getTaskCosts({}));
+});
+
+test('local beta fallback is deterministic, preserves the task, and charges no advertised credits', () => {
+  const input = {
+    prompt: 'Write a launch brief for a prompt refinement product.',
+    promptType: 'Zero-shot',
+    executionMode: 'guided_fix' as const,
+    projectMemory: 'Audience: non-technical beta testers.',
+    maxCharacters: 1200,
+  };
+  const first = refinePromptLocally(input);
+  const second = refinePromptLocally(input);
+  assert.deepEqual(first, second);
+  assert.match(first.refinedPrompt, /Write a launch brief/);
+  assert.match(first.refinedPrompt, /non-technical beta testers/);
+  assert.equal(first.refinements.length, 3);
+  assert.ok(first.refinedPrompt.length <= 1200);
+
+  const environment = { ENABLE_LOCAL_INFERENCE_FALLBACK: 'true' };
+  assert.equal(hasManagedRemoteProvider(environment), false);
+  assert.equal(isLocalInferenceFallbackActive(environment), true);
+  assert.equal(getAdvertisedTaskCosts(environment).quick_refine, 0);
+  assert.equal(getAdvertisedTaskCosts({ ...environment, GEMINI_API_KEY: 'managed-key' }).quick_refine, 1);
+});
+
+test('local beta evaluator returns bounded, ordered guideline results without a provider key', () => {
+  const guidelines = ['The prompt should specify an audience.', 'The prompt should define an output format.'];
+  const result = evaluatePromptLocally('Write a short product brief for beta testers as a bullet list.', guidelines);
+  assert.equal(result.results.length, guidelines.length);
+  assert.deepEqual(result.results.map((entry) => entry.guideline), guidelines);
+  assert.ok(result.combinedScore >= 0 && result.combinedScore <= 100);
+  for (const entry of result.results) assert.ok(entry.score >= 0 && entry.score <= 100);
 });
 
 test('personal tenant identifiers are deterministic and workspace-specific', () => {
@@ -1037,7 +1076,7 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
 
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '2.0.0');
+  assert.equal(manifest.version, '2.1.0');
   assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage', 'tabs']);
   for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
     assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));

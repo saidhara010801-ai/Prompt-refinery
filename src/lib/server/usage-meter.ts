@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 import { getAdminFirestore } from './firebase-admin';
 import type { ClariftTask } from './credit-service';
-import type { InferenceMode, ProviderName } from './provider-key-service';
+import type { InferenceMode, InferenceProviderName } from './provider-key-service';
 
 export interface TenantUsageInput {
   requestId: string;
@@ -11,7 +11,7 @@ export interface TenantUsageInput {
   principalId: string;
   task: ClariftTask;
   inferenceMode: InferenceMode | 'system';
-  provider?: ProviderName | 'markitdown' | 'none';
+  provider?: InferenceProviderName | 'markitdown' | 'none';
   model?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
