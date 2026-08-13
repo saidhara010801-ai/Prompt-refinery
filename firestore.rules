@@ -235,11 +235,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/tenantMembers/$(tenantId + '_' + request.auth.uid)).data.status == 'active';
     }
 
-    function isTenantRole(tenantId, roles) {
-      return isActiveTenantMember(tenantId) &&
-        get(/databases/$(database)/documents/tenantMembers/$(tenantId + '_' + request.auth.uid)).data.role in roles;
-    }
-
     match /users/{userId}/projects/{projectId}/memoryEntries/{entryId} {
       allow get, list: if isProUser(userId);
       allow create, update, delete: if false;
