@@ -52,11 +52,19 @@ env:
     availability:
       - RUNTIME
   - variable: ENABLE_FREE_MANAGED_INFERENCE
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_INFERENCE_ROLLOUT_PERCENT
     value: "0"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_API_KEY
+    secret: CLARIFT_OPENROUTER_API_KEY
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_API_KEY
+    secret: CLARIFT_TOGETHER_API_KEY
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_OPENROUTER_MODEL
