@@ -10,6 +10,7 @@ import {
   isProTier,
   type SubscriptionTier,
 } from '@/lib/subscription';
+import { FREE_TASK_UNITS, type FreeInferenceAllowance, type FreeInferenceTask } from '@/lib/free-inference';
 
 interface SubscriptionProfile {
   subscriptionTier?: SubscriptionTier;
@@ -36,6 +37,8 @@ interface SubscriptionContextValue {
   reservedCredits: number;
   availableCredits: number;
   taskCosts: TaskCosts;
+  freeTaskUnits: Record<FreeInferenceTask, number>;
+  freeAllowance: FreeInferenceAllowance | null;
   tenantPlan: string;
   tenantPlanStatus: string;
   capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
@@ -61,6 +64,8 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   reservedCredits: 0,
   availableCredits: 0,
   taskCosts: DEFAULT_TASK_COSTS,
+  freeTaskUnits: FREE_TASK_UNITS,
+  freeAllowance: null,
   tenantPlan: 'free',
   tenantPlanStatus: 'active',
   capabilities: { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
@@ -81,6 +86,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     reserved: number;
     available: number;
     taskCosts: TaskCosts;
+    freeTaskUnits: Record<FreeInferenceTask, number>;
+    allowance: FreeInferenceAllowance;
     plan: string;
     planStatus: string;
     capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
@@ -140,6 +147,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       reservedCredits: tenant?.reserved ?? 0,
       availableCredits: tenant?.available ?? 0,
       taskCosts: tenant?.taskCosts ?? DEFAULT_TASK_COSTS,
+      freeTaskUnits: tenant?.freeTaskUnits ?? FREE_TASK_UNITS,
+      freeAllowance: tenant?.allowance ?? null,
       tenantPlan: tenant?.plan ?? 'free',
       tenantPlanStatus: tenant?.planStatus ?? 'active',
       capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },

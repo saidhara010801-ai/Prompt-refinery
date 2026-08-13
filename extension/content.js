@@ -6,7 +6,7 @@
   let actionButton = null;
   let statusBox = null;
   let statusTimer = null;
-  const RESPONSE_TIMEOUT_MS = 115000;
+  const RESPONSE_TIMEOUT_MS = 50000;
 
   function withResponseTimeout(promise) {
     return new Promise((resolve, reject) => {
@@ -110,7 +110,17 @@
       );
       if (!response?.ok) throw new Error(response?.error || 'Clarift request failed.');
       replaceEditorText(activeEditor, response.refinedPrompt);
-      showStatus(response.provider === 'local' ? 'Prompt refined with Clarift beta fallback.' : 'Prompt refined.');
+      if (response.qualityTier === 'fallback') {
+        const basic = response.basicMode || {};
+        let message = 'Prompt refined in Basic mode.';
+        if (basic.reason === 'request_size') message = 'Prompt refined in Basic mode because it exceeds the generative limit.';
+        else if (basic.reason === 'monthly_limit' && basic.resetAt) message = `Prompt refined in Basic mode. Generative access resets ${new Date(basic.resetAt).toLocaleDateString()}.`;
+        else if (basic.reason === 'daily_limit' && basic.resetAt) message = `Prompt refined in Basic mode. Generative access resets at ${new Date(basic.resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+        else if (basic.reason === 'budget_limit') message = 'Prompt refined in Basic mode. Generative access resets tomorrow.';
+        showStatus(message);
+      } else {
+        showStatus('Prompt refined.');
+      }
     } catch (error) {
       showStatus(error.message || 'Clarift request failed.', true);
     } finally {

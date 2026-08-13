@@ -17,6 +17,7 @@ import {
   type EntitlementSource,
   type NormalizedUserProfile,
 } from './user-access';
+import { personalTenantId } from '@/lib/tenant-ids';
 
 export const ADMIN_MAX_PAGE_SIZE = 25;
 const DEFAULT_PAGE_SIZE = 10;
@@ -315,6 +316,63 @@ export async function readSafeSystemHealth(request: NextRequest) {
       stripeCheckout: process.env.ENABLE_STRIPE_CHECKOUT === 'true',
       supportAccessRequests: process.env.ENABLE_SUPPORT_ACCESS_REQUESTS === 'true',
       managedOpenRouter: process.env.ENABLE_MANAGED_OPENROUTER === 'true',
+      freeManagedInference: process.env.ENABLE_FREE_MANAGED_INFERENCE === 'true',
     },
   };
+}
+
+export async function setFreeInferenceBeta(request: NextRequest, targetUid: string, enabled: boolean) {
+  const actor = await requireOwner(request);
+  const tenantId = personalTenantId(targetUid);
+  const tenant = await getAdminFirestore().doc(`tenants/${tenantId}`).get();
+  if (!tenant.exists || tenant.data()?.ownerId !== targetUid) throw new Error('The personal tenant was not found.');
+  await getAdminFirestore().doc(`tenantEntitlements/${tenantId}`).set({
+    freeManagedInferenceBeta: enabled,
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+  await writeAdminAuditLog({
+    actor,
+    action: 'admin.free_inference_beta_change',
+    targetUid,
+    metadata: { enabled },
+    request,
+  });
+  return { uid: targetUid, tenantId, enabled };
+}
+
+export async function readFreeInferenceHealth(request: NextRequest) {
+  const actor = await requireSupport(request);
+  const firestore = getAdminFirestore();
+  const since = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+  const day = new Date().toISOString().slice(0, 10);
+  const [events, circuits, openRouterBudget, togetherBudget, overallBudget] = await Promise.all([
+    firestore.collection('usageEvents').where('createdAt', '>=', since).limit(1000).get(),
+    firestore.collection('providerCircuits').limit(50).get(),
+    firestore.doc(`providerBudgets/openrouter_${day}`).get(),
+    firestore.doc(`providerBudgets/together_${day}`).get(),
+    firestore.doc(`providerBudgets/all_${day}`).get(),
+  ]);
+  const records = events.docs.map((doc) => doc.data());
+  const latencies = records.map((record) => Number(record.latencyMs) || 0).filter(Boolean).sort((a, b) => a - b);
+  const percentile = (fraction: number) => latencies.length ? latencies[Math.min(Math.ceil(latencies.length * fraction) - 1, latencies.length - 1)] : null;
+  const attempts = records.flatMap((record) => Array.isArray(record.attempts) ? record.attempts : []);
+  const malformed = attempts.filter((attempt) => attempt?.status === 'malformed').length;
+  const result = {
+    windowHours: 24,
+    requests: records.length,
+    succeeded: records.filter((record) => record.status === 'succeeded').length,
+    failed: records.filter((record) => record.status === 'failed').length,
+    generative: records.filter((record) => record.qualityTier === 'generative').length,
+    fallback: records.filter((record) => record.qualityTier === 'fallback').length,
+    malformedAttempts: malformed,
+    latencyMs: { p50: percentile(0.5), p95: percentile(0.95) },
+    budgets: {
+      openrouter: openRouterBudget.data() ?? null,
+      together: togetherBudget.data() ?? null,
+      overall: overallBudget.data() ?? null,
+    },
+    circuits: circuits.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+  };
+  await writeAdminAuditLog({ actor, action: 'admin.free_inference_health_read', metadata: { requests: records.length }, request });
+  return result;
 }

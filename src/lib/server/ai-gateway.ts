@@ -23,8 +23,19 @@ import { getAdminFirestore } from './firebase-admin';
 import { acquireProviderCircuit, recordProviderFailure, recordProviderSuccess } from './provider-circuit-breaker';
 import { captureProviderUsage } from './provider-usage-context';
 import { evaluatePromptLocally, refinePromptLocally } from '@/lib/local-inference';
+import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from './free-model-inference';
+import { executeFreeGatewayTask, tenantUsesFreeManagedInference } from './free-inference-gateway';
+import { readFreeInferenceAllowance } from './free-inference-control';
+import { chooseBasicModeStatus, type BasicModeStatus, type FreeInferenceAllowance, type InferenceQualityTier } from '@/lib/free-inference';
 
 export type GatewaySource = 'app' | 'api' | 'extension';
+export type GatewayProvider = InferenceProviderName | 'together';
+
+export interface GatewayPublicMetadata {
+  qualityTier: InferenceQualityTier;
+  allowance: FreeInferenceAllowance;
+  basicMode?: BasicModeStatus;
+}
 
 export interface GatewayTaskRequest {
   context: TenantContext;
@@ -302,10 +313,20 @@ export async function runGatewayTask<T>(
 
 export async function executeRefinement(input: GatewayTaskRequest & {
   refinement: Omit<RefinePromptWithAICouncilInput, 'apiKey' | 'openRouterApiKey' | 'provider' | 'executionMode'>;
-}): Promise<{ result: RefinePromptWithAICouncilOutput; requestId: string; creditsCharged: number; provider: InferenceProviderName }> {
+}): Promise<{ result: RefinePromptWithAICouncilOutput; requestId: string; creditsCharged: number; provider: GatewayProvider } & GatewayPublicMetadata> {
   if (!['quick_refine', 'guided_fix', 'full_council'].includes(input.task)) throw new Error('Invalid refinement task.');
-  return runGatewayTask({ ...input, allowProviderFallback: true }, async (credential) => {
-    const executionMode = input.task as 'quick_refine' | 'guided_fix' | 'full_council';
+  const executionMode = input.task as 'quick_refine' | 'guided_fix' | 'full_council';
+  if ((input.inferenceMode ?? 'managed') === 'managed' && await tenantUsesFreeManagedInference(input.context)) {
+    return executeFreeGatewayTask({
+      context: input.context,
+      task: executionMode,
+      idempotencyKey: input.idempotencyKey,
+      source: input.source,
+      prepared: buildFreeRefinementRequest(executionMode, input.refinement),
+      fallback: () => refinePromptLocally({ ...input.refinement, executionMode }),
+    });
+  }
+  const gateway = await runGatewayTask({ ...input, allowProviderFallback: true }, async (credential) => {
     if (credential.provider === 'local') return refinePromptLocally({ ...input.refinement, executionMode });
     return refinePromptWithAICouncil({
       ...input.refinement,
@@ -315,15 +336,35 @@ export async function executeRefinement(input: GatewayTaskRequest & {
       openRouterApiKey: credential.provider === 'openrouter' ? credential.apiKey : undefined,
     });
   });
+  const qualityTier = gateway.provider === 'local' ? 'fallback' : 'generative';
+  return {
+    ...gateway,
+    qualityTier,
+    allowance: await readFreeInferenceAllowance(input.context.tenantId),
+    ...(qualityTier === 'fallback' ? { basicMode: chooseBasicModeStatus({}) } : {}),
+  };
 }
 
 export async function executeEvaluation(input: GatewayTaskRequest & { prompt: string; guidelines: string[] }): Promise<{
   result: BatchEvaluationOutput;
   requestId: string;
   creditsCharged: number;
-  provider: InferenceProviderName;
+  provider: GatewayProvider;
+  qualityTier: InferenceQualityTier;
+  allowance: FreeInferenceAllowance;
+  basicMode?: BasicModeStatus;
 }> {
-  return runGatewayTask({ ...input, task: 'evaluate', preferredProvider: 'gemini', allowProviderFallback: true }, async (credential) => {
+  if ((input.inferenceMode ?? 'managed') === 'managed' && await tenantUsesFreeManagedInference(input.context)) {
+    return executeFreeGatewayTask({
+      context: input.context,
+      task: 'evaluate',
+      idempotencyKey: input.idempotencyKey,
+      source: input.source,
+      prepared: buildFreeEvaluationRequest(input.prompt, input.guidelines),
+      fallback: () => evaluatePromptLocally(input.prompt, input.guidelines),
+    });
+  }
+  const gateway = await runGatewayTask({ ...input, task: 'evaluate', preferredProvider: 'gemini', allowProviderFallback: true }, async (credential) => {
     if (credential.provider === 'local') return evaluatePromptLocally(input.prompt, input.guidelines);
     if (credential.provider !== 'gemini') {
       const error = new Error('Evaluation currently requires Gemini.');
@@ -332,4 +373,11 @@ export async function executeEvaluation(input: GatewayTaskRequest & { prompt: st
     }
     return evaluatePromptGuidelinesBatch({ prompt: input.prompt, guidelines: input.guidelines, apiKey: credential.apiKey });
   });
+  const qualityTier = gateway.provider === 'local' ? 'fallback' : 'generative';
+  return {
+    ...gateway,
+    qualityTier,
+    allowance: await readFreeInferenceAllowance(input.context.tenantId),
+    ...(qualityTier === 'fallback' ? { basicMode: chooseBasicModeStatus({}) } : {}),
+  };
 }

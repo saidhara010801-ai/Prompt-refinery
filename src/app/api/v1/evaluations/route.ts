@@ -20,6 +20,14 @@ export async function POST(request: Request) {
       prompt: input.prompt,
       guidelines: input.guidelines,
     });
-    return NextResponse.json({ ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider });
+    return NextResponse.json({
+      ...gateway.result,
+      contractVersion: 2,
+      requestId: gateway.requestId,
+      creditsCharged: gateway.creditsCharged,
+      qualityTier: gateway.qualityTier,
+      allowance: gateway.allowance,
+      basicMode: gateway.basicMode,
+    }, { headers: { 'X-Clarift-Contract-Version': '2' } });
   } catch (error) { return publicApiError(error); }
 }

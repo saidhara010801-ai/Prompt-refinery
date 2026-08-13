@@ -80,6 +80,18 @@ import { evaluatePromptLocally, refinePromptLocally } from '../src/lib/local-inf
 import { personalMembershipId, personalTenantId, personalWorkspaceId } from '../src/lib/tenant-ids';
 import { verifyRazorpayCheckoutSignature, verifyRazorpayWebhookSignature } from '../src/lib/razorpay-signatures';
 import { captureProviderUsage, recordOpenRouterUsage } from '../src/lib/server/provider-usage-context';
+import {
+  FREE_INPUT_TOKEN_LIMIT,
+  FREE_TASK_OUTPUT_TOKENS,
+  FREE_TASK_UNITS,
+  chooseBasicModeStatus,
+  estimateSerializedTokens,
+  priceForMaximumAttempt,
+  quotaPeriodKeys,
+} from '../src/lib/free-inference';
+import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
+import { z } from 'zod';
+import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from '../src/lib/server/free-model-inference';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -364,6 +376,83 @@ test('format converter parses MarkItDown command with arguments', () => {
     command: 'C:\\Program Files\\Python\\python.exe',
     args: ['-m', 'markitdown'],
   });
+});
+
+test('free inference weights and maximum OpenRouter costs match the release budget', () => {
+  assert.deepEqual(FREE_TASK_UNITS, { quick_refine: 1, guided_fix: 2, full_council: 3, evaluate: 1 });
+  const maximum = (task: keyof typeof FREE_TASK_OUTPUT_TOKENS) => priceForMaximumAttempt({
+    inputTokens: FREE_INPUT_TOKEN_LIMIT,
+    outputTokens: FREE_TASK_OUTPUT_TOKENS[task],
+    inputUsdPerMillion: 0.05,
+    outputUsdPerMillion: 0.1,
+  });
+  assert.ok(Math.abs(maximum('quick_refine') - 0.0002048) < 1e-12);
+  assert.ok(Math.abs(maximum('evaluate') - 0.0002048) < 1e-12);
+  assert.ok(Math.abs(maximum('guided_fix') - 0.000256) < 1e-12);
+  assert.ok(Math.abs(maximum('full_council') - 0.0003072) < 1e-12);
+  assert.ok(Math.abs((10 + 5) * maximum('quick_refine') - 0.003072) < 1e-12);
+});
+
+test('Basic mode reason precedence favors durable request and quota blockers', () => {
+  const periods = quotaPeriodKeys(new Date('2026-08-14T12:00:00.000Z'));
+  assert.equal(chooseBasicModeStatus({ requestTooLarge: true, monthlyLimit: true, dailyLimit: true, budgetLimit: true }).reason, 'request_size');
+  assert.deepEqual(chooseBasicModeStatus({ monthlyLimit: true, dailyLimit: true, budgetLimit: true, monthResetAt: periods.monthResetAt }), {
+    reason: 'monthly_limit', resetScope: 'monthly', resetAt: '2026-09-01T00:00:00.000Z',
+  });
+  assert.deepEqual(chooseBasicModeStatus({ dailyLimit: true, budgetLimit: true, dayResetAt: periods.dayResetAt }), {
+    reason: 'daily_limit', resetScope: 'daily', resetAt: '2026-08-15T00:00:00.000Z',
+  });
+  assert.equal(chooseBasicModeStatus({ budgetLimit: true }).reason, 'budget_limit');
+  assert.equal(chooseBasicModeStatus({}).reason, 'service_busy');
+});
+
+test('serialized token estimates include instructions and schema rather than raw prompt only', () => {
+  const promptOnly = estimateSerializedTokens('Write a launch plan.');
+  const fullRequest = estimateSerializedTokens({ messages: [{ role: 'system', content: 'Return JSON.' }, { role: 'user', content: 'Write a launch plan.' }], schema: { type: 'object' } });
+  assert.ok(fullRequest > promptOnly);
+  for (const task of ['quick_refine', 'guided_fix', 'full_council'] as const) {
+    const prepared = buildFreeRefinementRequest(task, { prompt: 'Write a concise launch plan.', promptType: 'Zero-shot' });
+    assert.ok(estimateSerializedTokens({ messages: prepared.messages, schema: prepared.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
+  }
+  const evaluation = buildFreeEvaluationRequest('Write a concise launch plan.', ['Clarity']);
+  assert.ok(estimateSerializedTokens({ messages: evaluation.messages, schema: evaluation.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
+});
+
+test('managed provider parsing classifies malformed output without retaining it', () => {
+  const schema = z.object({ refinedPrompt: z.string() });
+  assert.deepEqual(parseProviderJson('{"refinedPrompt":"Ready"}', schema), { refinedPrompt: 'Ready' });
+  assert.throws(() => parseProviderJson('{"wrong":true}', schema), ProviderSchemaError);
+  assert.throws(() => parseProviderJson('not-json', schema), ProviderSchemaError);
+});
+
+test('OpenRouter managed calls request strict structured output and capture usage', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"refinedPrompt":"Ready"}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 100, completion_tokens: 40, cost: 0.000009 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const completion = await createOpenModelCompletion({
+      provider: 'openrouter',
+      apiKey: 'test-key',
+      model: 'google/gemma-3-4b-it',
+      messages: [{ role: 'user', content: 'Refine this.' }],
+      maxTokens: 1024,
+      timeoutMs: 1000,
+      responseSchema: { name: 'test', schema: { type: 'object', properties: { refinedPrompt: { type: 'string' } } } },
+    });
+    assert.ok(requestBody);
+    const format = (requestBody as Record<string, unknown>).response_format as { type?: string; json_schema?: { strict?: boolean } } | undefined;
+    assert.equal(format?.type, 'json_schema');
+    assert.equal(format?.json_schema?.strict, true);
+    assert.deepEqual(completion.usage, { inputTokens: 100, outputTokens: 40, costUsd: 0.000009 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('managed task prices are server-owned, bounded, and resilient to invalid configuration', () => {
@@ -850,6 +939,11 @@ test('firestore rules deny browser access to privileged production collections a
     'billingSubscriptions',
     'gatewayRequests',
     'providerCircuits',
+    'freeInferenceQuotas',
+    'freeInferenceReservations',
+    'providerBudgets',
+    'providerBudgetReservations',
+    'usageDailyAggregates',
     'extensionLinkCodes',
     'extensionDevices',
   ]) {
@@ -1076,7 +1170,7 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   const archive = readFileSync('public/downloads/clarift-browser-extension.zip');
 
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '2.1.0');
+  assert.equal(manifest.version, '2.2.0');
   assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage', 'tabs']);
   for (const chatbot of ['chatgpt.com', 'claude.ai', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai', 'poe.com', 'grok.com']) {
     assert.ok(manifest.content_scripts[0].matches.some((match: string) => match.includes(chatbot)));
@@ -1084,8 +1178,10 @@ test('browser extension is packaged for in-app testing and supports chatbot acti
   assert.match(popup, /chrome\.scripting\.executeScript/);
   assert.match(popupMarkup, /Enable on this page/);
   assert.match(content, /clarift-ping/);
-  assert.match(content, /RESPONSE_TIMEOUT_MS = 115000/);
-  assert.match(background, /REQUEST_TIMEOUT_MS = 105000/);
+  assert.match(content, /RESPONSE_TIMEOUT_MS = 50000/);
+  assert.match(content, /qualityTier === 'fallback'/);
+  assert.match(background, /REQUEST_TIMEOUT_MS = 45000/);
+  assert.match(background, /result\.qualityTier \|\| \(result\.provider === 'local'/);
   assert.match(background, /AbortController/);
   assert.match(background, /\/api\/extension\/refine/);
   assert.match(background, /\/api\/extension\/refresh/);

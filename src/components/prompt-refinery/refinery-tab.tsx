@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { basicModeMessage } from '@/lib/basic-mode-message';
 import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { OutputActions } from './output-actions';
@@ -266,7 +267,7 @@ export function RefineryTab({
   const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { isPro, savedPromptCount, savedPromptLimit, taskCosts, refreshTenant, capabilities } = useContext(SubscriptionContext);
+  const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, refreshTenant, capabilities } = useContext(SubscriptionContext);
   const { refineryTransfer, clearRefineryTransfer } = useWorkflow();
 
   const projectSessionsQuery = useMemoFirebase(() => {
@@ -386,10 +387,10 @@ export function RefineryTab({
       setRefinedPrompt(result.refinedPrompt);
       setRawPromptAtResult(data.prompt);
       setRefinements(result.refinements);
-      if (result.provider === 'local') {
+      if (result.qualityTier === 'fallback') {
         toast({
-          title: 'Beta fallback used',
-          description: 'Clarift used its built-in structured refinement engine. No managed credits were charged.',
+          title: 'Basic mode used',
+          description: basicModeMessage(result.basicMode),
         });
       }
       await refreshTenant();
@@ -634,9 +635,9 @@ export function RefineryTab({
                   {refinementMode === 'guided_fix' && 'Three expert passes for prompts that need structure and critique.'}
                   {refinementMode === 'full_council' && 'Five specialist passes and a final synthesis for complex work.'}
                   {' '}{inferencePreference.mode === 'managed'
-                    ? capabilities.inference === 'local-fallback'
-                      ? 'Beta fallback is active; no provider key or managed credits are required.'
-                      : `Cost: ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}.`
+                    ? capabilities.inference === 'managed'
+                      ? `Uses ${freeTaskUnits[refinementMode]} generative unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}. ${freeAllowance ? `${freeAllowance.refinement.daily.remaining} daily and ${freeAllowance.refinement.monthly.remaining} monthly units remain.` : 'No provider key is required.'}`
+                      : 'Basic mode is active. No provider key is required.'
                     : `Using encrypted ${inferencePreference.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} BYOK; no managed credits.`}
                 </p>
               </div>
@@ -797,9 +798,9 @@ export function RefineryTab({
               </div>
               <Button type="submit" disabled={isLoading || !user} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
-                  ? capabilities.inference === 'local-fallback'
-                    ? 'Refine with Beta Fallback'
-                    : `Refine · ${taskCosts[refinementMode]} credit${taskCosts[refinementMode] === 1 ? '' : 's'}`
+                  ? capabilities.inference === 'managed'
+                    ? `Refine · ${freeTaskUnits[refinementMode]} unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}`
+                    : 'Refine in Basic Mode'
                   : 'Refine with My Provider Key'}
               </Button>
               {!isPro && (

@@ -18,6 +18,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { LLM_COUNCIL_GUIDELINES } from '@/lib/constants';
 import type { EvaluationRun } from './stage2-types';
+import { basicModeMessage } from '@/lib/basic-mode-message';
 
 const dimensionLabels = {
   clarity: 'Clarity',
@@ -31,7 +32,7 @@ export function EvaluatorTab() {
   const [selectedGuidelines, setSelectedGuidelines] = useState<string[]>([LLM_COUNCIL_GUIDELINES[0].value]);
   const [isLoading, setIsLoading] = useState(false);
   const [evaluation, setEvaluation] = useState<EvaluationRun | null>(null);
-  const { tenantId, workspaceId, taskCosts, refreshTenant } = useContext(SubscriptionContext);
+  const { tenantId, workspaceId, freeTaskUnits, freeAllowance, refreshTenant, capabilities } = useContext(SubscriptionContext);
   const { user, firestore } = useFirebase();
   const { toast } = useToast();
   const { sendToRefinery } = useWorkflow();
@@ -66,6 +67,9 @@ export function EvaluatorTab() {
         guidelines: selectedGuidelines,
       });
       setEvaluation({ ...result, prompt: prompt.trim(), guidelines: selectedGuidelines });
+      if (result.qualityTier === 'fallback') {
+        toast({ title: 'Basic mode used', description: basicModeMessage(result.basicMode) });
+      }
       await refreshTenant();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Evaluation Failed', description: error instanceof Error ? error.message : 'Please try again.' });
@@ -107,7 +111,16 @@ export function EvaluatorTab() {
               </label>
             ))}
           </div>
-          <Button type="button" className="w-full" onClick={evaluate} disabled={isLoading || !user || prompt.trim().length < 10 || selectedGuidelines.length === 0}>{isLoading ? 'Evaluating...' : `Evaluate ${selectedGuidelines.length} Guideline${selectedGuidelines.length === 1 ? '' : 's'} · ${taskCosts.evaluate} credit${taskCosts.evaluate === 1 ? '' : 's'}`}</Button>
+          <Button type="button" className="w-full" onClick={evaluate} disabled={isLoading || !user || prompt.trim().length < 10 || selectedGuidelines.length === 0}>
+            {isLoading
+              ? 'Evaluating...'
+              : capabilities.inference === 'managed'
+                ? `Evaluate ${selectedGuidelines.length} Guideline${selectedGuidelines.length === 1 ? '' : 's'} · ${freeTaskUnits.evaluate} unit`
+                : 'Evaluate in Basic Mode'}
+          </Button>
+          {capabilities.inference === 'managed' && freeAllowance
+            ? <p className="text-xs text-muted-foreground">{freeAllowance.evaluation.daily.remaining} daily and {freeAllowance.evaluation.monthly.remaining} monthly evaluation units remain.</p>
+            : <p className="text-xs text-muted-foreground">Basic mode is active. No provider key is required.</p>}
         </CardContent>
       </Card>
 

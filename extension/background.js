@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE = 'https://clarift--clarift-e4f6f.us-east4.hosted.app';
-const REQUEST_TIMEOUT_MS = 105000;
+const REQUEST_TIMEOUT_MS = 45000;
 
 async function settings() {
   const [persistent, session] = await Promise.all([chrome.storage.local.get({
@@ -58,7 +58,11 @@ async function refine(current, prompt, retry = true) {
       throw new Error(result?.error?.message || 'Clarift could not refine this prompt.');
     }
     if (typeof result.refinedPrompt !== 'string' || !result.refinedPrompt.trim()) throw new Error('Clarift returned an incomplete refinement.');
-    return { refinedPrompt: result.refinedPrompt, provider: result.provider || 'managed' };
+    return {
+      refinedPrompt: result.refinedPrompt,
+      qualityTier: result.qualityTier || (result.provider === 'local' ? 'fallback' : 'generative'),
+      basicMode: result.basicMode || null
+    };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Clarift took too long to respond. Please try again.');
     throw error;

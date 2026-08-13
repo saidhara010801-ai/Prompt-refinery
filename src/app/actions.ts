@@ -178,7 +178,15 @@ export async function refinePromptAction(data: RefinePromptWithAICouncilInput & 
                 openRouterModels: withDefaultOpenRouterModels(refinement.openRouterModels),
             },
         });
-        return { ...gateway.result, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider };
+        return {
+            ...gateway.result,
+            contractVersion: 2 as const,
+            requestId: gateway.requestId,
+            creditsCharged: gateway.creditsCharged,
+            qualityTier: gateway.qualityTier,
+            allowance: gateway.allowance,
+            basicMode: gateway.basicMode,
+        };
     } catch (error) {
         console.error("Error refining prompt:", { name: error instanceof Error ? error.name : 'UnknownError' });
         if (error instanceof Error && (
@@ -236,7 +244,16 @@ export async function evaluateGuidelinesAction(data: z.infer<typeof batchEvaluat
             combinedScore: evaluation.combinedScore,
             results: evaluation.results,
         });
-        return { ...evaluation, id: saved.id, requestId: gateway.requestId, creditsCharged: gateway.creditsCharged, provider: gateway.provider };
+        return {
+            ...evaluation,
+            id: saved.id,
+            contractVersion: 2 as const,
+            requestId: gateway.requestId,
+            creditsCharged: gateway.creditsCharged,
+            qualityTier: gateway.qualityTier,
+            allowance: gateway.allowance,
+            basicMode: gateway.basicMode,
+        };
     } catch (error) {
         console.error('Error evaluating guidelines:', error);
         if (error instanceof Error && [

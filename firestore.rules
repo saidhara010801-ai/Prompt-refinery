@@ -346,6 +346,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /freeInferenceQuotas/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /freeInferenceReservations/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /providerBudgets/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /providerBudgetReservations/{document=**} {
+      allow read, write: if false;
+    }
+
     match /extensionLinkCodes/{document=**} {
       allow read, write: if false;
     }
@@ -371,6 +387,10 @@ service cloud.firestore {
     }
 
     match /dailyUsageAggregates/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /usageDailyAggregates/{document=**} {
       allow read, write: if false;
     }
 

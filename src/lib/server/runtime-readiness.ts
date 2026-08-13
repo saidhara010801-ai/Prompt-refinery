@@ -14,6 +14,7 @@ export interface RuntimeReadiness {
     managedOpenRouterGuarded: boolean;
     fileConversionRuntime: boolean;
     managedInference: boolean;
+    freeManagedInference: boolean;
     localInferenceFallback: boolean;
     byokEncryption: boolean;
     razorpayBilling: boolean;
@@ -66,6 +67,7 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_SUPPORT_ACCESS_REQUESTS',
   'ENABLE_MANAGED_OPENROUTER',
   'ENABLE_MANAGED_INFERENCE',
+  'ENABLE_FREE_MANAGED_INFERENCE',
   'ENABLE_LOCAL_INFERENCE_FALLBACK',
   'ENABLE_BYOK',
   'ENABLE_RAZORPAY_BILLING',
@@ -86,6 +88,13 @@ function isBooleanFlag(environment: Environment, variable: string) {
 
 function isEnabled(environment: Environment, variable: string) {
   return environment[variable]?.trim().toLowerCase() === 'true';
+}
+
+function hasCurrentProviderPricing(environment: Environment) {
+  const value = environment.CLARIFT_PROVIDER_PRICING_EFFECTIVE_DATE;
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const ageMs = Date.now() - new Date(`${value}T00:00:00.000Z`).getTime();
+  return ageMs >= 0 && ageMs <= 90 * 24 * 60 * 60 * 1000;
 }
 
 function hasValidRazorpayCatalog(environment: Environment) {
@@ -148,6 +157,11 @@ export function getOptionalProductionWarnings(environment: Environment): string[
     }
   }
 
+  if (isEnabled(environment, 'ENABLE_FREE_MANAGED_INFERENCE') &&
+    (!hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || !hasValue(environment, 'CLARIFT_TOGETHER_API_KEY'))) {
+    warnings.push('Free managed inference is enabled but both managed provider secrets are not configured.');
+  }
+
   if (isEnabled(environment, 'ENABLE_PROMOTION_CODES') && !hasValue(environment, 'PROMO_CODE_PEPPER')) {
     warnings.push('ENABLE_PROMOTION_CODES is true but PROMO_CODE_PEPPER is missing.');
   }
@@ -198,6 +212,34 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
     hasValue(environment, 'CLARIFT_GEMINI_API_KEY') || hasValue(environment, 'GEMINI_API_KEY') || hasValue(environment, 'GOOGLE_API_KEY') ||
     (isEnabled(environment, 'ENABLE_MANAGED_OPENROUTER') && (hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || hasValue(environment, 'OPENROUTER_API_KEY'))) ||
     localInferenceFallback;
+  const freeInferenceConfig = [
+    'CLARIFT_FREE_OPENROUTER_MODEL',
+    'CLARIFT_FREE_TOGETHER_MODEL',
+    'CLARIFT_FREE_REFINEMENT_DAILY_UNITS',
+    'CLARIFT_FREE_REFINEMENT_MONTHLY_UNITS',
+    'CLARIFT_FREE_EVALUATION_DAILY_UNITS',
+    'CLARIFT_FREE_EVALUATION_MONTHLY_UNITS',
+    'CLARIFT_FREE_GLOBAL_CONCURRENCY',
+    'CLARIFT_FREE_REMOTE_DEADLINE_MS',
+    'CLARIFT_OPENROUTER_DAILY_BUDGET_USD',
+    'CLARIFT_TOGETHER_DAILY_BUDGET_USD',
+    'CLARIFT_REMOTE_ADMISSION_BUDGET_USD',
+    'CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION',
+    'CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION',
+    'CLARIFT_TOGETHER_INPUT_USD_PER_MILLION',
+    'CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION',
+    'CLARIFT_PROVIDER_PRICING_EFFECTIVE_DATE',
+  ].every((variable) => variable.includes('MODEL') || variable.includes('DATE')
+    ? hasValue(environment, variable)
+    : hasValue(environment, variable) && Number(environment[variable]) > 0);
+  const freeManagedInference = !isEnabled(environment, 'ENABLE_FREE_MANAGED_INFERENCE') || (
+    freeInferenceConfig &&
+    hasCurrentProviderPricing(environment) &&
+    hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') &&
+    hasValue(environment, 'CLARIFT_TOGETHER_API_KEY') &&
+    Number(environment.CLARIFT_REMOTE_ADMISSION_BUDGET_USD) <=
+      Number(environment.CLARIFT_OPENROUTER_DAILY_BUDGET_USD) + Number(environment.CLARIFT_TOGETHER_DAILY_BUDGET_USD)
+  );
   const byokEncryption = !isEnabled(environment, 'ENABLE_BYOK') || hasValidByokKey(environment);
   const razorpayBilling = !isEnabled(environment, 'ENABLE_RAZORPAY_BILLING') || [
     'RAZORPAY_KEY_ID',
@@ -220,6 +262,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       managedOpenRouterGuarded &&
       fileConversionRuntime &&
       managedInference &&
+      freeManagedInference &&
       byokEncryption &&
       razorpayBilling &&
       apiTokenSecurity &&
@@ -236,6 +279,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       managedOpenRouterGuarded,
       fileConversionRuntime,
       managedInference,
+      freeManagedInference,
       localInferenceFallback,
       byokEncryption,
       razorpayBilling,

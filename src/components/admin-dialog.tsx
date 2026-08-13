@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Copy, ShieldCheck, Ticket, Trash2, UserX } from 'lucide-react';
+import { Activity, Copy, ShieldCheck, Ticket, Trash2, UserCheck, UserX } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface PromoCodeRecord { id: string; prefix: string; label: string | null; mode: string; maxRedemptions: number | null; redemptionCount: number; active: boolean; createdAt: string | null }
 interface PromoUser { id: string; uid: string; email: string; codeId: string; redeemedAt?: { seconds: number } }
+interface InferenceHealth { requests: number; succeeded: number; failed: number; generative: number; fallback: number; malformedAttempts: number; latencyMs: { p50: number | null; p95: number | null }; budgets: Record<string, { settledUsd?: number; reservedUsd?: number } | null>; circuits: Array<{ id: string; state?: string; provider?: string }> }
 
 export function AdminDialog() {
   const { user } = useFirebase();
@@ -28,6 +29,8 @@ export function AdminDialog() {
   const [label, setLabel] = useState('');
   const [newCode, setNewCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [betaUid, setBetaUid] = useState('');
+  const [inferenceHealth, setInferenceHealth] = useState<InferenceHealth | null>(null);
 
   const api = async (url: string, init?: RequestInit) => {
     if (!user) throw new Error('Sign in to continue.');
@@ -46,9 +49,10 @@ export function AdminDialog() {
   const refresh = async () => {
     if (!isOwner) return;
     try {
-      const [codeData, userData] = await Promise.all([api('/api/admin/promo-codes'), api('/api/admin/promo-users')]);
+      const [codeData, userData, healthData] = await Promise.all([api('/api/admin/promo-codes'), api('/api/admin/promo-users'), api('/api/admin/free-inference')]);
       setCodes(codeData);
       setPromoUsers(userData);
+      setInferenceHealth(healthData);
     } catch (error) { toast({ variant: 'destructive', title: 'Could Not Load Admin Data', description: error instanceof Error ? error.message : 'Please try again.' }); }
   };
 
@@ -81,13 +85,25 @@ export function AdminDialog() {
     finally { setBusy(false); }
   };
 
+  const updateBeta = async (enabled: boolean) => {
+    if (!betaUid.trim()) return;
+    setBusy(true);
+    try {
+      await api('/api/admin/free-inference', { method: 'POST', body: JSON.stringify({ uid: betaUid.trim(), enabled }) });
+      toast({ title: enabled ? 'Managed Inference Enabled' : 'Managed Inference Disabled' });
+      setBetaUid('');
+      await refresh();
+    } catch (error) { toast({ variant: 'destructive', title: 'Could Not Update Beta Access', description: error instanceof Error ? error.message : 'Please try again.' }); }
+    finally { setBusy(false); }
+  };
+
   if (!isOwner) return null;
   return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger asChild><Button type="button" variant="outline" size="icon"><ShieldCheck className="h-4 w-4" /><span className="sr-only">Promo administration</span></Button></DialogTrigger>
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-      <DialogHeader><DialogTitle>Promo Access</DialogTitle><DialogDescription>Issue revocable Pro access codes and manage active promo accounts.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>Clarift Administration</DialogTitle><DialogDescription>Manage controlled access and monitor release health.</DialogDescription></DialogHeader>
       <Tabs defaultValue="codes">
-        <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="codes">Codes</TabsTrigger><TabsTrigger value="users">Promo Users</TabsTrigger></TabsList>
+        <TabsList className="grid w-full grid-cols-3"><TabsTrigger value="codes">Codes</TabsTrigger><TabsTrigger value="users">Promo Users</TabsTrigger><TabsTrigger value="inference">Inference</TabsTrigger></TabsList>
         <TabsContent value="codes" className="space-y-4 pt-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_150px_100px_auto] sm:items-end">
             <div className="space-y-2"><Label htmlFor="promo-label">Label</Label><Input id="promo-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Alpha cohort" /></div>
@@ -101,6 +117,20 @@ export function AdminDialog() {
         <TabsContent value="users" className="space-y-2 pt-4">
           {promoUsers.map((promoUser) => <div key={promoUser.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div className="min-w-0"><p className="truncate font-medium">{promoUser.email}</p><p className="truncate text-xs text-muted-foreground">{promoUser.uid}</p></div><Button type="button" variant="outline" size="icon" onClick={() => revokeUser(promoUser.uid)} disabled={busy}><UserX className="h-4 w-4" /><span className="sr-only">Revoke promo access</span></Button></div>)}
           {promoUsers.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No active promo users.</p>}
+        </TabsContent>
+        <TabsContent value="inference" className="space-y-4 pt-4">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input value={betaUid} onChange={(event) => setBetaUid(event.target.value)} placeholder="Firebase user UID" aria-label="Beta tester user ID" />
+            <Button type="button" onClick={() => updateBeta(true)} disabled={busy || !betaUid.trim()}><UserCheck className="h-4 w-4" />Enable</Button>
+            <Button type="button" variant="outline" onClick={() => updateBeta(false)} disabled={busy || !betaUid.trim()}><UserX className="h-4 w-4" />Disable</Button>
+          </div>
+          {inferenceHealth && <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[['Requests', inferenceHealth.requests], ['Generative', inferenceHealth.generative], ['Basic mode', inferenceHealth.fallback], ['Malformed', inferenceHealth.malformedAttempts]].map(([label, value]) => <div key={String(label)} className="rounded-md border p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold">{value}</p></div>)}
+            </div>
+            <div className="rounded-md border p-3 text-sm"><div className="mb-2 flex items-center gap-2 font-medium"><Activity className="h-4 w-4" />Last 24 hours</div><p>Success: {inferenceHealth.succeeded} · Failed: {inferenceHealth.failed} · p50: {inferenceHealth.latencyMs.p50 ?? 'n/a'} ms · p95: {inferenceHealth.latencyMs.p95 ?? 'n/a'} ms</p><p className="mt-1 text-muted-foreground">Spend: ${Number(inferenceHealth.budgets.overall?.settledUsd ?? 0).toFixed(4)} settled · ${Number(inferenceHealth.budgets.overall?.reservedUsd ?? 0).toFixed(4)} reserved</p></div>
+            <div className="space-y-2">{inferenceHealth.circuits.map((circuit) => <div key={circuit.id} className="flex items-center justify-between rounded-md border p-3 text-sm"><span>{circuit.provider || circuit.id}</span><Badge variant={circuit.state === 'open' ? 'destructive' : 'secondary'}>{circuit.state || 'closed'}</Badge></div>)}</div>
+          </>}
         </TabsContent>
       </Tabs>
     </DialogContent>

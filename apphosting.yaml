@@ -51,6 +51,78 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  - variable: ENABLE_FREE_MANAGED_INFERENCE
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_INFERENCE_ROLLOUT_PERCENT
+    value: "0"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_OPENROUTER_MODEL
+    value: google/gemma-3-4b-it
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_TOGETHER_MODEL
+    value: google/gemma-3n-E4B-it
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_REFINEMENT_DAILY_UNITS
+    value: "10"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_REFINEMENT_MONTHLY_UNITS
+    value: "200"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_EVALUATION_DAILY_UNITS
+    value: "5"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_EVALUATION_MONTHLY_UNITS
+    value: "100"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_GLOBAL_CONCURRENCY
+    value: "20"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_REMOTE_DEADLINE_MS
+    value: "30000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_DAILY_BUDGET_USD
+    value: "4.00"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_DAILY_BUDGET_USD
+    value: "0.50"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_REMOTE_ADMISSION_BUDGET_USD
+    value: "4.50"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION
+    value: "0.05"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION
+    value: "0.10"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_INPUT_USD_PER_MILLION
+    value: "0.06"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION
+    value: "0.12"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PROVIDER_PRICING_EFFECTIVE_DATE
+    value: "2026-08-14"
+    availability:
+      - RUNTIME
   - variable: ENABLE_LOCAL_INFERENCE_FALLBACK
     value: "true"
     availability:

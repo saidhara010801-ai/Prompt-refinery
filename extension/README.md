@@ -1,6 +1,6 @@
 # Clarift browser extension
 
-This Manifest V3 extension adds **Refine with Clarift** to ChatGPT, Claude, Gemini, Copilot, Perplexity, Poe, Grok, and Google AI Studio. It uses Clarift managed inference and never asks for, stores, or transmits a Gemini or OpenRouter provider key. Short-lived access tokens remain in Chrome session storage; the rotating device refresh token is revocable from Clarift.
+This Manifest V3 extension adds **Refine with Clarift** to ChatGPT, Claude, Gemini, Copilot, Perplexity, Poe, Grok, and Google AI Studio. It uses Clarift managed inference and never asks for, stores, or transmits a provider key. Short-lived access tokens remain in Chrome session storage; the rotating device refresh token is revocable from Clarift. Version 2.2 understands the version 2 quality-tier contract while remaining compatible with older Clarift servers.
 
 ## Load for testing
 
