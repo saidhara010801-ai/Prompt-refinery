@@ -15,6 +15,56 @@ export const FreeRefinementOutputSchema = z.object({
   refinements: z.array(CouncilMemberSchema).min(1).max(5),
 });
 
+const councilLabelPattern = /^(?:the\s+)?(?:specifier|simplifier|stylist|critic|formatter)\s*:\s*/i;
+
+function normalizedPrompt(value: string) {
+  return value
+    .trim()
+    .replace(councilLabelPattern, '')
+    .replace(/^["'`]+|["'`,;]+$/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function hasSerializationWrapper(value: string) {
+  const trimmed = value.trim();
+  if (councilLabelPattern.test(trimmed)) return true;
+  const withoutComma = trimmed.endsWith(',') ? trimmed.slice(0, -1).trimEnd() : trimmed;
+  const opening = withoutComma[0];
+  return Boolean(opening && ['"', "'", '`'].includes(opening) && withoutComma.at(-1) === opening);
+}
+
+function refinementOutputSchema(roles: string[], maxCharacters?: number) {
+  return FreeRefinementOutputSchema.superRefine((output, context) => {
+    if (output.refinements.length !== roles.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['refinements'], message: 'The council response has the wrong number of passes.' });
+      return;
+    }
+
+    output.refinements.forEach((refinement, index) => {
+      if (refinement.councilMember.trim().toLowerCase() !== roles[index].toLowerCase()) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['refinements', index, 'councilMember'], message: 'The council passes are not in the required order.' });
+      }
+    });
+
+    const finalPrompt = output.refinedPrompt.trim();
+    if (hasSerializationWrapper(finalPrompt)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['refinedPrompt'], message: 'The final prompt contains an intermediate-pass wrapper.' });
+    }
+    if (maxCharacters && finalPrompt.length > maxCharacters) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['refinedPrompt'], message: 'The final prompt exceeds the requested character limit.' });
+    }
+
+    if (roles.length > 1) {
+      const normalizedFinal = normalizedPrompt(finalPrompt);
+      if (output.refinements.some((refinement) => normalizedPrompt(refinement.refinedText) === normalizedFinal)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['refinedPrompt'], message: 'The final prompt must synthesize the council passes.' });
+      }
+    }
+  });
+}
+
 const DimensionScoresSchema = z.object({
   clarity: z.number().min(0).max(100),
   context: z.number().min(0).max(100),
@@ -34,13 +84,18 @@ export const FreeEvaluationOutputSchema = z.object({
   })).min(1).max(8),
 });
 
-function refinementJsonSchema(roleCount: number): Record<string, unknown> {
+function refinementJsonSchema(roles: string[], maxCharacters?: number): Record<string, unknown> {
+  const roleCount = roles.length;
+  const finalMaximum = Math.min(maxCharacters ?? 12000, 12000);
+  const synthesisDescription = roleCount === 1
+    ? 'The final copy-ready prompt only. Do not add a council label, quotation wrapper, explanation, or trailing punctuation outside the prompt.'
+    : `A new final copy-ready prompt synthesized from all ${roleCount} council passes. It must not copy any single refinedText or include a council label, quotation wrapper, explanation, or trailing punctuation outside the prompt.`;
   return {
     type: 'object',
     additionalProperties: false,
     required: ['refinedPrompt', 'refinements'],
     properties: {
-      refinedPrompt: { type: 'string', maxLength: 12000 },
+      refinedPrompt: { type: 'string', maxLength: finalMaximum, description: synthesisDescription },
       refinements: {
         type: 'array',
         minItems: roleCount,
@@ -50,9 +105,9 @@ function refinementJsonSchema(roleCount: number): Record<string, unknown> {
           additionalProperties: false,
           required: ['councilMember', 'thoughtProcess', 'refinedText'],
           properties: {
-            councilMember: { type: 'string', maxLength: 160 },
-            thoughtProcess: { type: 'string', maxLength: 400 },
-            refinedText: { type: 'string', maxLength: 12000 },
+            councilMember: { type: 'string', enum: roles, description: `Use the required council names in this exact order: ${roles.join(', ')}.` },
+            thoughtProcess: { type: 'string', maxLength: 400, description: 'A concise user-facing summary of changes, without hidden reasoning.' },
+            refinedText: { type: 'string', maxLength: 12000, description: 'This council member\'s intermediate copy-ready proposal. Do not prefix it with the council member name or wrap it in quotes.' },
           },
         },
       },
@@ -113,7 +168,18 @@ export function buildFreeRefinementRequest(
   input: Omit<RefinePromptWithAICouncilInput, 'apiKey' | 'openRouterApiKey' | 'provider' | 'executionMode'>
 ) {
   const roles = roleNames[task];
-  const system = `You are Clarift, an expert prompt-refinement system. Improve prompts for clarity, context, specificity, constraints, and useful output structure. Produce only the requested JSON object. Do not reveal hidden reasoning or chain-of-thought. Keep every thoughtProcess under 240 characters and every intermediate refinedText concise. Return exactly ${roles.length} refinement entries in this order: ${roles.join(', ')}.`;
+  const system = `You are Clarift, an expert prompt-refinement system. Improve prompts for clarity, context, specificity, constraints, and useful output structure.
+
+Council responsibilities:
+- The Specifier makes intent, context, constraints, audience, and success criteria explicit.
+- The Simplifier removes unnecessary complexity and organizes instructions into an executable flow.
+- The Stylist improves role, tone, format, and audience fit.
+- The Critic identifies gaps and repairs them in its proposed prompt without introducing a different prompting technique.
+- The Formatter produces a reusable, copy-ready structure.
+
+Return exactly ${roles.length} intermediate refinement entries in this order: ${roles.join(', ')}. After completing those passes, set refinedPrompt to one final prompt that incorporates their strongest compatible improvements. For multi-pass modes, refinedPrompt must be a new synthesis and must not equal any single refinedText.
+
+Produce only the requested JSON object. The refinedPrompt and refinedText values must contain prompt text only: no council labels, quotation wrappers, explanations, or trailing commas. Do not reveal hidden reasoning or chain-of-thought. Keep every thoughtProcess under 240 characters and every intermediate refinedText concise. Apply only the user's selected prompting technique; council roles are review functions, not permission to introduce other techniques.`;
   const user = `Refine the prompt using the ${input.promptType} technique and the ${task} mode.
 
 Original prompt:
@@ -124,11 +190,12 @@ ${input.maxCharacters ? `The final refined prompt must not exceed ${input.maxCha
 ${input.projectMemory ? `Relevant project memory:\n"""\n${input.projectMemory}\n"""` : ''}
 ${attachmentText(input)}
 
-Use project memory and references only when relevant. If the selected technique is ReAct or chain-of-thought, write a prompt that instructs the downstream model to use that method; do not perform or expose hidden reasoning yourself. The final prompt must be copy-ready and preserve the user's intent.`;
+Use project memory and references only when relevant. If the selected technique is ReAct or chain-of-thought, write a prompt that instructs the downstream model to use that method without requesting hidden reasoning. Do not introduce ReAct, chain-of-thought, tree-of-thoughts, or another technique unless it is the selected technique. The final prompt must be copy-ready, preserve the user's intent, respect the character limit, and synthesize every required council pass.`;
   return {
     messages: [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }],
-    schema: { name: 'clarift_refinement', schema: refinementJsonSchema(roles.length) },
-    outputSchema: FreeRefinementOutputSchema as z.ZodType<RefinePromptWithAICouncilOutput>,
+    schema: { name: 'clarift_refinement', schema: refinementJsonSchema(roles, input.maxCharacters) },
+    outputSchema: refinementOutputSchema(roles, input.maxCharacters) as z.ZodType<RefinePromptWithAICouncilOutput>,
+    repairMessage: `The previous response was not a valid Clarift council result. Return all ${roles.length} council passes in the required order, then create a distinct final refinedPrompt that synthesizes them. The final prompt must contain prompt text only, with no council label, quote wrapper, explanation, or trailing comma. Do not copy any one intermediate refinedText as the final result. Return only the complete JSON object.`,
     maxTokens: FREE_TASK_OUTPUT_TOKENS[task],
   };
 }

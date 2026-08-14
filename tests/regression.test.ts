@@ -423,6 +423,39 @@ test('serialized token estimates include instructions and schema rather than raw
   assert.ok(estimateSerializedTokens({ messages: evaluation.messages, schema: evaluation.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
 });
 
+test('managed council output requires a clean synthesis after Guided Fix passes', () => {
+  const guided = buildFreeRefinementRequest('guided_fix', {
+    prompt: 'Write a blog about prompt engineering.',
+    promptType: 'Role / persona',
+  });
+  const passes = [
+    { councilMember: 'The Specifier', thoughtProcess: 'Added requirements.', refinedText: 'Act as a researcher and write a detailed blog.' },
+    { councilMember: 'The Simplifier', thoughtProcess: 'Organized the task.', refinedText: 'Write a structured blog for technical readers.' },
+    { councilMember: 'The Critic', thoughtProcess: 'Closed important gaps.', refinedText: 'Evaluate prompt engineering with evidence and caveats.' },
+  ];
+
+  assert.equal(guided.outputSchema.safeParse({ refinedPrompt: 'The Specifier: "Act as a researcher and write a detailed blog.",', refinements: passes }).success, false);
+  assert.equal(guided.outputSchema.safeParse({ refinedPrompt: passes[0].refinedText, refinements: passes }).success, false);
+  assert.equal(guided.outputSchema.safeParse({
+    refinedPrompt: 'Act as an AI research writer. Produce a structured, evidence-based blog for technical readers that evaluates "prompt engineering," addresses counterarguments, and clearly labels uncertainty.',
+    refinements: passes,
+  }).success, true);
+
+  const bounded = buildFreeRefinementRequest('guided_fix', {
+    prompt: 'Write a blog about prompt engineering.',
+    promptType: 'Role / persona',
+    maxCharacters: 100,
+  });
+  assert.equal(bounded.outputSchema.safeParse({ refinedPrompt: 'x'.repeat(101), refinements: passes }).success, false);
+
+  const quick = buildFreeRefinementRequest('quick_refine', {
+    prompt: 'Write a blog about prompt engineering.',
+    promptType: 'Role / persona',
+  });
+  const quickPass = [{ councilMember: 'The Specifier', thoughtProcess: 'Added requirements.', refinedText: 'Act as a researcher and write a detailed blog.' }];
+  assert.equal(quick.outputSchema.safeParse({ refinedPrompt: quickPass[0].refinedText, refinements: quickPass }).success, true);
+});
+
 test('managed provider parsing classifies malformed output without retaining it', () => {
   const schema = z.object({ refinedPrompt: z.string() });
   assert.deepEqual(parseProviderJson('{"refinedPrompt":"Ready"}', schema), { refinedPrompt: 'Ready' });

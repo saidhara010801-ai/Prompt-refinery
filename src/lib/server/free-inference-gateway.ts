@@ -47,6 +47,7 @@ interface FreeGatewayRequest<T> {
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
     schema: { name: string; schema: Record<string, unknown> };
     outputSchema: z.ZodType<T>;
+    repairMessage?: string;
     maxTokens: number;
   };
   fallback: () => Promise<T> | T;
@@ -264,7 +265,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
           apiKey,
           model,
           messages: repair
-            ? [...request.prepared.messages, { role: 'user', content: 'The previous response was invalid. Return only a complete JSON object that exactly matches the supplied schema.' }]
+            ? [...request.prepared.messages, { role: 'user', content: request.prepared.repairMessage || 'The previous response was invalid. Return only a complete JSON object that exactly matches the supplied schema.' }]
             : request.prepared.messages,
           maxTokens: request.prepared.maxTokens,
           timeoutMs: Math.max(1_000, Math.min(timeoutCap, remaining)),
@@ -312,7 +313,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
       primaryError = error;
       if (isRetryable(error) && deadline - Date.now() >= 2_000) {
         try {
-          result = await runAttempt('openrouter', 8_000, error instanceof ProviderSchemaError);
+          result = await runAttempt('openrouter', 14_000, error instanceof ProviderSchemaError);
           primaryError = null;
         } catch (retryError) {
           primaryError = retryError;
