@@ -4,7 +4,6 @@ import type { NextRequest } from 'next/server';
 import { getRuntimeReadiness } from './runtime-readiness';
 import { getAdminFirestore } from './firebase-admin';
 import {
-  FieldPath,
   firestoreTimestampNow,
   getEffectiveUserEntitlement,
   hashRequestValue,
@@ -269,7 +268,6 @@ export async function readAuditLogs(request: NextRequest, pageSize?: number, cur
   let query = getAdminFirestore()
     .collection('adminAuditLogs')
     .orderBy('createdAt', 'desc')
-    .orderBy(FieldPath.documentId())
     .limit(limit);
 
   if (cursor) {

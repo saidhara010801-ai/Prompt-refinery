@@ -18,6 +18,7 @@ interface InferenceHealth { requests: number; succeeded: number; failed: number;
 interface SystemHealth { ready: boolean; checks: Record<string, boolean>; featureFlags: Record<string, boolean> }
 interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending' }
 interface AuditLog { id: string; actorUid: string | null; actorRole: string | null; action: string; targetUid: string | null; metadataRedacted: Record<string, unknown>; createdAt: string | null }
+type AdminFeed = 'codes' | 'promoUsers' | 'inference' | 'system' | 'audit';
 
 export function AdminPanel() {
   const { user } = useFirebase();
@@ -36,6 +37,7 @@ export function AdminPanel() {
   const [search, setSearch] = useState('');
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<AdminFeed, string>>>({});
 
   const api = async (url: string, init?: RequestInit) => {
     if (!user) throw new Error('Sign in to continue.');
@@ -56,20 +58,40 @@ export function AdminPanel() {
     if (!user) return;
     setBusy(true);
     try {
-      const [codeData, promoUserData, healthData, systemData, auditData] = await Promise.all([
+      const [codeResult, promoUserResult, healthResult, systemResult, auditResult] = await Promise.allSettled([
         api('/api/admin/promo-codes'),
         api('/api/admin/promo-users'),
         api('/api/admin/free-inference'),
         api('/api/admin/system-health'),
         api('/api/admin/audit-logs?pageSize=20'),
       ]);
-      setCodes(codeData);
-      setPromoUsers(promoUserData);
-      setInferenceHealth(healthData);
-      setSystemHealth(systemData);
-      setAuditLogs(auditData.logs ?? []);
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Could Not Load Admin Data', description: error instanceof Error ? error.message : 'Please try again.' });
+
+      const errors: Partial<Record<AdminFeed, string>> = {};
+      const failedLabels: string[] = [];
+      const applyResult = <T,>(result: PromiseSettledResult<T>, feed: AdminFeed, label: string, apply: (value: T) => void) => {
+        if (result.status === 'fulfilled') {
+          apply(result.value);
+          return;
+        }
+
+        errors[feed] = result.reason instanceof Error ? result.reason.message : 'Admin request failed.';
+        failedLabels.push(label);
+      };
+
+      applyResult(codeResult, 'codes', 'promo codes', setCodes);
+      applyResult(promoUserResult, 'promoUsers', 'promo users', setPromoUsers);
+      applyResult(healthResult, 'inference', 'inference health', setInferenceHealth);
+      applyResult(systemResult, 'system', 'system readiness', setSystemHealth);
+      applyResult(auditResult, 'audit', 'audit activity', (value) => setAuditLogs(value.logs ?? []));
+      setLoadErrors(errors);
+
+      if (failedLabels.length > 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Some Admin Data Could Not Load',
+          description: `${failedLabels.join(', ')} failed. The available sections are still shown.`,
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -158,6 +180,7 @@ export function AdminPanel() {
       </TabsList>
 
       <TabsContent value="overview" className="space-y-4 pt-4">
+        {loadErrors.system && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">System readiness could not load. Use Refresh to try again.</p>}
         <div className="flex items-center gap-2"><CheckCircle2 className={`h-5 w-5 ${systemHealth?.ready ? 'text-green-600' : 'text-amber-500'}`} /><span className="font-medium">{systemHealth?.ready ? 'Production ready' : 'Readiness needs attention'}</span></div>
         <div className="grid gap-2 sm:grid-cols-2">
           {Object.entries(systemHealth?.checks ?? {}).map(([name, healthy]) => <div key={name} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm"><span className="break-all">{name}</span><Badge variant={healthy ? 'secondary' : 'destructive'}>{healthy ? 'Ready' : 'Check'}</Badge></div>)}
@@ -185,6 +208,7 @@ export function AdminPanel() {
       </TabsContent>
 
       <TabsContent value="codes" className="space-y-4 pt-4">
+        {(loadErrors.codes || loadErrors.promoUsers) && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Some promo data could not load. Use Refresh to try again.</p>}
         <div className="grid gap-3 sm:grid-cols-[1fr_150px_100px_auto] sm:items-end">
           <div className="space-y-2"><Label htmlFor="promo-label">Label</Label><Input id="promo-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Alpha cohort" /></div>
           <div className="space-y-2"><Label>Mode</Label><Select value={mode} onValueChange={(value: typeof mode) => setMode(value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Single use</SelectItem><SelectItem value="limited">Limited</SelectItem><SelectItem value="unlimited">Unlimited</SelectItem></SelectContent></Select></div>
@@ -197,11 +221,13 @@ export function AdminPanel() {
       </TabsContent>
 
       <TabsContent value="inference" className="space-y-4 pt-4">
+        {loadErrors.inference && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Inference health could not load. Use Refresh to try again.</p>}
         <div className="flex flex-col gap-2 sm:flex-row"><Input value={betaUid} onChange={(event) => setBetaUid(event.target.value)} placeholder="Firebase user UID" aria-label="Beta tester user ID" /><Button type="button" onClick={() => void updateBeta(betaUid, true)} disabled={busy || !betaUid.trim()}><UserCheck className="h-4 w-4" />Enable</Button><Button type="button" variant="outline" onClick={() => void updateBeta(betaUid, false)} disabled={busy || !betaUid.trim()}><UserX className="h-4 w-4" />Disable</Button></div>
         {inferenceHealth && <><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[['Requests', inferenceHealth.requests], ['Generative', inferenceHealth.generative], ['Basic mode', inferenceHealth.fallback], ['Malformed', inferenceHealth.malformedAttempts]].map(([itemLabel, value]) => <div key={String(itemLabel)} className="rounded-md border p-3"><p className="text-xs text-muted-foreground">{itemLabel}</p><p className="text-xl font-semibold">{value}</p></div>)}</div><div className="rounded-md border p-3 text-sm"><div className="mb-2 flex items-center gap-2 font-medium"><Activity className="h-4 w-4" />Last 24 hours</div><p>Success: {inferenceHealth.succeeded} · Failed: {inferenceHealth.failed} · p50: {inferenceHealth.latencyMs.p50 ?? 'n/a'} ms · p95: {inferenceHealth.latencyMs.p95 ?? 'n/a'} ms</p><p className="mt-1 text-muted-foreground">Spend: ${Number(inferenceHealth.budgets.overall?.settledUsd ?? 0).toFixed(4)} settled · ${Number(inferenceHealth.budgets.overall?.reservedUsd ?? 0).toFixed(4)} reserved</p></div><div className="space-y-2">{inferenceHealth.circuits.map((circuit) => <div key={circuit.id} className="flex items-center justify-between rounded-md border p-3 text-sm"><span>{circuit.provider || circuit.id}</span><Badge variant={circuit.state === 'open' ? 'destructive' : 'secondary'}>{circuit.state || 'closed'}</Badge></div>)}</div></>}
       </TabsContent>
 
       <TabsContent value="audit" className="space-y-2 pt-4">
+        {loadErrors.audit && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Audit activity could not load. Use Refresh to try again.</p>}
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><ShieldAlert className="h-4 w-4" />Sensitive values are redacted before audit records are stored.</div>
         {auditLogs.map((log) => <div key={log.id} className="space-y-1 rounded-md border p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{log.action}</span><span className="text-xs text-muted-foreground">{log.createdAt ? new Date(log.createdAt).toLocaleString() : 'Unknown time'}</span></div><p className="break-all text-xs text-muted-foreground">Actor: {log.actorUid || 'unknown'} ({log.actorRole || 'unknown'}){log.targetUid ? ` · Target: ${log.targetUid}` : ''}</p>{Object.keys(log.metadataRedacted ?? {}).length > 0 && <code className="block break-all text-xs">{JSON.stringify(log.metadataRedacted)}</code>}</div>)}
       </TabsContent>

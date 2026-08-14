@@ -1003,8 +1003,15 @@ test('owner administration stays in Settings and prevents self-lockout', () => {
   assert.match(adminPanel, /Grant Pro/);
   assert.match(adminPanel, /Enable AI Beta/);
   assert.match(adminPanel, /Sensitive values are redacted/);
+  assert.match(adminPanel, /Promise\.allSettled/);
+  assert.match(adminPanel, /The available sections are still shown/);
   assert.doesNotMatch(page, /AdminDialog/);
   assert.match(userAccess, /storedProfile\.role !== 'owner'/);
+
+  const adminService = readFileSync(join(process.cwd(), 'src/lib/server/admin-service.ts'), 'utf8');
+  const auditQuery = adminService.slice(adminService.indexOf('export async function readAuditLogs'), adminService.indexOf('export async function readSafeSystemHealth'));
+  assert.match(auditQuery, /orderBy\('createdAt', 'desc'\)/);
+  assert.doesNotMatch(auditQuery, /FieldPath\.documentId/);
 });
 
 test('Stage 2 conversion metadata is deterministic and detects low-text PDFs', () => {
