@@ -421,6 +421,19 @@ export async function readFreeInferenceHealth(request: NextRequest) {
   const percentile = (fraction: number) => latencies.length ? latencies[Math.min(Math.ceil(latencies.length * fraction) - 1, latencies.length - 1)] : null;
   const attempts = records.flatMap((record) => Array.isArray(record.attempts) ? record.attempts : []);
   const malformed = attempts.filter((attempt) => attempt?.status === 'malformed').length;
+  const attemptIssueCounts = new Map<string, { provider: string; model: string; status: string; errorCode: string; httpStatus: number | null; count: number }>();
+  for (const attempt of attempts.filter((item) => item?.status !== 'succeeded')) {
+    const issue = {
+      provider: String(attempt?.provider || 'unknown'),
+      model: String(attempt?.model || 'unknown'),
+      status: String(attempt?.status || 'unknown'),
+      errorCode: String(attempt?.errorCode || 'UnknownError'),
+      httpStatus: Number.isInteger(attempt?.httpStatus) ? Number(attempt.httpStatus) : null,
+    };
+    const key = JSON.stringify(issue);
+    const existing = attemptIssueCounts.get(key);
+    attemptIssueCounts.set(key, { ...issue, count: (existing?.count ?? 0) + 1 });
+  }
   const result = {
     windowHours: 24,
     requests: records.length,
@@ -429,6 +442,7 @@ export async function readFreeInferenceHealth(request: NextRequest) {
     generative: records.filter((record) => record.qualityTier === 'generative').length,
     fallback: records.filter((record) => record.qualityTier === 'fallback').length,
     malformedAttempts: malformed,
+    attemptIssues: Array.from(attemptIssueCounts.values()).sort((a, b) => b.count - a.count).slice(0, 12),
     latencyMs: { p50: percentile(0.5), p95: percentile(0.95) },
     budgets: {
       openrouter: openRouterBudget.data() ?? null,

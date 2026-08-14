@@ -70,6 +70,7 @@ interface AttemptRecord {
   outputTokens: number | null;
   costUsd: number | null;
   errorCode?: string;
+  httpStatus?: number;
 }
 
 function positiveNumber(value: string | undefined, fallback: number) {
@@ -82,6 +83,7 @@ function idempotencyId(tenantId: string, key: string) {
 }
 
 function errorCode(error: unknown) {
+  if (error instanceof OpenModelProviderError && error.status) return `ProviderHttp${error.status}`;
   return error instanceof Error ? error.name.slice(0, 120) : 'UnknownError';
 }
 
@@ -102,10 +104,10 @@ function calculateCost(provider: OpenModelProvider, usage: OpenModelUsage) {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.15)
       : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
     outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.6)
       : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
   });
 }
@@ -115,10 +117,10 @@ function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
     inputTokens: FREE_INPUT_TOKEN_LIMIT,
     outputTokens: maxTokens,
     inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.15)
       : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
     outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.6)
       : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
   });
 }
@@ -226,14 +228,14 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
       return await finishFallback(chooseBasicModeStatus({}));
     }
 
-    const deadline = startedAt + positiveNumber(process.env.CLARIFT_FREE_REMOTE_DEADLINE_MS, 30_000);
+    const deadline = startedAt + positiveNumber(process.env.CLARIFT_FREE_REMOTE_DEADLINE_MS, 38_000);
     let attemptNumber = 0;
     let budgetBlocked = false;
 
     const runAttempt = async (attemptProvider: OpenModelProvider, timeoutCap: number, repair: boolean): Promise<T | null> => {
       attemptNumber += 1;
       const model = attemptProvider === 'openrouter'
-        ? process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it'
+        ? process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it'
         : process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-3n-E4B-it';
       const apiKey = attemptProvider === 'openrouter'
         ? process.env.CLARIFT_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || ''
@@ -267,6 +269,8 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
           maxTokens: request.prepared.maxTokens,
           timeoutMs: Math.max(1_000, Math.min(timeoutCap, remaining)),
           responseSchema: request.prepared.schema,
+          providerSort: attemptProvider === 'openrouter' ? 'throughput' : undefined,
+          reasoningEffort: attemptProvider === 'openrouter' && model.includes('gemma-4') ? 'none' : undefined,
         });
         const cost = calculateCost(attemptProvider, completion.usage) ?? budget.amountUsd;
         await settleProviderBudget(budget, cost);
@@ -286,7 +290,16 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
         }
       } catch (error) {
         if (!budgetFinished) await releaseProviderBudget(budget).catch(() => undefined);
-        attempts.push(...(attempts.at(-1)?.provider === attemptProvider && attempts.at(-1)?.status === 'malformed' ? [] : [{ provider: attemptProvider, model, status: 'failed' as const, inputTokens: null, outputTokens: null, costUsd: null, errorCode: errorCode(error) }]));
+        attempts.push(...(attempts.at(-1)?.provider === attemptProvider && attempts.at(-1)?.status === 'malformed' ? [] : [{
+          provider: attemptProvider,
+          model,
+          status: 'failed' as const,
+          inputTokens: null,
+          outputTokens: null,
+          costUsd: null,
+          errorCode: errorCode(error),
+          ...(providerStatus(error) ? { httpStatus: providerStatus(error) } : {}),
+        }]));
         throw error;
       }
     };
@@ -294,7 +307,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
     let result: T | null = null;
     let primaryError: unknown = null;
     try {
-      result = await runAttempt('openrouter', 12_000, false);
+      result = await runAttempt('openrouter', 18_000, false);
     } catch (error) {
       primaryError = error;
       if (isRetryable(error) && deadline - Date.now() >= 2_000) {
@@ -306,7 +319,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
         }
       }
       if (primaryError) {
-        const model = process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it';
+        const model = process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it';
         await recordProviderFailure('openrouter', errorCode(primaryError), { model, requestId, status: providerStatus(primaryError) }).catch(() => undefined);
       }
     }

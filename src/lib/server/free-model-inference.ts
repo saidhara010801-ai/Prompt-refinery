@@ -34,29 +34,31 @@ export const FreeEvaluationOutputSchema = z.object({
   })).min(1).max(8),
 });
 
-const refinementJsonSchema: Record<string, unknown> = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['refinedPrompt', 'refinements'],
-  properties: {
-    refinedPrompt: { type: 'string' },
-    refinements: {
-      type: 'array',
-      minItems: 1,
-      maxItems: 5,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['councilMember', 'thoughtProcess', 'refinedText'],
-        properties: {
-          councilMember: { type: 'string' },
-          thoughtProcess: { type: 'string' },
-          refinedText: { type: 'string' },
+function refinementJsonSchema(roleCount: number): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['refinedPrompt', 'refinements'],
+    properties: {
+      refinedPrompt: { type: 'string', maxLength: 12000 },
+      refinements: {
+        type: 'array',
+        minItems: roleCount,
+        maxItems: roleCount,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['councilMember', 'thoughtProcess', 'refinedText'],
+          properties: {
+            councilMember: { type: 'string', maxLength: 160 },
+            thoughtProcess: { type: 'string', maxLength: 400 },
+            refinedText: { type: 'string', maxLength: 12000 },
+          },
         },
       },
     },
-  },
-};
+  };
+}
 
 const evaluationJsonSchema: Record<string, unknown> = {
   type: 'object',
@@ -111,7 +113,7 @@ export function buildFreeRefinementRequest(
   input: Omit<RefinePromptWithAICouncilInput, 'apiKey' | 'openRouterApiKey' | 'provider' | 'executionMode'>
 ) {
   const roles = roleNames[task];
-  const system = `You are Clarift, an expert prompt-refinement system. Improve prompts for clarity, context, specificity, constraints, and useful output structure. Produce only the requested JSON object. Do not reveal hidden reasoning or chain-of-thought. The thoughtProcess fields must contain concise, user-facing summaries of changes. Return exactly ${roles.length} refinement entries in this order: ${roles.join(', ')}.`;
+  const system = `You are Clarift, an expert prompt-refinement system. Improve prompts for clarity, context, specificity, constraints, and useful output structure. Produce only the requested JSON object. Do not reveal hidden reasoning or chain-of-thought. Keep every thoughtProcess under 240 characters and every intermediate refinedText concise. Return exactly ${roles.length} refinement entries in this order: ${roles.join(', ')}.`;
   const user = `Refine the prompt using the ${input.promptType} technique and the ${task} mode.
 
 Original prompt:
@@ -125,7 +127,7 @@ ${attachmentText(input)}
 Use project memory and references only when relevant. If the selected technique is ReAct or chain-of-thought, write a prompt that instructs the downstream model to use that method; do not perform or expose hidden reasoning yourself. The final prompt must be copy-ready and preserve the user's intent.`;
   return {
     messages: [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }],
-    schema: { name: 'clarift_refinement', schema: refinementJsonSchema },
+    schema: { name: 'clarift_refinement', schema: refinementJsonSchema(roles.length) },
     outputSchema: FreeRefinementOutputSchema as z.ZodType<RefinePromptWithAICouncilOutput>,
     maxTokens: FREE_TASK_OUTPUT_TOKENS[task],
   };

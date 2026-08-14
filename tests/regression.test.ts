@@ -415,6 +415,9 @@ test('serialized token estimates include instructions and schema rather than raw
   for (const task of ['quick_refine', 'guided_fix', 'full_council'] as const) {
     const prepared = buildFreeRefinementRequest(task, { prompt: 'Write a concise launch plan.', promptType: 'Zero-shot' });
     assert.ok(estimateSerializedTokens({ messages: prepared.messages, schema: prepared.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
+    const refinements = (prepared.schema.schema.properties as { refinements: { minItems: number; maxItems: number } }).refinements;
+    assert.equal(refinements.minItems, task === 'quick_refine' ? 1 : task === 'guided_fix' ? 3 : 5);
+    assert.equal(refinements.maxItems, refinements.minItems);
   }
   const evaluation = buildFreeEvaluationRequest('Write a concise launch plan.', ['Clarity']);
   assert.ok(estimateSerializedTokens({ messages: evaluation.messages, schema: evaluation.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
@@ -441,16 +444,22 @@ test('OpenRouter managed calls request strict structured output and capture usag
     const completion = await createOpenModelCompletion({
       provider: 'openrouter',
       apiKey: 'test-key',
-      model: 'google/gemma-3-4b-it',
+      model: 'google/gemma-4-26b-a4b-it',
       messages: [{ role: 'user', content: 'Refine this.' }],
       maxTokens: 1024,
       timeoutMs: 1000,
       responseSchema: { name: 'test', schema: { type: 'object', properties: { refinedPrompt: { type: 'string' } } } },
+      providerSort: 'throughput',
+      reasoningEffort: 'none',
     });
     assert.ok(requestBody);
     const format = (requestBody as Record<string, unknown>).response_format as { type?: string; json_schema?: { strict?: boolean } } | undefined;
     assert.equal(format?.type, 'json_schema');
     assert.equal(format?.json_schema?.strict, true);
+    const provider = (requestBody as Record<string, unknown>).provider as { sort?: string } | undefined;
+    const reasoning = (requestBody as Record<string, unknown>).reasoning as { effort?: string } | undefined;
+    assert.equal(provider?.sort, 'throughput');
+    assert.equal(reasoning?.effort, 'none');
     assert.deepEqual(completion.usage, { inputTokens: 100, outputTokens: 40, costUsd: 0.000009 });
   } finally {
     globalThis.fetch = originalFetch;

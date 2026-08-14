@@ -22,6 +22,8 @@ interface OpenModelCompletionInput {
   maxTokens: number;
   timeoutMs: number;
   responseSchema?: { name: string; schema: Record<string, unknown> };
+  providerSort?: 'price' | 'throughput' | 'latency';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
 }
 
 const ResponseSchema = z.object({
@@ -84,6 +86,9 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
         messages,
         temperature: 0.2,
         max_tokens: input.maxTokens,
+        ...(input.provider === 'openrouter' && input.reasoningEffort ? {
+          reasoning: { effort: input.reasoningEffort },
+        } : {}),
         ...(input.provider === 'openrouter' && input.responseSchema ? {
           response_format: {
             type: 'json_schema',
@@ -93,7 +98,10 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
               schema: input.responseSchema.schema,
             },
           },
-          provider: { require_parameters: true },
+          provider: {
+            require_parameters: true,
+            ...(input.providerSort ? { sort: input.providerSort } : {}),
+          },
         } : {}),
       }),
       signal: controller.signal,

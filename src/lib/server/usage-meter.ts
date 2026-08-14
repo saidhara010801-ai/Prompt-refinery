@@ -32,6 +32,7 @@ export interface TenantUsageInput {
     outputTokens: number | null;
     costUsd: number | null;
     errorCode?: string;
+    httpStatus?: number;
   }>;
 }
 
@@ -58,6 +59,7 @@ export async function recordTenantUsage(input: TenantUsageInput) {
       outputTokens: Number.isFinite(attempt.outputTokens) ? attempt.outputTokens : null,
       costUsd: Number.isFinite(attempt.costUsd) ? attempt.costUsd : null,
       errorCode: attempt.errorCode?.slice(0, 120) || null,
+      httpStatus: Number.isInteger(attempt.httpStatus) ? attempt.httpStatus : null,
     })),
     itemCount: Number.isFinite(input.itemCount) ? input.itemCount : null,
     createdAt: Timestamp.fromDate(now),
