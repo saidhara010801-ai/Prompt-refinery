@@ -16,7 +16,7 @@ interface PromoCodeRecord { id: string; prefix: string; label: string | null; mo
 interface PromoUser { id: string; uid: string; email: string; codeId: string }
 interface InferenceHealth { requests: number; succeeded: number; failed: number; generative: number; fallback: number; malformedAttempts: number; latencyMs: { p50: number | null; p95: number | null }; budgets: Record<string, { settledUsd?: number; reservedUsd?: number } | null>; circuits: Array<{ id: string; state?: string; provider?: string }> }
 interface SystemHealth { ready: boolean; checks: Record<string, boolean>; featureFlags: Record<string, boolean> }
-interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending' }
+interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending'; profileStatus?: 'ready' | 'auth_only' }
 interface AuditLog { id: string; actorUid: string | null; actorRole: string | null; action: string; targetUid: string | null; metadataRedacted: Record<string, unknown>; createdAt: string | null }
 type AdminFeed = 'codes' | 'promoUsers' | 'inference' | 'system' | 'audit';
 
@@ -190,11 +190,11 @@ export function AdminPanel() {
 
       <TabsContent value="users" className="space-y-4 pt-4">
         <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void searchUsers(); }}>
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Email prefix or Firebase UID" aria-label="Search users" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Email address or Firebase UID" aria-label="Search users" />
           <Button type="submit" size="icon" disabled={searching || !search.trim()}><Search className="h-4 w-4" /><span className="sr-only">Search users</span></Button>
         </form>
         {adminUsers.map((adminUser) => <div key={adminUser.uid} className="space-y-3 rounded-md border p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{adminUser.name || adminUser.email || adminUser.uid}</p><p className="truncate text-xs text-muted-foreground">{adminUser.email || 'No email'} · {adminUser.uid}</p></div><div className="flex gap-2"><Badge variant="outline">{adminUser.role}</Badge><Badge variant={adminUser.accountStatus === 'active' ? 'secondary' : 'destructive'}>{adminUser.accountStatus}</Badge><Badge>{adminUser.subscriptionTier}</Badge></div></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{adminUser.name || adminUser.email || adminUser.uid}</p><p className="truncate text-xs text-muted-foreground">{adminUser.email || 'No email'} · {adminUser.uid}</p></div><div className="flex flex-wrap gap-2"><Badge variant="outline">{adminUser.role}</Badge><Badge variant={adminUser.accountStatus === 'active' ? 'secondary' : 'destructive'}>{adminUser.accountStatus}</Badge><Badge>{adminUser.subscriptionTier}</Badge>{adminUser.profileStatus === 'auth_only' && <Badge variant="outline">Setup pending</Badge>}</div></div>
           <div className="flex flex-wrap gap-2">
             <Select value={adminUser.accountStatus} onValueChange={(accountStatus) => void mutateUser(`/api/admin/users/${adminUser.uid}/status`, { accountStatus }, 'Account Status Updated')} disabled={busy || adminUser.uid === user?.uid}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="suspended">Suspended</SelectItem><SelectItem value="disabled">Disabled</SelectItem><SelectItem value="deleted_pending">Delete pending</SelectItem></SelectContent>

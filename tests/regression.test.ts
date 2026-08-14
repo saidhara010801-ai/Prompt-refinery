@@ -25,6 +25,7 @@ import {
   ADMIN_MAX_PAGE_SIZE,
   assertOwnerAccountStatusChange,
   clampAdminPageSize,
+  normalizeAdminUserSearch,
   redactAdminAuditMetadata,
 } from '../src/lib/server/admin-service';
 import { getAdminFailureAuditMetadata, getAdminRateLimitForTests } from '../src/app/api/admin/_shared';
@@ -986,6 +987,22 @@ test('firestore rules deny browser access to privileged production collections a
   ]) {
     assert.match(createProfileRule, new RegExp(`'${creationBlockedField}'`));
   }
+});
+
+test('admin user search preserves Firebase UID casing and normalizes only email lookup', () => {
+  assert.deepEqual(normalizeAdminUserSearch('  cihKz9EQA.JdWaDy4leftxEpLBnR2  '), {
+    exact: 'cihKz9EQA.JdWaDy4leftxEpLBnR2',
+    emailPrefix: 'cihKz9EQA.JdWaDy4leftxEpLBnR2'.toLowerCase(),
+  });
+  assert.deepEqual(normalizeAdminUserSearch('Tester@Example.COM'), {
+    exact: 'Tester@Example.COM',
+    emailPrefix: 'tester@example.com',
+  });
+
+  const adminService = readFileSync(join(process.cwd(), 'src/lib/server/admin-service.ts'), 'utf8');
+  assert.match(adminService, /getAdminAuth\(\)\.getUser\(uid\)/);
+  assert.match(adminService, /getAdminAuth\(\)\.getUserByEmail\(email\)/);
+  assert.match(adminService, /ensurePersonalTenant\(targetUid\)/);
 });
 
 test('owner administration stays in Settings and prevents self-lockout', () => {

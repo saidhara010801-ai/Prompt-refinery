@@ -1,8 +1,10 @@
+import type { UserRecord } from 'firebase-admin/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import type { NextRequest } from 'next/server';
 
 import { getRuntimeReadiness } from './runtime-readiness';
-import { getAdminFirestore } from './firebase-admin';
+import { getAdminAuth, getAdminFirestore } from './firebase-admin';
+import { ensurePersonalTenant } from './tenant-service';
 import {
   firestoreTimestampNow,
   getEffectiveUserEntitlement,
@@ -17,7 +19,6 @@ import {
   type EntitlementSource,
   type NormalizedUserProfile,
 } from './user-access';
-import { personalTenantId } from '@/lib/tenant-ids';
 
 export const ADMIN_MAX_PAGE_SIZE = 25;
 const DEFAULT_PAGE_SIZE = 10;
@@ -50,6 +51,7 @@ export interface AdminUserSummary {
   stripeSubscriptionIdPresent: boolean;
   savedPromptCount: number;
   managedRefinementsUsedToday: number;
+  profileStatus: 'ready' | 'auth_only';
 }
 
 export function clampAdminPageSize(value: number | undefined): number {
@@ -75,25 +77,51 @@ export function redactAdminAuditMetadata(metadata: Record<string, unknown> = {})
   return redacted;
 }
 
-function toUserSummary(uid: string, profile: NormalizedUserProfile): AdminUserSummary {
+function toUserSummary(uid: string, profile: NormalizedUserProfile, authUser?: UserRecord | null, profileExists = true): AdminUserSummary {
   return {
     uid,
-    email: profile.email,
-    name: profile.name,
+    email: profile.email || authUser?.email?.toLowerCase() || '',
+    name: profile.name || authUser?.displayName || '',
     role: profile.role,
     subscriptionTier: profile.subscriptionTier,
     subscriptionSource: profile.subscriptionSource,
     subscriptionStatus: profile.subscriptionStatus,
-    accountStatus: profile.accountStatus,
+    accountStatus: authUser?.disabled ? 'disabled' : profile.accountStatus,
     stripeCustomerIdPresent: Boolean(profile.stripeCustomerId),
     stripeSubscriptionIdPresent: Boolean(profile.stripeSubscriptionId),
     savedPromptCount: profile.savedPromptCount,
     managedRefinementsUsedToday: profile.managedRefinementsUsedToday,
+    profileStatus: profileExists ? 'ready' : 'auth_only',
   };
 }
 
-function sanitizeSearchTerm(search: string): string {
-  return search.trim().toLowerCase().slice(0, 160);
+export function normalizeAdminUserSearch(search: string): { exact: string; emailPrefix: string } {
+  const exact = search.trim().slice(0, 160);
+  return { exact, emailPrefix: exact.toLowerCase() };
+}
+
+function isAuthUserLookupMiss(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return new Set(['auth/user-not-found', 'auth/invalid-uid', 'auth/invalid-email'])
+    .has(String((error as { code?: unknown }).code));
+}
+
+async function findAuthUserByUid(uid: string): Promise<UserRecord | null> {
+  try {
+    return await getAdminAuth().getUser(uid);
+  } catch (error) {
+    if (isAuthUserLookupMiss(error)) return null;
+    throw error;
+  }
+}
+
+async function findAuthUserByEmail(email: string): Promise<UserRecord | null> {
+  try {
+    return await getAdminAuth().getUserByEmail(email);
+  } catch (error) {
+    if (isAuthUserLookupMiss(error)) return null;
+    throw error;
+  }
 }
 
 export async function writeAdminAuditLog(input: AdminAuditInput) {
@@ -125,20 +153,31 @@ export async function searchAdminUsers(request: NextRequest, search: string, pag
   const actor = await requireAdmin(request);
   const firestore = getAdminFirestore();
   const limit = clampAdminPageSize(pageSize);
-  const term = sanitizeSearchTerm(search);
+  const { exact, emailPrefix } = normalizeAdminUserSearch(search);
 
   let users: AdminUserSummary[] = [];
   let nextPageToken: string | null = null;
-  if (term) {
-    const byUid = await firestore.doc(`users/${term}`).get();
-    if (byUid.exists) {
-      users = [toUserSummary(byUid.id, normalizeUserProfile(byUid.id, byUid.data() as Record<string, unknown> | undefined))];
+  if (exact) {
+    const isEmailSearch = exact.includes('@');
+    const authUser = isEmailSearch
+      ? await findAuthUserByEmail(emailPrefix)
+      : await findAuthUserByUid(exact);
+    const targetUid = authUser?.uid ?? exact;
+    const exactProfile = await firestore.doc(`users/${targetUid}`).get();
+
+    if (exactProfile.exists || authUser) {
+      users = [toUserSummary(
+        targetUid,
+        normalizeUserProfile(targetUid, exactProfile.data() as Record<string, unknown> | undefined),
+        authUser,
+        exactProfile.exists
+      )];
     } else {
       let query = firestore
         .collection('users')
         .orderBy('email')
-        .startAt(term)
-        .endAt(`${term}\uf8ff`)
+        .startAt(emailPrefix)
+        .endAt(`${emailPrefix}\uf8ff`)
         .limit(limit);
 
       if (pageToken) {
@@ -157,7 +196,7 @@ export async function searchAdminUsers(request: NextRequest, search: string, pag
   await writeAdminAuditLog({
     actor,
     action: 'admin.user_search',
-    metadata: { searchProvided: Boolean(term), resultCount: users.length, limit },
+    metadata: { searchProvided: Boolean(exact), searchKind: exact.includes('@') ? 'email' : 'uid', resultCount: users.length, limit },
     request,
   });
 
@@ -329,12 +368,31 @@ export async function readSafeSystemHealth(request: NextRequest) {
 
 export async function setFreeInferenceBeta(request: NextRequest, targetUid: string, enabled: boolean) {
   const actor = await requireOwner(request);
-  const tenantId = personalTenantId(targetUid);
-  const tenant = await getAdminFirestore().doc(`tenants/${tenantId}`).get();
-  if (!tenant.exists || tenant.data()?.ownerId !== targetUid) throw new Error('The personal tenant was not found.');
+  const authUser = await findAuthUserByUid(targetUid);
+  if (!authUser) {
+    throw new AuthorizationError('The Firebase Authentication user was not found.', 404, 'AdminTargetNotFoundError');
+  }
+
+  const firestore = getAdminFirestore();
+  const userRef = firestore.doc(`users/${targetUid}`);
+  const user = await userRef.get();
+  const profile = normalizeUserProfile(targetUid, user.data() as Record<string, unknown> | undefined);
+  const now = Timestamp.now();
+  await userRef.set({
+    id: targetUid,
+    uid: targetUid,
+    email: authUser.email?.toLowerCase() ?? profile.email,
+    name: authUser.displayName || profile.name,
+    accountStatus: authUser.disabled ? 'disabled' : profile.accountStatus,
+    ...(!user.exists ? { createdAt: now } : {}),
+    updatedAt: now,
+  }, { merge: true });
+
+  const tenant = await ensurePersonalTenant(targetUid);
+  const tenantId = tenant.tenantId;
   await getAdminFirestore().doc(`tenantEntitlements/${tenantId}`).set({
     freeManagedInferenceBeta: enabled,
-    updatedAt: Timestamp.now(),
+    updatedAt: now,
   }, { merge: true });
   await writeAdminAuditLog({
     actor,
