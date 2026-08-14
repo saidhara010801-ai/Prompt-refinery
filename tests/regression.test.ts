@@ -1109,7 +1109,10 @@ test('Clarift brand metadata and customer surfaces use the supplied identity', (
   assert.match(layout, /openGraph:[\s\S]*title: 'Clarift'/);
   assert.match(app, /<BrandTypewriter \/>/);
   assert.doesNotMatch(app, /<Logo/);
-  assert.match(typewriter, /Clarify every prompting rift and/);
+  assert.match(typewriter, /Clarify all the prompting Rifts and\.\.\./);
+  assert.match(typewriter, /text-2xl[\s\S]*sm:text-3xl/);
+  assert.match(typewriter, /text-base[\s\S]*sm:text-lg/);
+  assert.match(typewriter, /2_200[\s\S]*isDeleting \? 65 : 110/);
   assert.match(typewriter, /prefers-reduced-motion: reduce/);
   assert.match(logo, /clarift-\$\{assetName\}-dark\.svg/);
   assert.match(logo, /clarift-\$\{assetName\}-light\.svg/);

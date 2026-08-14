@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-const prefix = 'Clarify every prompting rift and ';
+const headline = 'Clarify all the prompting Rifts and...';
 const strengths = [
-  'turn raw ideas into precise instructions.',
-  'preserve context without the clutter.',
-  'build reliable prompts for any model.',
+  'Turn raw ideas into precise instructions.',
+  'Preserve context without the clutter.',
+  'Build reliable prompts for any model.',
 ];
 
 export function BrandTypewriter() {
@@ -29,7 +29,7 @@ export function BrandTypewriter() {
 
     const atEnd = visibleLength === phrase.length;
     const atStart = visibleLength === 0;
-    const delay = !isDeleting && atEnd ? 1_700 : isDeleting && atStart ? 300 : isDeleting ? 35 : 55;
+    const delay = !isDeleting && atEnd ? 2_200 : isDeleting && atStart ? 500 : isDeleting ? 65 : 110;
     const timeout = window.setTimeout(() => {
       if (!isDeleting && atEnd) {
         setIsDeleting(true);
@@ -47,15 +47,17 @@ export function BrandTypewriter() {
   const visiblePhrase = reduceMotion ? strengths[0] : phrase.slice(0, visibleLength);
 
   return (
-    <div className="flex min-h-32 w-full max-w-4xl items-center justify-center sm:min-h-24">
+    <div className="flex min-h-36 w-full max-w-4xl flex-col items-center justify-center gap-2 sm:min-h-32">
       <h1
         className="text-balance text-center text-2xl font-semibold leading-snug sm:text-3xl"
-        aria-label={`${prefix}${phrase}`}
+        aria-label={`${headline} ${phrase}`}
       >
-        <span aria-hidden="true">{prefix}</span>
-        <span aria-hidden="true" className="text-primary">{visiblePhrase}</span>
-        <span aria-hidden="true" className="ml-1 inline-block h-[1em] w-px translate-y-0.5 animate-pulse bg-primary motion-reduce:hidden" />
+        {headline}
       </h1>
+      <p aria-hidden="true" className="min-h-7 text-balance text-center text-base font-medium text-primary sm:text-lg">
+        {visiblePhrase}
+        <span className="ml-1 inline-block h-[1em] w-px translate-y-0.5 animate-pulse bg-primary motion-reduce:hidden" />
+      </p>
     </div>
   );
 }
