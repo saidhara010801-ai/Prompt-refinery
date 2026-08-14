@@ -1101,12 +1101,16 @@ test('promo grants provide Pro while active Stripe remains authoritative', () =>
 test('Clarift brand metadata and customer surfaces use the supplied identity', () => {
   const layout = readFileSync('src/app/layout.tsx', 'utf8');
   const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
+  const typewriter = readFileSync('src/components/prompt-refinery/brand-typewriter.tsx', 'utf8');
   const logo = readFileSync('src/components/icons/logo.tsx', 'utf8');
   const checkout = readFileSync('src/app/api/checkout_sessions/route.ts', 'utf8');
 
   assert.match(layout, /default: 'Clarift'/);
   assert.match(layout, /openGraph:[\s\S]*title: 'Clarift'/);
-  assert.match(app, /<h1 className="sr-only">Clarift<\/h1>/);
+  assert.match(app, /<BrandTypewriter \/>/);
+  assert.doesNotMatch(app, /<Logo/);
+  assert.match(typewriter, /Clarify every prompting rift and/);
+  assert.match(typewriter, /prefers-reduced-motion: reduce/);
   assert.match(logo, /clarift-\$\{assetName\}-dark\.svg/);
   assert.match(logo, /clarift-\$\{assetName\}-light\.svg/);
   assert.match(checkout, /product: 'Clarift Pro'/);

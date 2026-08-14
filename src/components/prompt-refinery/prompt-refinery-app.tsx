@@ -5,7 +5,6 @@ import { collection, orderBy, query, where } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefineryTab } from './refinery-tab';
 import { EvaluatorTab } from './evaluator-tab';
-import { Logo } from '../icons/logo';
 import { SavedPromptsTab } from './saved-prompts-tab';
 import { ProjectsTab } from './projects-tab';
 import { Project } from './project-types';
@@ -20,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWorkflow } from '@/context/workflow-context';
 import { AnalyticsTab } from './analytics-tab';
 import { SharedTab } from './shared-tab';
+import { BrandTypewriter } from './brand-typewriter';
 
 export function PromptRefineryApp() {
   const { toast } = useToast();
@@ -109,9 +109,8 @@ export function PromptRefineryApp() {
 
   return (
     <div className="w-full max-w-7xl mx-auto">
-        <header className="flex flex-col items-center justify-center gap-3 mb-8">
-            <h1 className="sr-only">Clarift</h1>
-            <Logo variant="wordmark" className="h-20 w-64 md:h-24 md:w-80" />
+        <header className="mb-8 flex flex-col items-center justify-center gap-5">
+            <BrandTypewriter />
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Badge variant={isPro ? 'default' : 'outline'} className="gap-1">
                 <Crown className="h-3 w-3" />
@@ -125,9 +124,6 @@ export function PromptRefineryApp() {
               )}
             </div>
         </header>
-        <p className="text-center text-lg text-muted-foreground mb-10 max-w-3xl mx-auto">
-            Clarify, refine, and elevate your prompts with an AI Council built for clearer thinking and better results.
-        </p>
         <div className="mb-6 flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
           <span>Plan: {tier}</span>
           <span>Saved prompts: {savedPromptCount}/{savedPromptLimit ?? 'unlimited'}</span>
