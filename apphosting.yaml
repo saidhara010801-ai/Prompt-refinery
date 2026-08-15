@@ -12,7 +12,7 @@ runConfig:
 # environment. Add Stripe secret references only after test-mode billing is ready.
 env:
   - variable: APP_BASE_URL
-    value: https://clarift--clarift-e4f6f.us-east4.hosted.app
+    value: https://clarift.dpdns.org
     availability:
       - RUNTIME
   - variable: ENABLE_ADMIN_CENTER
