@@ -35,6 +35,7 @@ import {
 } from './open-model-client';
 import type { TenantContext } from './tenant-service';
 import { recordTenantUsage } from './usage-meter';
+import { getEffectiveUserRole } from './user-access';
 
 export type FreeGatewaySource = 'app' | 'api' | 'extension';
 
@@ -126,6 +127,10 @@ function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
   });
 }
 
+export function freeManagedInferenceRoleBypassesRollout(role: string | null | undefined) {
+  return role === 'owner' || role === 'admin';
+}
+
 async function claimIdempotency<T>(request: FreeGatewayRequest<T>, requestId: string) {
   const firestore = getAdminFirestore();
   const ref = firestore.doc(`gatewayRequests/${idempotencyId(request.context.tenantId, request.idempotencyKey)}`);
@@ -168,6 +173,8 @@ export async function tenantUsesFreeManagedInference(context: TenantContext) {
   if (process.env.ENABLE_FREE_MANAGED_INFERENCE !== 'true') return false;
   const entitlement = await getAdminFirestore().doc(`tenantEntitlements/${context.tenantId}`).get();
   if (entitlement.data()?.freeManagedInferenceBeta === true) return true;
+  const role = await getEffectiveUserRole(context.principalId);
+  if (freeManagedInferenceRoleBypassesRollout(role)) return true;
   const percent = Math.min(Math.max(Number(process.env.CLARIFT_FREE_INFERENCE_ROLLOUT_PERCENT) || 0, 0), 100);
   if (percent <= 0) return false;
   const bucket = Number.parseInt(createHash('sha256').update(context.tenantId).digest('hex').slice(0, 8), 16) % 100;

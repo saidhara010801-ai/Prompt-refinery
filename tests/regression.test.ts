@@ -94,6 +94,7 @@ import {
 import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
 import { z } from 'zod';
 import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from '../src/lib/server/free-model-inference';
+import { freeManagedInferenceRoleBypassesRollout } from '../src/lib/server/free-inference-gateway';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -393,6 +394,14 @@ test('free inference weights and maximum OpenRouter costs match the release budg
   assert.ok(Math.abs(maximum('guided_fix') - 0.000256) < 1e-12);
   assert.ok(Math.abs(maximum('full_council') - 0.0003072) < 1e-12);
   assert.ok(Math.abs((10 + 5) * maximum('quick_refine') - 0.003072) < 1e-12);
+});
+
+test('free managed inference rollout automatically includes operators', () => {
+  assert.equal(freeManagedInferenceRoleBypassesRollout('owner'), true);
+  assert.equal(freeManagedInferenceRoleBypassesRollout('admin'), true);
+  assert.equal(freeManagedInferenceRoleBypassesRollout('support'), false);
+  assert.equal(freeManagedInferenceRoleBypassesRollout('user'), false);
+  assert.equal(freeManagedInferenceRoleBypassesRollout(null), false);
 });
 
 test('Basic mode reason precedence favors durable request and quota blockers', () => {
