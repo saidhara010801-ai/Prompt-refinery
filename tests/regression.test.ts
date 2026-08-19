@@ -95,6 +95,11 @@ import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } fro
 import { z } from 'zod';
 import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from '../src/lib/server/free-model-inference';
 import { freeManagedInferenceRoleBypassesRollout } from '../src/lib/server/free-inference-gateway';
+import {
+  buildNewUserEmail,
+  parseNotificationRecipients,
+  signupNotificationsAreConfigured,
+} from '../src/lib/server/signup-notification-service';
 
 test('token estimates are deterministic and do not require an API key', async () => {
   assert.deepEqual(await getTokenCounts({ text: '' }), {
@@ -323,6 +328,44 @@ test('production readiness fails closed for unguarded optional features', () => 
 
   environment.MARKITDOWN_COMMAND = 'markitdown';
   assert.equal(getRuntimeReadiness(environment).ready, true);
+
+  environment.ENABLE_SIGNUP_NOTIFICATIONS = 'true';
+  assert.equal(getRuntimeReadiness(environment).ready, false);
+  assert.equal(getRuntimeReadiness(environment).checks.signupNotifications, false);
+  assert.ok(getOptionalProductionWarnings(environment).some((warning) => warning.includes('Signup notifications')));
+
+  environment.RESEND_API_KEY = 'configured-resend-key';
+  environment.SIGNUP_NOTIFICATION_EMAILS = 'owner@example.com';
+  environment.SIGNUP_NOTIFICATION_FROM_EMAIL = 'Clarift <notifications@example.com>';
+  assert.equal(getRuntimeReadiness(environment).ready, true);
+  assert.equal(getRuntimeReadiness(environment).checks.signupNotifications, true);
+});
+
+test('signup notifications deduplicate recipients and include safe Firebase identity details', () => {
+  assert.deepEqual(
+    parseNotificationRecipients('Owner@Example.com, owner@example.com, invalid, admin@example.com'),
+    ['owner@example.com', 'admin@example.com']
+  );
+  assert.equal(signupNotificationsAreConfigured({ ENABLE_SIGNUP_NOTIFICATIONS: 'false' }), true);
+  assert.equal(signupNotificationsAreConfigured({
+    ENABLE_SIGNUP_NOTIFICATIONS: 'true',
+    RESEND_API_KEY: 'secret',
+    SIGNUP_NOTIFICATION_FROM_EMAIL: 'Clarift <notifications@example.com>',
+    OWNER_EMAILS: 'owner@example.com',
+  }), true);
+
+  const email = buildNewUserEmail({
+    uid: 'firebase-uid-123',
+    email: 'new.user@example.com',
+    name: '<New User>',
+    providerIds: ['google.com'],
+    authCreatedAt: '2026-08-19T08:00:00.000Z',
+  });
+  assert.match(email.subject, /new\.user@example\.com/);
+  assert.match(email.text, /Firebase UID: firebase-uid-123/);
+  assert.match(email.text, /Sign-in provider: google\.com/);
+  assert.match(email.html, /&lt;New User&gt;/);
+  assert.doesNotMatch(email.html, /<New User>/);
 });
 
 test('output formatting supports plain, Markdown, and JSON copy styles', () => {
@@ -976,6 +1019,7 @@ test('firestore rules deny browser access to privileged production collections a
     'adminAuditLogs',
     'stripeWebhookEvents',
     'usageEvents',
+    'signupNotifications',
     'dailyUsageAggregates',
     'supportAccessRequests',
     'resourceShares',

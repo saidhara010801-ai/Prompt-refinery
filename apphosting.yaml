@@ -159,6 +159,19 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  # Enable after RESEND_API_KEY is added in Secret Manager and the sender is verified.
+  - variable: ENABLE_SIGNUP_NOTIFICATIONS
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: SIGNUP_NOTIFICATION_EMAILS
+    value: bhargavdvs2001@gmail.com
+    availability:
+      - RUNTIME
+  - variable: SIGNUP_NOTIFICATION_FROM_EMAIL
+    value: Clarift <onboarding@resend.dev>
+    availability:
+      - RUNTIME
   - variable: OWNER_EMAILS
     value: bhargavdvs2001@gmail.com
     availability:

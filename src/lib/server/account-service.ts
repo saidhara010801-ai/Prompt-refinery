@@ -22,6 +22,7 @@ import {
 } from './user-access';
 import { ensurePersonalTenant } from './tenant-service';
 import { migrateUserTenantData } from './tenant-migration';
+import { registerNewUserSignup, retryPendingSignupNotification } from './signup-notification-service';
 
 interface UserProfile {
   subscriptionTier?: SubscriptionTier;
@@ -91,22 +92,28 @@ async function ensureUserProfile(decodedToken: DecodedIdToken) {
   const firestore = getAdminFirestore();
   const userRef = firestore.doc(`users/${decodedToken.uid}`);
   const snapshot = await userRef.get();
+  let createdProfile = false;
 
   if (!snapshot.exists) {
     const savedPromptsSnapshot = await firestore.collection(`users/${decodedToken.uid}/savedPrompts`).get();
-    await userRef.set({
-      id: decodedToken.uid,
-      email: decodedToken.email ?? '',
-      name: decodedToken.name ?? '',
-      role: 'user',
-      subscriptionTier: 'free',
-      subscriptionSource: null,
-      accountStatus: 'active',
-      savedPromptCount: savedPromptsSnapshot.size,
-      managedRefinementsDate: todayUtc(),
-      managedRefinementsUsedToday: 0,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
+    await firestore.runTransaction(async (transaction) => {
+      const current = await transaction.get(userRef);
+      if (current.exists) return;
+      transaction.create(userRef, {
+        id: decodedToken.uid,
+        email: decodedToken.email ?? '',
+        name: decodedToken.name ?? '',
+        role: 'user',
+        subscriptionTier: 'free',
+        subscriptionSource: null,
+        accountStatus: 'active',
+        savedPromptCount: savedPromptsSnapshot.size,
+        managedRefinementsDate: todayUtc(),
+        managedRefinementsUsedToday: 0,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      createdProfile = true;
     });
   } else {
     const profile = (snapshot.data() ?? {}) as UserProfile;
@@ -125,6 +132,13 @@ async function ensureUserProfile(decodedToken: DecodedIdToken) {
       managedRefinementsUsedToday: profile.managedRefinementsUsedToday ?? 0,
       updatedAt: Timestamp.now(),
     }, { merge: true });
+  }
+
+  try {
+    if (createdProfile) await registerNewUserSignup(decodedToken);
+    else await retryPendingSignupNotification(decodedToken.uid);
+  } catch {
+    // Account creation and sign-in must remain available if notification delivery is unavailable.
   }
 
   return userRef;

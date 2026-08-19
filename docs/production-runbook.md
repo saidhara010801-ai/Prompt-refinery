@@ -37,6 +37,14 @@ firebase apphosting:secrets:set STRIPE_PRO_PRICE_ID_DEFAULT
 firebase apphosting:secrets:set STRIPE_WEBHOOK_SECRET
 ```
 
+To enable owner email for new sign-ups, create a Resend API key and add it as an App Hosting secret:
+
+```powershell
+npx.cmd --yes firebase-tools@latest apphosting:secrets:set RESEND_API_KEY --project clarift-e4f6f
+```
+
+Set `SIGNUP_NOTIFICATION_EMAILS` to the owner recipient list, set `SIGNUP_NOTIFICATION_FROM_EMAIL` to a sender permitted by the Resend account, and then set `ENABLE_SIGNUP_NOTIFICATIONS=true`. For initial owner-only testing, `Clarift <onboarding@resend.dev>` can be used subject to Resend's test-recipient restrictions. Verify a dedicated mail subdomain before sending broader production email. The notification contains Firebase identity metadata only and never blocks account creation when delivery fails.
+
 Set `APP_BASE_URL=https://<production-host>` for the backend environment. `APP_BASE_URL` is the trusted Stripe Checkout return origin. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Add the deployed hostname to Firebase Authentication authorized domains.
 
 Production readiness also requires explicit owner bootstrap, quota, model allowlist, and emergency feature-flag variables. Keep managed provider and file-conversion flags disabled until their quotas, allowlists, and runtime dependencies are verified.
@@ -53,7 +61,7 @@ firebase deploy --only firestore:rules
 
 The checked-in `firebase.json` and `firestore.indexes.json` files make the rules deployment reproducible. Project-memory and saved-prompt writes are server-managed; browser rules intentionally allow read access only where required.
 
-Privileged collections are server-only from browser rules: `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, `dailyUsageAggregates`, and `supportAccessRequests`. Admin/support access must use guarded server APIs. `supportAccessRequests` stays fully denied until a scoped support-access flow is intentionally implemented.
+Privileged collections are server-only from browser rules: `adminEntitlements`, `adminAuditLogs`, `stripeWebhookEvents`, `usageEvents`, `signupNotifications`, `dailyUsageAggregates`, and `supportAccessRequests`. Admin/support access must use guarded server APIs. `supportAccessRequests` stays fully denied until a scoped support-access flow is intentionally implemented.
 
 ## Roles, Status, And Entitlements
 

@@ -1,3 +1,5 @@
+import { signupNotificationsAreConfigured } from './signup-notification-service';
+
 type Environment = Record<string, string | undefined>;
 
 export interface RuntimeReadiness {
@@ -20,6 +22,7 @@ export interface RuntimeReadiness {
     razorpayBilling: boolean;
     apiTokenSecurity: boolean;
     extensionAccountLinking: boolean;
+    signupNotifications: boolean;
   };
 }
 
@@ -75,6 +78,7 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_PUBLIC_API',
   'ENABLE_PROJECT_SHARING',
   'ENABLE_USAGE_ANALYTICS',
+  'ENABLE_SIGNUP_NOTIFICATIONS',
 ] as const;
 
 function hasValue(environment: Environment, variable: string) {
@@ -178,6 +182,10 @@ export function getOptionalProductionWarnings(environment: Environment): string[
     warnings.push('Razorpay billing is enabled but the server-owned catalog is missing or invalid.');
   }
 
+  if (!signupNotificationsAreConfigured(environment)) {
+    warnings.push('Signup notifications are enabled but RESEND_API_KEY, SIGNUP_NOTIFICATION_FROM_EMAIL, or an owner recipient is missing.');
+  }
+
   return warnings;
 }
 
@@ -250,6 +258,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
     hasValue(environment, 'CLARIFT_API_TOKEN_PEPPER') || hasValue(environment, 'CLARIFT_API_KEY_PEPPER');
   const extensionAccountLinking = !isEnabled(environment, 'ENABLE_EXTENSION_ACCOUNT_LINKING') ||
     (managedInference && checkoutReturnOrigin);
+  const signupNotifications = signupNotificationsAreConfigured(environment);
 
   return {
     ready: firebaseClientConfig &&
@@ -266,7 +275,8 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       byokEncryption &&
       razorpayBilling &&
       apiTokenSecurity &&
-      extensionAccountLinking,
+      extensionAccountLinking &&
+      signupNotifications,
     checks: {
       firebaseClientConfig,
       stripeSubscriptions,
@@ -285,6 +295,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       razorpayBilling,
       apiTokenSecurity,
       extensionAccountLinking,
+      signupNotifications,
     },
   };
 }

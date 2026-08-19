@@ -111,6 +111,9 @@ OWNER_EMAILS=
 OWNER_UIDS=
 ADMIN_EMAILS=
 SUPPORT_EMAILS=
+ENABLE_SIGNUP_NOTIFICATIONS=false
+SIGNUP_NOTIFICATION_EMAILS=
+SIGNUP_NOTIFICATION_FROM_EMAIL=Clarift <onboarding@resend.dev>
 ENABLE_ADMIN_CENTER=false
 ENABLE_DISCOUNT_ADMIN=false
 ENABLE_FILE_CONVERSION=true
@@ -127,6 +130,8 @@ ADMIN_RATE_LIMIT_MAX_REQUESTS=20
 OPENROUTER_ALLOWED_MODELS=
 GEMINI_ALLOWED_MODELS=
 ```
+
+New-user owner notifications are optional and server-only. When enabled, set `RESEND_API_KEY` in Secret Manager, send to `SIGNUP_NOTIFICATION_EMAILS` (or fall back to `OWNER_EMAILS`), and use a sender allowed by your Resend account. Clarift includes the Firebase UID, email, display name, sign-in provider, and profile creation time. Delivery state is stored in the browser-inaccessible `signupNotifications` collection so retries do not create duplicate signup records.
 
 Outside Firebase App Hosting, server-side tier enforcement also needs Firebase Admin application-default credentials:
 
