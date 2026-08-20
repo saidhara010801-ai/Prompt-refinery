@@ -28,6 +28,7 @@ export interface TenantAccountSummary extends TenantContext {
   available: number;
   plan: string;
   planStatus: string;
+  planSource: string | null;
 }
 
 function positiveInteger(value: string | undefined, fallback: number) {
@@ -175,17 +176,22 @@ export async function getTenantAccountSummary(firebaseIdToken: string): Promise<
   ]);
   const balance = Number(wallet.data()?.balance) || 0;
   const reserved = Number(wallet.data()?.reserved) || 0;
+  const tenantPlan = String(tenantEntitlement.data()?.plan || 'free');
+  const effectivePlan = tenantPlan === 'free' && userEntitlement.isPro
+    ? 'individual'
+    : tenantPlan || userEntitlement.tier || 'free';
   return {
     ...context,
     balance,
     reserved,
     available: Math.max(balance - reserved, 0),
-    plan: String(
-      tenantEntitlement.data()?.plan === 'free' && userEntitlement.isPro
-        ? 'individual'
-        : tenantEntitlement.data()?.plan || userEntitlement.tier || 'free'
-    ),
+    plan: effectivePlan,
     planStatus: String(tenantEntitlement.data()?.status || 'active'),
+    planSource: userEntitlement.isPro
+      ? userEntitlement.source
+      : typeof tenantEntitlement.data()?.source === 'string'
+        ? String(tenantEntitlement.data()?.source)
+        : null,
   };
 }
 

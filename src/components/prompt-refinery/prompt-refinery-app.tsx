@@ -24,7 +24,7 @@ import { BrandTypewriter } from './brand-typewriter';
 export function PromptRefineryApp() {
   const { toast } = useToast();
   const { user, firestore } = useFirebase();
-  const { isPro, tier, planLabel, savedPromptCount, savedPromptLimit, tenantId, workspaceId, availableCredits, reservedCredits } = useContext(SubscriptionContext);
+  const { isPro, tier, planLabel, savedPromptCount, savedPromptLimit, tenantId, workspaceId, availableCredits, reservedCredits, freeAllowance, usesFreeManagedInference } = useContext(SubscriptionContext);
   const { refineryTransfer } = useWorkflow();
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
@@ -127,6 +127,9 @@ export function PromptRefineryApp() {
         <div className="mb-6 flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
           <span>Plan: {tier}</span>
           <span>Saved prompts: {savedPromptCount}/{savedPromptLimit ?? 'unlimited'}</span>
+          {usesFreeManagedInference && freeAllowance && (
+            <span>Refinement units: {freeAllowance.refinement.daily.remaining} daily, {freeAllowance.refinement.monthly.remaining} monthly</span>
+          )}
           <span>Managed credits: {availableCredits} available{reservedCredits ? `, ${reservedCredits} reserved` : ''}</span>
         </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

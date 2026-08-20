@@ -86,6 +86,8 @@ import { verifyRazorpayCheckoutSignature, verifyRazorpayWebhookSignature } from 
 import { captureProviderUsage, recordOpenRouterUsage } from '../src/lib/server/provider-usage-context';
 import {
   FREE_INPUT_TOKEN_LIMIT,
+  PRO_REFINEMENT_DAILY_UNITS,
+  PRO_REFINEMENT_MONTHLY_UNITS,
   FREE_TASK_OUTPUT_TOKENS,
   FREE_TASK_UNITS,
   chooseBasicModeStatus,
@@ -94,6 +96,7 @@ import {
   priceForMaximumAttempt,
   quotaPeriodKeys,
 } from '../src/lib/free-inference';
+import { inferenceAllowancePlan } from '../src/lib/server/free-inference-control';
 import { basicModeMessage } from '../src/lib/basic-mode-message';
 import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
 import { MAX_EXTENSION_JSON_BYTES, readBoundedExtensionJson } from '../src/lib/server/extension-request-security';
@@ -503,6 +506,32 @@ test('weighted refinement modes expose quota availability before falling back', 
   assert.match(tenantRoute, /usesFreeManagedInference: freeManagedInference/);
   assert.match(refinery, /freeTaskAvailability/);
   assert.match(refinery, /Choose an available mode/);
+});
+
+test('Pro managed inference uses a larger weighted allowance and updates it immediately', () => {
+  assert.equal(PRO_REFINEMENT_DAILY_UNITS, 30);
+  assert.equal(PRO_REFINEMENT_MONTHLY_UNITS, 600);
+  assert.equal(inferenceAllowancePlan('individual'), 'pro');
+  assert.equal(inferenceAllowancePlan('pro'), 'pro');
+  assert.equal(inferenceAllowancePlan('free'), 'free');
+
+  const hosting = readFileSync('apphosting.yaml', 'utf8');
+  const tenantRoute = readFileSync('src/app/api/account/tenant/route.ts', 'utf8');
+  const subscription = readFileSync('src/context/subscription-context.tsx', 'utf8');
+  const refinery = readFileSync('src/components/prompt-refinery/refinery-tab.tsx', 'utf8');
+  const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
+  const adminService = readFileSync('src/lib/server/admin-service.ts', 'utf8');
+  const adminPanel = readFileSync('src/components/admin-dialog.tsx', 'utf8');
+
+  assert.match(hosting, /CLARIFT_PRO_REFINEMENT_DAILY_UNITS[\s\S]*value: "30"/);
+  assert.match(hosting, /CLARIFT_PRO_REFINEMENT_MONTHLY_UNITS[\s\S]*value: "600"/);
+  assert.match(tenantRoute, /inferenceAllowancePlan\(summary\.plan\)/);
+  assert.match(subscription, /tenant\?\.plan === 'individual'/);
+  assert.match(subscription, /updateFreeAllowance/);
+  assert.match(refinery, /updateFreeAllowance\(result\.allowance\)/);
+  assert.match(app, /Refinement units:/);
+  assert.match(adminService, /toEffectiveUserSummary/);
+  assert.match(adminPanel, /AI beta/);
 });
 
 test('serialized token estimates include instructions and schema rather than raw prompt only', () => {

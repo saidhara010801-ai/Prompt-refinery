@@ -284,7 +284,7 @@ export function RefineryTab({
   const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, usesFreeManagedInference, refreshTenant, capabilities } = useContext(SubscriptionContext);
+  const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, usesFreeManagedInference, refreshTenant, updateFreeAllowance, capabilities } = useContext(SubscriptionContext);
   const { refineryTransfer, clearRefineryTransfer } = useWorkflow();
   const managedQuotaApplies = inferencePreference.mode === 'managed' && capabilities.inference === 'managed' && usesFreeManagedInference && Boolean(freeAllowance);
   const selectedAvailability = managedQuotaApplies && freeAllowance
@@ -415,6 +415,7 @@ export function RefineryTab({
       setRefinedPrompt(result.refinedPrompt);
       setRawPromptAtResult(data.prompt);
       setRefinements(result.refinements);
+      updateFreeAllowance(result.allowance);
       if (result.qualityTier === 'fallback') {
         toast({
           title: 'Basic mode used',
@@ -425,7 +426,7 @@ export function RefineryTab({
           }),
         });
       }
-      await refreshTenant();
+      void refreshTenant().catch(() => undefined);
 
       const previousVersions = data.prompt === rawPromptAtResult ? promptVersions : [];
       const nextVersion: PromptVersion = {

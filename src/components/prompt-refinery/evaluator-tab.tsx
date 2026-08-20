@@ -32,7 +32,7 @@ export function EvaluatorTab() {
   const [selectedGuidelines, setSelectedGuidelines] = useState<string[]>([LLM_COUNCIL_GUIDELINES[0].value]);
   const [isLoading, setIsLoading] = useState(false);
   const [evaluation, setEvaluation] = useState<EvaluationRun | null>(null);
-  const { tenantId, workspaceId, freeTaskUnits, freeAllowance, refreshTenant, capabilities } = useContext(SubscriptionContext);
+  const { tenantId, workspaceId, freeTaskUnits, freeAllowance, refreshTenant, updateFreeAllowance, capabilities } = useContext(SubscriptionContext);
   const { user, firestore } = useFirebase();
   const { toast } = useToast();
   const { sendToRefinery } = useWorkflow();
@@ -67,10 +67,11 @@ export function EvaluatorTab() {
         guidelines: selectedGuidelines,
       });
       setEvaluation({ ...result, prompt: prompt.trim(), guidelines: selectedGuidelines });
+      updateFreeAllowance(result.allowance);
       if (result.qualityTier === 'fallback') {
         toast({ title: 'Basic mode used', description: basicModeMessage(result.basicMode) });
       }
-      await refreshTenant();
+      void refreshTenant().catch(() => undefined);
     } catch (error) {
       toast({ variant: 'destructive', title: 'Evaluation Failed', description: error instanceof Error ? error.message : 'Please try again.' });
     } finally {

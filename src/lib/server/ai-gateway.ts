@@ -25,7 +25,7 @@ import { captureProviderUsage } from './provider-usage-context';
 import { evaluatePromptLocally, refinePromptLocally } from '@/lib/local-inference';
 import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from './free-model-inference';
 import { executeFreeGatewayTask, tenantUsesFreeManagedInference } from './free-inference-gateway';
-import { readFreeInferenceAllowance } from './free-inference-control';
+import { readFreeInferenceAllowance, resolveInferenceAllowancePlan } from './free-inference-control';
 import { chooseBasicModeStatus, type BasicModeStatus, type FreeInferenceAllowance, type InferenceQualityTier } from '@/lib/free-inference';
 
 export type GatewaySource = 'app' | 'api' | 'extension';
@@ -340,7 +340,11 @@ export async function executeRefinement(input: GatewayTaskRequest & {
   return {
     ...gateway,
     qualityTier,
-    allowance: await readFreeInferenceAllowance(input.context.tenantId),
+    allowance: await readFreeInferenceAllowance(
+      input.context.tenantId,
+      new Date(),
+      await resolveInferenceAllowancePlan(input.context)
+    ),
     ...(qualityTier === 'fallback' ? { basicMode: chooseBasicModeStatus({}) } : {}),
   };
 }
@@ -377,7 +381,11 @@ export async function executeEvaluation(input: GatewayTaskRequest & { prompt: st
   return {
     ...gateway,
     qualityTier,
-    allowance: await readFreeInferenceAllowance(input.context.tenantId),
+    allowance: await readFreeInferenceAllowance(
+      input.context.tenantId,
+      new Date(),
+      await resolveInferenceAllowancePlan(input.context)
+    ),
     ...(qualityTier === 'fallback' ? { basicMode: chooseBasicModeStatus({}) } : {}),
   };
 }

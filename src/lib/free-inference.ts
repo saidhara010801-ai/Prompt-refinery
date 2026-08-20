@@ -38,6 +38,8 @@ export interface PublicInferenceMetadata {
 
 export const FREE_REFINEMENT_DAILY_UNITS = 10;
 export const FREE_REFINEMENT_MONTHLY_UNITS = 200;
+export const PRO_REFINEMENT_DAILY_UNITS = 30;
+export const PRO_REFINEMENT_MONTHLY_UNITS = 600;
 export const FREE_EVALUATION_DAILY_UNITS = 5;
 export const FREE_EVALUATION_MONTHLY_UNITS = 100;
 export const FREE_INPUT_TOKEN_LIMIT = 2048;

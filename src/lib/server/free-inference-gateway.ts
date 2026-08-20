@@ -21,6 +21,7 @@ import {
   releaseProviderBudget,
   reserveFreeQuota,
   reserveProviderBudget,
+  resolveInferenceAllowancePlan,
   settleFreeQuota,
   settleProviderBudget,
 } from './free-inference-control';
@@ -184,6 +185,7 @@ export async function tenantUsesFreeManagedInference(context: TenantContext) {
 export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>): Promise<FreeGatewayResult<T>> {
   const requestId = randomUUID();
   const startedAt = Date.now();
+  const allowancePlan = await resolveInferenceAllowancePlan(request.context);
   const idempotencyRef = await claimIdempotency(request, requestId);
   const attempts: AttemptRecord[] = [];
   let quotaReservation: Awaited<ReturnType<typeof reserveFreeQuota>> | null = null;
@@ -199,7 +201,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
     basicMode = status;
     const result = await request.fallback();
     if (quotaReservation?.status === 'reserved') await releaseFreeQuota(quotaReservation.id);
-    const allowance = await readFreeInferenceAllowance(request.context.tenantId);
+    const allowance = await readFreeInferenceAllowance(request.context.tenantId, new Date(), allowancePlan);
     await idempotencyRef.set({ status: 'succeeded', provider: 'local', qualityTier: 'fallback', creditsCharged: 0, completedAt: Timestamp.now(), updatedAt: Timestamp.now() }, { merge: true });
     await recordTenantUsage({
       requestId,
@@ -227,7 +229,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
     const serializedTokens = estimateSerializedTokens({ messages: request.prepared.messages, schema: request.prepared.schema.schema });
     if (serializedTokens > FREE_INPUT_TOKEN_LIMIT) return await finishFallback(chooseBasicModeStatus({ requestTooLarge: true }));
 
-    quotaReservation = await reserveFreeQuota({ context: request.context, task: request.task, requestId });
+    quotaReservation = await reserveFreeQuota({ context: request.context, task: request.task, requestId, allowancePlan });
     if (quotaReservation.status === 'unavailable') return await finishFallback(quotaFallbackStatus(quotaReservation));
 
     try {
@@ -343,7 +345,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
 
     qualityTier = 'generative';
     await settleFreeQuota(quotaReservation.id);
-    const allowance = await readFreeInferenceAllowance(request.context.tenantId);
+    const allowance = await readFreeInferenceAllowance(request.context.tenantId, new Date(), allowancePlan);
     await idempotencyRef.set({ status: 'succeeded', provider, qualityTier, creditsCharged: 0, completedAt: Timestamp.now(), updatedAt: Timestamp.now() }, { merge: true });
     await recordTenantUsage({
       requestId,

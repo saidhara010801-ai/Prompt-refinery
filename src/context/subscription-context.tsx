@@ -44,6 +44,7 @@ interface SubscriptionContextValue {
   tenantPlanStatus: string;
   capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
   refreshTenant: () => Promise<void>;
+  updateFreeAllowance: (allowance: FreeInferenceAllowance) => void;
 }
 
 type TaskCosts = Record<'quick_refine' | 'guided_fix' | 'full_council' | 'evaluate' | 'apply_fix' | 'convert_document', number>;
@@ -72,6 +73,7 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   tenantPlanStatus: 'active',
   capabilities: { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
   refreshTenant: async () => undefined,
+  updateFreeAllowance: () => undefined,
 });
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
@@ -93,6 +95,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     usesFreeManagedInference: boolean;
     plan: string;
     planStatus: string;
+    planSource: SubscriptionProfile['subscriptionSource'];
     capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
   } | null>(null);
 
@@ -109,6 +112,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw new Error(payload.error?.message || 'Could not load your Clarift workspace.');
     setTenant(payload);
   }, [user]);
+
+  const updateFreeAllowance = useCallback((allowance: FreeInferenceAllowance) => {
+    setTenant((current) => current ? { ...current, allowance } : current);
+  }, []);
 
   useEffect(() => {
     refreshTenant().catch((error) => console.error('Could not initialize personal workspace:', {
@@ -127,8 +134,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const value = useMemo<SubscriptionContextValue>(() => {
-    const tier = profile?.subscriptionTier ?? 'free';
-    const hasPro = isProTier(tier) || tenant?.plan === 'individual';
+    const profileTier = profile?.subscriptionTier ?? 'free';
+    const tenantTier: SubscriptionTier = tenant?.plan === 'pro-max'
+      ? 'pro-max'
+      : tenant?.plan === 'individual' || tenant?.plan === 'pro'
+        ? 'pro'
+        : 'free';
+    const tier = isProTier(profileTier) ? profileTier : tenantTier;
+    const hasPro = isProTier(tier);
+    const source = tenant?.planSource ?? profile?.subscriptionSource ?? null;
     const today = new Date().toISOString().slice(0, 10);
     const managedUsage = profile?.managedRefinementsDate === today
       ? profile.managedRefinementsUsedToday ?? 0
@@ -142,8 +156,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       managedRefinementsUsedToday: managedUsage,
       managedRefinementLimit: hasPro ? null : FREE_MANAGED_REFINEMENT_DAILY_LIMIT,
       isLoading,
-      source: profile?.subscriptionSource ?? null,
-      planLabel: hasPro && profile?.subscriptionSource === 'promo' ? 'Pro — Promo' : hasPro ? 'Pro' : 'Free',
+      source,
+      planLabel: hasPro && source === 'promo' ? 'Pro - Promo' : hasPro ? 'Pro' : 'Free',
       tenantId: tenant?.tenantId ?? null,
       workspaceId: tenant?.workspaceId ?? null,
       creditBalance: tenant?.balance ?? 0,
@@ -157,8 +171,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       tenantPlanStatus: tenant?.planStatus ?? 'active',
       capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
       refreshTenant,
+      updateFreeAllowance,
     };
-  }, [isLoading, profile, refreshTenant, tenant]);
+  }, [isLoading, profile, refreshTenant, tenant, updateFreeAllowance]);
 
   return (
     <SubscriptionContext.Provider value={value}>

@@ -4,7 +4,7 @@ import { getBearerTokenFromRequest, AuthorizationError } from '@/lib/server/user
 import { getTenantAccountSummary } from '@/lib/server/tenant-service';
 import { getAdvertisedTaskCosts, hasManagedRemoteProvider, isLocalInferenceFallbackActive } from '@/lib/managed-inference-config';
 import { getVerifiedUserProfile } from '@/lib/server/account-service';
-import { readFreeInferenceAllowance } from '@/lib/server/free-inference-control';
+import { inferenceAllowancePlan, readFreeInferenceAllowance } from '@/lib/server/free-inference-control';
 import { FREE_TASK_UNITS } from '@/lib/free-inference';
 import { tenantUsesFreeManagedInference } from '@/lib/server/free-inference-gateway';
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     await getVerifiedUserProfile(token);
     const summary = await getTenantAccountSummary(token);
     const [allowance, freeManagedInference] = await Promise.all([
-      readFreeInferenceAllowance(summary.tenantId),
+      readFreeInferenceAllowance(summary.tenantId, new Date(), inferenceAllowancePlan(summary.plan)),
       tenantUsesFreeManagedInference(summary),
     ]);
     return NextResponse.json({

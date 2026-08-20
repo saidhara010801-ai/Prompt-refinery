@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 
 import { getRuntimeReadiness } from './runtime-readiness';
 import { getAdminAuth, getAdminFirestore } from './firebase-admin';
-import { ensurePersonalTenant } from './tenant-service';
+import { ensurePersonalTenant, personalTenantId } from './tenant-service';
 import {
   firestoreTimestampNow,
   getEffectiveUserEntitlement,
@@ -52,6 +52,7 @@ export interface AdminUserSummary {
   savedPromptCount: number;
   managedRefinementsUsedToday: number;
   profileStatus: 'ready' | 'auth_only';
+  freeManagedInferenceBeta: boolean;
 }
 
 export function clampAdminPageSize(value: number | undefined): number {
@@ -92,6 +93,25 @@ function toUserSummary(uid: string, profile: NormalizedUserProfile, authUser?: U
     savedPromptCount: profile.savedPromptCount,
     managedRefinementsUsedToday: profile.managedRefinementsUsedToday,
     profileStatus: profileExists ? 'ready' : 'auth_only',
+    freeManagedInferenceBeta: false,
+  };
+}
+
+async function toEffectiveUserSummary(
+  uid: string,
+  profile: NormalizedUserProfile,
+  authUser?: UserRecord | null,
+  profileExists = true
+): Promise<AdminUserSummary> {
+  const [entitlement, tenantEntitlement] = await Promise.all([
+    getEffectiveUserEntitlement(uid),
+    getAdminFirestore().doc(`tenantEntitlements/${personalTenantId(uid)}`).get(),
+  ]);
+  return {
+    ...toUserSummary(uid, profile, authUser, profileExists),
+    subscriptionTier: entitlement.tier,
+    subscriptionSource: entitlement.source,
+    freeManagedInferenceBeta: tenantEntitlement.data()?.freeManagedInferenceBeta === true,
   };
 }
 
@@ -166,7 +186,7 @@ export async function searchAdminUsers(request: NextRequest, search: string, pag
     const exactProfile = await firestore.doc(`users/${targetUid}`).get();
 
     if (exactProfile.exists || authUser) {
-      users = [toUserSummary(
+      users = [await toEffectiveUserSummary(
         targetUid,
         normalizeUserProfile(targetUid, exactProfile.data() as Record<string, unknown> | undefined),
         authUser,
@@ -188,7 +208,7 @@ export async function searchAdminUsers(request: NextRequest, search: string, pag
       }
 
       const snapshot = await query.get();
-      users = snapshot.docs.map((doc) => toUserSummary(doc.id, normalizeUserProfile(doc.id, doc.data())));
+      users = await Promise.all(snapshot.docs.map((doc) => toEffectiveUserSummary(doc.id, normalizeUserProfile(doc.id, doc.data()))));
       nextPageToken = snapshot.docs.length === limit ? snapshot.docs.at(-1)?.id ?? null : null;
     }
   }
@@ -290,7 +310,13 @@ export async function updateAccountStatus(request: NextRequest, targetUid: strin
 export async function readAdminUserByUid(request: NextRequest, uid: string) {
   const actor = await requireAdmin(request);
   const snapshot = await getAdminFirestore().doc(`users/${uid}`).get();
-  const user = toUserSummary(uid, normalizeUserProfile(uid, snapshot.data() as Record<string, unknown> | undefined));
+  const authUser = await findAuthUserByUid(uid);
+  const user = await toEffectiveUserSummary(
+    uid,
+    normalizeUserProfile(uid, snapshot.data() as Record<string, unknown> | undefined),
+    authUser,
+    snapshot.exists
+  );
   await writeAdminAuditLog({
     actor,
     action: 'admin.user_read',
