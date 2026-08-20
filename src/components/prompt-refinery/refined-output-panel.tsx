@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BrainCircuit, Cpu, GitCompareArrows, Save, Sparkles, Wind, Zap } from 'lucide-react';
+import { AlertCircle, BrainCircuit, Cpu, GitCompareArrows, RefreshCw, Save, Sparkles, Wind, Zap } from 'lucide-react';
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { OutputActions } from './output-actions';
 import type { PromptVersion, Refinement, TokenCounts } from './refinery-types';
+import { cn } from '@/lib/utils';
 
 function buildDiffTokens(originalPrompt: string, refinedPrompt: string) {
   const originalWords = new Set(
@@ -45,6 +46,10 @@ interface RefinedOutputPanelProps {
   promptType: string;
   canSave: boolean;
   onSavePrompt: () => void;
+  variant?: 'legacy' | 'workspace-v2';
+  modeLabel?: string;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 export function RefinedOutputPanel({
@@ -59,6 +64,10 @@ export function RefinedOutputPanel({
   promptType,
   canSave,
   onSavePrompt,
+  variant = 'legacy',
+  modeLabel = 'Clarift',
+  error,
+  onRetry,
 }: RefinedOutputPanelProps) {
   const [diffFromVersion, setDiffFromVersion] = useState(1);
   const [diffToVersion, setDiffToVersion] = useState(1);
@@ -80,8 +89,8 @@ export function RefinedOutputPanel({
   );
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className={cn(variant === 'workspace-v2' && 'overflow-hidden border-primary/20')}>
+      <CardHeader className={cn(variant === 'workspace-v2' && 'sticky top-0 z-10 border-b bg-card/95 py-4 backdrop-blur')}>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Sparkles className="text-primary" />
@@ -100,6 +109,7 @@ export function RefinedOutputPanel({
         <AnimatePresence mode="wait">
           {isLoading && (
             <motion.div key="loader" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+              {variant === 'workspace-v2' && <p className="flex items-center gap-2 text-sm font-medium text-primary"><Sparkles className="h-4 w-4 animate-pulse motion-reduce:animate-none" />Refining with {modeLabel}...</p>}
               <Skeleton className="h-8 w-3/4" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-full" />
@@ -112,7 +122,7 @@ export function RefinedOutputPanel({
                 <div className="flex justify-end">
                   <OutputActions prompt={refinedPrompt} originalPrompt={rawPromptAtResult ?? undefined} promptType={promptType} />
                 </div>
-                <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-code text-sm"><code>{refinedPrompt}</code></pre>
+                <pre className="max-w-[80ch] whitespace-pre-wrap rounded-md bg-muted p-4 font-code text-sm leading-relaxed"><code>{refinedPrompt}</code></pre>
               </div>
 
               {rawPromptAtResult && (
@@ -169,7 +179,20 @@ export function RefinedOutputPanel({
               )}
             </motion.div>
           )}
-          {!isLoading && !refinedPrompt && <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><p>Your refined prompt will appear here.</p></div>}
+          {!isLoading && error && (
+            <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-center">
+              <AlertCircle className="h-8 w-8 text-destructive" />
+              <div><p className="font-semibold">Refinement could not be completed</p><p className="mt-1 max-w-md text-sm text-muted-foreground">{error}</p></div>
+              {onRetry && <Button type="button" variant="outline" onClick={onRetry}><RefreshCw className="h-4 w-4" />Try again</Button>}
+            </motion.div>
+          )}
+          {!isLoading && !refinedPrompt && !error && (
+            <div className="flex min-h-[260px] flex-col items-center justify-center text-center text-muted-foreground">
+              <Sparkles className="mb-3 h-7 w-7 text-primary" />
+              <p className="font-medium text-foreground">Your refined prompt will appear here.</p>
+              {variant === 'workspace-v2' && <p className="mt-1 max-w-sm text-sm">Clarift will preserve your intent while making the task, context, and output requirements more precise.</p>}
+            </div>
+          )}
         </AnimatePresence>
       </CardContent>
     </Card>

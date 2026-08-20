@@ -29,6 +29,7 @@ import type { ProjectMemoryEntry } from './stage2-types';
 import { RefinedOutputPanel } from './refined-output-panel';
 import type { PromptVersion, Refinement, RefinementAttachment, TokenCounts } from './refinery-types';
 import { RefineryContextControls, RefineryOptionsControls } from './refinery-form-sections';
+import { WorkspaceRefineryLayout, type RefinementModeOption } from '@/components/workspace-v2/workspace-refinery-layout';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -45,6 +46,8 @@ interface RefineryTabProps {
   onSelectProject?: (project: Project | null) => void;
   onProjectRefinementSaved?: (sessionId: string) => void;
   projectWorkspace?: boolean;
+  variant?: 'legacy' | 'workspace-v2';
+  onCreateProject?: () => void;
 }
 
 const NO_PROJECT_VALUE = '__no_project__';
@@ -210,6 +213,8 @@ export function RefineryTab({
   onSelectProject,
   onProjectRefinementSaved,
   projectWorkspace = false,
+  variant = 'legacy',
+  onCreateProject,
 }: RefineryTabProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isTokenizing, setIsTokenizing] = useState(false);
@@ -224,6 +229,7 @@ export function RefineryTab({
   const [maxCharacters, setMaxCharacters] = useState('');
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
   const [refinementMode, setRefinementMode] = useState<RefinementMode>('quick_refine');
+  const [outputError, setOutputError] = useState<string | null>(null);
   const [inferencePreference, setInferencePreference] = useState<{ mode: 'managed' | 'byok'; provider: 'gemini' | 'openrouter' }>({ mode: 'managed', provider: 'gemini' });
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
@@ -335,6 +341,7 @@ export function RefineryTab({
       return;
     }
     setIsLoading(true);
+    setOutputError(null);
     setRefinedPrompt(null);
     setRawPromptAtResult(null);
     setRefinements([]);
@@ -407,6 +414,7 @@ export function RefineryTab({
       }
     } catch (error) {
       const errorToast = getErrorToast(error);
+      setOutputError(errorToast.description);
       toast({
         variant: 'destructive',
         title: errorToast.title,
@@ -531,6 +539,86 @@ export function RefineryTab({
       });
     }
   };
+
+  const submitLabel = isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
+    ? capabilities.inference === 'managed'
+      ? selectedAvailability?.available === false
+        ? 'Choose an available mode'
+        : `Refine · ${freeTaskUnits[refinementMode]} unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}`
+      : 'Refine in Basic Mode'
+    : 'Refine with My Provider Key';
+  const modeDescriptions: Record<RefinementMode, string> = {
+    quick_refine: 'A focused pass for everyday prompts.',
+    guided_fix: 'Three expert passes for structure and critique.',
+    full_council: 'Five specialist passes and a final synthesis.',
+  };
+  const modeOptions: RefinementModeOption[] = REFINEMENT_MODES.map(([value, label]) => {
+    const availability = managedQuotaApplies && freeAllowance ? freeTaskAvailability(value, freeAllowance) : null;
+    const cost = freeTaskUnits[value];
+    return {
+      value,
+      label,
+      description: modeDescriptions[value],
+      meta: availability ? `${cost} unit${cost === 1 ? '' : 's'} · ${availability.availableUnits} remain` : `${cost} unit${cost === 1 ? '' : 's'}`,
+      disabled: isLoading || availability?.available === false,
+      title: availability?.available === false ? `${label} needs ${availability.requiredUnits} units; ${availability.availableUnits} remain.` : undefined,
+    };
+  });
+
+  const outputPanel = (
+    <RefinedOutputPanel
+      isLoading={isLoading}
+      refinedPrompt={refinedPrompt}
+      rawPromptAtResult={rawPromptAtResult}
+      refinements={refinements}
+      tokenCounts={tokenCounts}
+      isTokenizing={isTokenizing}
+      promptVersions={promptVersions}
+      explanationMode={explanationMode}
+      promptType={form.getValues('promptType')}
+      canSave={Boolean(user)}
+      onSavePrompt={handleSavePrompt}
+      variant={variant}
+      modeLabel={refinementModeLabel(refinementMode)}
+      error={outputError}
+      onRetry={() => void form.handleSubmit(onSubmit)()}
+    />
+  );
+
+  if (variant === 'workspace-v2') {
+    return (
+      <WorkspaceRefineryLayout
+        form={form}
+        onSubmit={onSubmit}
+        selectedProject={selectedProject}
+        projects={projectOptions}
+        isLoadingProjects={isLoadingProjects}
+        allowProjectSelection={allowProjectSelection}
+        onSelectProject={onSelectProject}
+        onCreateProject={onCreateProject}
+        mode={refinementMode}
+        modeOptions={modeOptions}
+        onModeChange={setRefinementMode}
+        selectedTemplateId={selectedTemplateId}
+        onTemplateChange={setSelectedTemplateId}
+        onLoadTemplate={handleLoadTemplate}
+        isPro={isPro}
+        relevantMemoryEntries={relevantMemoryEntries}
+        selectedMemoryIds={selectedMemoryIds}
+        onToggleMemory={(entryId) => setSelectedMemoryIds((current) => current.includes(entryId) ? current.filter((id) => id !== entryId) : [...current, entryId])}
+        attachments={attachments}
+        onAttachmentChange={handleAttachmentChange}
+        onRemoveAttachment={removeAttachment}
+        explanationMode={explanationMode}
+        onExplanationModeChange={setExplanationMode}
+        maxCharacters={maxCharacters}
+        onMaxCharactersChange={setMaxCharacters}
+        submitLabel={submitLabel}
+        submitDisabled={isLoading || !user || selectedAvailability?.available === false}
+        output={outputPanel}
+      />
+    );
+  }
 
   return (
     <div className={`grid gap-6 ${projectWorkspace ? 'xl:grid-cols-2' : 'md:grid-cols-2'}`}>
@@ -674,15 +762,7 @@ export function RefineryTab({
                 maxCharacters={maxCharacters}
                 onMaxCharactersChange={setMaxCharacters}
               />
-              <Button type="submit" disabled={isLoading || !user || selectedAvailability?.available === false} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
-                  ? capabilities.inference === 'managed'
-                    ? selectedAvailability?.available === false
-                      ? 'Choose an available mode'
-                      : `Refine · ${freeTaskUnits[refinementMode]} unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}`
-                    : 'Refine in Basic Mode'
-                  : 'Refine with My Provider Key'}
-              </Button>
+              <Button type="submit" disabled={isLoading || !user || selectedAvailability?.available === false} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">{submitLabel}</Button>
               {!isPro && (
                 <p className="text-xs text-muted-foreground">
                   Free includes three techniques and up to {savedPromptLimit} saved prompts. You currently have {savedPromptCount}.
@@ -693,19 +773,7 @@ export function RefineryTab({
         </CardContent>
       </Card>
 
-      <RefinedOutputPanel
-        isLoading={isLoading}
-        refinedPrompt={refinedPrompt}
-        rawPromptAtResult={rawPromptAtResult}
-        refinements={refinements}
-        tokenCounts={tokenCounts}
-        isTokenizing={isTokenizing}
-        promptVersions={promptVersions}
-        explanationMode={explanationMode}
-        promptType={form.getValues('promptType')}
-        canSave={Boolean(user)}
-        onSavePrompt={handleSavePrompt}
-      />
+      {outputPanel}
     </div>
   );
 }

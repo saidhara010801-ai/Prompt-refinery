@@ -123,12 +123,14 @@ export function WorkspaceV2App() {
             </div>
           )}
           <RefineryTab
+            variant="workspace-v2"
             selectedProject={isPro ? selectedProject : null}
             projects={isPro ? activeProjects : null}
             isLoadingProjects={isLoadingProjects}
             allowProjectSelection={isPro}
             onSelectProject={handleSelectProject}
             onProjectRefinementSaved={handleProjectRefinementSaved}
+            onCreateProject={() => setActiveDestination('projects')}
           />
         </div>
       );
@@ -137,6 +139,7 @@ export function WorkspaceV2App() {
     if (activeDestination === 'projects') {
       return isPro ? (
         <ProjectsTab
+          variant="workspace-v2"
           projects={projects}
           isLoadingProjects={isLoadingProjects}
           selectedProject={selectedProject}
@@ -150,7 +153,7 @@ export function WorkspaceV2App() {
     const tool = activeDestination === 'evaluator' ? <EvaluatorTab />
       : activeDestination === 'converter' ? <ConverterTab projects={isPro ? activeProjects : null} selectedProject={selectedProject} />
       : activeDestination === 'saved' ? <SavedPromptsTab />
-      : activeDestination === 'analytics' ? <AnalyticsTab />
+      : activeDestination === 'analytics' ? <AnalyticsTab variant="workspace-v2" />
       : <SharedTab />;
 
     return (
