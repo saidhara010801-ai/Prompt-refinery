@@ -16,7 +16,7 @@ interface PromoCodeRecord { id: string; prefix: string; label: string | null; mo
 interface PromoUser { id: string; uid: string; email: string; codeId: string }
 interface InferenceHealth { requests: number; succeeded: number; failed: number; generative: number; fallback: number; malformedAttempts: number; latencyMs: { p50: number | null; p95: number | null }; budgets: Record<string, { settledUsd?: number; reservedUsd?: number } | null>; circuits: Array<{ id: string; state?: string; provider?: string }>; attemptIssues?: Array<{ provider: string; model: string; status: string; errorCode: string; httpStatus: number | null; count: number }> }
 interface SystemHealth { ready: boolean; checks: Record<string, boolean>; featureFlags: Record<string, boolean> }
-interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending'; profileStatus?: 'ready' | 'auth_only' }
+interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending'; profileStatus?: 'ready' | 'auth_only'; freeManagedInferenceBeta: boolean }
 interface AuditLog { id: string; actorUid: string | null; actorRole: string | null; action: string; targetUid: string | null; metadataRedacted: Record<string, unknown>; createdAt: string | null }
 type AdminFeed = 'codes' | 'promoUsers' | 'inference' | 'system' | 'audit';
 
@@ -157,6 +157,7 @@ export function AdminPanel() {
       await api('/api/admin/free-inference', { method: 'POST', body: JSON.stringify({ uid: uid.trim(), enabled }) });
       toast({ title: enabled ? 'Managed Inference Enabled' : 'Managed Inference Disabled' });
       setBetaUid('');
+      if (search.trim()) await searchUsers();
       await refresh();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Could Not Update Beta Access', description: error instanceof Error ? error.message : 'Please try again.' });
@@ -212,14 +213,14 @@ export function AdminPanel() {
           <Button type="submit" size="icon" disabled={searching || !search.trim()}><Search className="h-4 w-4" /><span className="sr-only">Search users</span></Button>
         </form>
         {adminUsers.map((adminUser) => <div key={adminUser.uid} className="space-y-3 rounded-md border p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{adminUser.name || adminUser.email || adminUser.uid}</p><p className="truncate text-xs text-muted-foreground">{adminUser.email || 'No email'} · {adminUser.uid}</p></div><div className="flex flex-wrap gap-2"><Badge variant="outline">{adminUser.role}</Badge><Badge variant={adminUser.accountStatus === 'active' ? 'secondary' : 'destructive'}>{adminUser.accountStatus}</Badge><Badge>{adminUser.subscriptionTier}</Badge>{adminUser.profileStatus === 'auth_only' && <Badge variant="outline">Setup pending</Badge>}</div></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{adminUser.name || adminUser.email || adminUser.uid}</p><p className="truncate text-xs text-muted-foreground">{adminUser.email || 'No email'} · {adminUser.uid}</p></div><div className="flex flex-wrap gap-2"><Badge variant="outline">{adminUser.role}</Badge><Badge variant={adminUser.accountStatus === 'active' ? 'secondary' : 'destructive'}>{adminUser.accountStatus}</Badge><Badge>{adminUser.subscriptionTier}</Badge>{adminUser.freeManagedInferenceBeta && <Badge variant="secondary">AI beta</Badge>}{adminUser.profileStatus === 'auth_only' && <Badge variant="outline">Setup pending</Badge>}</div></div>
           <div className="flex flex-wrap gap-2">
             <Select value={adminUser.accountStatus} onValueChange={(accountStatus) => void mutateUser(`/api/admin/users/${adminUser.uid}/status`, { accountStatus }, 'Account Status Updated')} disabled={busy || adminUser.uid === user?.uid}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="suspended">Suspended</SelectItem><SelectItem value="disabled">Disabled</SelectItem><SelectItem value="deleted_pending">Delete pending</SelectItem></SelectContent>
             </Select>
-            <Button type="button" variant="outline" onClick={() => void mutateUser(`/api/admin/users/${adminUser.uid}/grant-pro`, { source: 'manual', reason: 'Owner grant from Admin Center' }, 'Pro Access Granted')} disabled={busy}><UserCheck className="h-4 w-4" />Grant Pro</Button>
-            <Button type="button" variant="outline" onClick={() => void mutateUser(`/api/admin/users/${adminUser.uid}/revoke-pro`, undefined, 'Manual Pro Access Revoked')} disabled={busy}><UserX className="h-4 w-4" />Revoke Pro</Button>
-            <Button type="button" variant="outline" onClick={() => void updateBeta(adminUser.uid, true)} disabled={busy}><UserCog className="h-4 w-4" />Enable AI Beta</Button>
+            {adminUser.subscriptionTier === 'free' && <Button type="button" variant="outline" onClick={() => void mutateUser(`/api/admin/users/${adminUser.uid}/grant-pro`, { source: 'manual', reason: 'Owner grant from Admin Center' }, 'Pro Access Granted')} disabled={busy}><UserCheck className="h-4 w-4" />Grant Pro</Button>}
+            {adminUser.subscriptionTier !== 'free' && ['manual', 'team', 'beta', 'test'].includes(adminUser.subscriptionSource ?? '') && <Button type="button" variant="outline" onClick={() => void mutateUser(`/api/admin/users/${adminUser.uid}/revoke-pro`, undefined, 'Manual Pro Access Revoked')} disabled={busy}><UserX className="h-4 w-4" />Revoke Pro</Button>}
+            <Button type="button" variant="outline" onClick={() => void updateBeta(adminUser.uid, !adminUser.freeManagedInferenceBeta)} disabled={busy}><UserCog className="h-4 w-4" />{adminUser.freeManagedInferenceBeta ? 'Disable AI Beta' : 'Enable AI Beta'}</Button>
           </div>
         </div>)}
         {!searching && search.trim() && adminUsers.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No matching users.</p>}

@@ -6,6 +6,8 @@ import {
   FREE_EVALUATION_MONTHLY_UNITS,
   FREE_REFINEMENT_DAILY_UNITS,
   FREE_REFINEMENT_MONTHLY_UNITS,
+  PRO_REFINEMENT_DAILY_UNITS,
+  PRO_REFINEMENT_MONTHLY_UNITS,
   FREE_TASK_UNITS,
   chooseBasicModeStatus,
   nextUtcDay,
@@ -18,6 +20,9 @@ import { acquireConcurrencySlot, releaseConcurrencySlot } from './distributed-li
 import { getAdminFirestore } from './firebase-admin';
 import type { TenantContext } from './tenant-service';
 import type { OpenModelProvider } from './open-model-client';
+import { getEffectiveUserEntitlement } from './user-access';
+
+export type InferenceAllowancePlan = 'free' | 'pro';
 
 function positiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value);
@@ -28,16 +33,34 @@ function id(...parts: string[]) {
   return createHash('sha256').update(parts.join(':')).digest('hex');
 }
 
-function quotaLimits(kind: 'refinement' | 'evaluation') {
+export function inferenceAllowancePlan(plan: string | null | undefined): InferenceAllowancePlan {
+  return plan === 'individual' || plan === 'pro' || plan === 'pro-max' ? 'pro' : 'free';
+}
+
+export function quotaLimits(kind: 'refinement' | 'evaluation', plan: InferenceAllowancePlan = 'free') {
   return kind === 'refinement'
     ? {
-        daily: positiveNumber(process.env.CLARIFT_FREE_REFINEMENT_DAILY_UNITS, FREE_REFINEMENT_DAILY_UNITS),
-        monthly: positiveNumber(process.env.CLARIFT_FREE_REFINEMENT_MONTHLY_UNITS, FREE_REFINEMENT_MONTHLY_UNITS),
+        daily: plan === 'pro'
+          ? positiveNumber(process.env.CLARIFT_PRO_REFINEMENT_DAILY_UNITS, PRO_REFINEMENT_DAILY_UNITS)
+          : positiveNumber(process.env.CLARIFT_FREE_REFINEMENT_DAILY_UNITS, FREE_REFINEMENT_DAILY_UNITS),
+        monthly: plan === 'pro'
+          ? positiveNumber(process.env.CLARIFT_PRO_REFINEMENT_MONTHLY_UNITS, PRO_REFINEMENT_MONTHLY_UNITS)
+          : positiveNumber(process.env.CLARIFT_FREE_REFINEMENT_MONTHLY_UNITS, FREE_REFINEMENT_MONTHLY_UNITS),
       }
     : {
         daily: positiveNumber(process.env.CLARIFT_FREE_EVALUATION_DAILY_UNITS, FREE_EVALUATION_DAILY_UNITS),
         monthly: positiveNumber(process.env.CLARIFT_FREE_EVALUATION_MONTHLY_UNITS, FREE_EVALUATION_MONTHLY_UNITS),
       };
+}
+
+export async function resolveInferenceAllowancePlan(context: TenantContext): Promise<InferenceAllowancePlan> {
+  const [tenantEntitlement, userEntitlement] = await Promise.all([
+    getAdminFirestore().doc(`tenantEntitlements/${context.tenantId}`).get(),
+    getEffectiveUserEntitlement(context.principalId),
+  ]);
+  return inferenceAllowancePlan(
+    userEntitlement.isPro ? userEntitlement.tier : String(tenantEntitlement.data()?.plan || 'free')
+  );
 }
 
 function quotaRefId(tenantId: string, kind: 'refinement' | 'evaluation', period: 'daily' | 'monthly', key: string) {
@@ -56,7 +79,11 @@ function allowancePeriod(data: Record<string, unknown> | undefined, limit: numbe
   };
 }
 
-export async function readFreeInferenceAllowance(tenantId: string, now = new Date()): Promise<FreeInferenceAllowance> {
+export async function readFreeInferenceAllowance(
+  tenantId: string,
+  now = new Date(),
+  plan: InferenceAllowancePlan = 'free'
+): Promise<FreeInferenceAllowance> {
   const periods = quotaPeriodKeys(now);
   const firestore = getAdminFirestore();
   const refs = (['refinement', 'evaluation'] as const).flatMap((kind) => [
@@ -64,8 +91,8 @@ export async function readFreeInferenceAllowance(tenantId: string, now = new Dat
     firestore.doc(`freeInferenceQuotas/${quotaRefId(tenantId, kind, 'monthly', periods.month)}`),
   ]);
   const snapshots = await firestore.getAll(...refs);
-  const refinementLimits = quotaLimits('refinement');
-  const evaluationLimits = quotaLimits('evaluation');
+  const refinementLimits = quotaLimits('refinement', plan);
+  const evaluationLimits = quotaLimits('evaluation', plan);
   return {
     refinement: {
       daily: allowancePeriod(snapshots[0].data(), refinementLimits.daily, periods.dayResetAt),
@@ -119,11 +146,13 @@ export async function reserveFreeQuota(input: {
   task: FreeInferenceTask;
   requestId: string;
   now?: Date;
+  allowancePlan?: InferenceAllowancePlan;
 }): Promise<FreeQuotaReservation> {
   const now = input.now ?? new Date();
   const periods = quotaPeriodKeys(now);
   const kind = taskAllowanceKind(input.task);
-  const limits = quotaLimits(kind);
+  const allowancePlan = input.allowancePlan ?? await resolveInferenceAllowancePlan(input.context);
+  const limits = quotaLimits(kind, allowancePlan);
   const units = FREE_TASK_UNITS[input.task];
   const firestore = getAdminFirestore();
   const reservationRef = firestore.doc(`freeInferenceReservations/${input.requestId}`);

@@ -83,6 +83,14 @@ env:
     value: "200"
     availability:
       - RUNTIME
+  - variable: CLARIFT_PRO_REFINEMENT_DAILY_UNITS
+    value: "30"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_PRO_REFINEMENT_MONTHLY_UNITS
+    value: "600"
+    availability:
+      - RUNTIME
   - variable: CLARIFT_FREE_EVALUATION_DAILY_UNITS
     value: "5"
     availability:
