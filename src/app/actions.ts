@@ -213,7 +213,7 @@ export async function getTokenCountsAction(data: GetTokenCountsInput) {
     try {
         return await getTokenCounts(parsed.data);
     } catch (error) {
-        console.error("Error getting token counts:", error);
+        console.error("Error getting token counts:", { name: error instanceof Error ? error.name : 'UnknownError' });
         throw toUserFacingError(error, "get token counts");
     }
 }
@@ -255,7 +255,7 @@ export async function evaluateGuidelinesAction(data: z.infer<typeof batchEvaluat
             basicMode: gateway.basicMode,
         };
     } catch (error) {
-        console.error('Error evaluating guidelines:', error);
+        console.error('Error evaluating guidelines:', { name: error instanceof Error ? error.name : 'UnknownError' });
         if (error instanceof Error && [
             'AuthenticationRequiredError',
             'InsufficientCreditsError',

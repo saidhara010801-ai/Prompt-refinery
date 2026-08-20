@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, CheckCircle2, Copy, RefreshCw, Search, ShieldAlert, Ticket, Trash2, UserCheck, UserCog, UserX } from 'lucide-react';
+import { Activity, CheckCircle2, Copy, Download, RefreshCw, Search, ShieldAlert, Ticket, Trash2, UserCheck, UserCog, UserX } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -165,6 +165,24 @@ export function AdminPanel() {
     }
   };
 
+  const exportBetaEvidence = async () => {
+    setBusy(true);
+    try {
+      const report = await api('/api/admin/beta-report?days=30');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `clarift-beta-evidence-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast({ title: 'Beta Evidence Exported', description: 'The report contains aggregate, content-free telemetry only.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could Not Export Beta Evidence', description: error instanceof Error ? error.message : 'Please try again.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return <div className="space-y-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h3 className="font-semibold">Clarift Administration</h3><p className="text-sm text-muted-foreground">Manage users, controlled access, release health, and audit activity.</p></div>
@@ -222,6 +240,7 @@ export function AdminPanel() {
 
       <TabsContent value="inference" className="space-y-4 pt-4">
         {loadErrors.inference && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Inference health could not load. Use Refresh to try again.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div><p className="text-sm font-medium">Beta evidence</p><p className="text-xs text-muted-foreground">Export 30 days of aggregate, content-free telemetry for enabled beta tenants.</p></div><Button type="button" variant="outline" onClick={() => void exportBetaEvidence()} disabled={busy}><Download className="h-4 w-4" />Export JSON</Button></div>
         <div className="flex flex-col gap-2 sm:flex-row"><Input value={betaUid} onChange={(event) => setBetaUid(event.target.value)} placeholder="Firebase user UID" aria-label="Beta tester user ID" /><Button type="button" onClick={() => void updateBeta(betaUid, true)} disabled={busy || !betaUid.trim()}><UserCheck className="h-4 w-4" />Enable</Button><Button type="button" variant="outline" onClick={() => void updateBeta(betaUid, false)} disabled={busy || !betaUid.trim()}><UserX className="h-4 w-4" />Disable</Button></div>
         {inferenceHealth && <><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[['Requests', inferenceHealth.requests], ['Generative', inferenceHealth.generative], ['Basic mode', inferenceHealth.fallback], ['Malformed', inferenceHealth.malformedAttempts]].map(([itemLabel, value]) => <div key={String(itemLabel)} className="rounded-md border p-3"><p className="text-xs text-muted-foreground">{itemLabel}</p><p className="text-xl font-semibold">{value}</p></div>)}</div><div className="rounded-md border p-3 text-sm"><div className="mb-2 flex items-center gap-2 font-medium"><Activity className="h-4 w-4" />Last 24 hours</div><p>Success: {inferenceHealth.succeeded} · Failed: {inferenceHealth.failed} · p50: {inferenceHealth.latencyMs.p50 ?? 'n/a'} ms · p95: {inferenceHealth.latencyMs.p95 ?? 'n/a'} ms</p><p className="mt-1 text-muted-foreground">Spend: ${Number(inferenceHealth.budgets.overall?.settledUsd ?? 0).toFixed(4)} settled · ${Number(inferenceHealth.budgets.overall?.reservedUsd ?? 0).toFixed(4)} reserved</p></div>{(inferenceHealth.attemptIssues?.length ?? 0) > 0 && <div className="space-y-2"><p className="text-sm font-medium">Provider issues</p>{inferenceHealth.attemptIssues?.map((issue) => <div key={`${issue.provider}-${issue.model}-${issue.status}-${issue.errorCode}-${issue.httpStatus}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"><span className="break-all">{issue.provider} · {issue.model}</span><div className="flex flex-wrap gap-2"><Badge variant="outline">{issue.status}</Badge><Badge variant="destructive">{issue.httpStatus ? `HTTP ${issue.httpStatus}` : issue.errorCode}</Badge><Badge variant="secondary">{issue.count}</Badge></div></div>)}</div>}<div className="space-y-2">{inferenceHealth.circuits.map((circuit) => <div key={circuit.id} className="flex items-center justify-between rounded-md border p-3 text-sm"><span>{circuit.provider || circuit.id}</span><Badge variant={circuit.state === 'open' ? 'destructive' : 'secondary'}>{circuit.state || 'closed'}</Badge></div>)}</div></>}
       </TabsContent>

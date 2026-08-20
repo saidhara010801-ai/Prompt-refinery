@@ -165,7 +165,9 @@ export async function POST(request: Request) {
       mergedTruncated: completeMergedContent.length > MAX_MERGED_MARKDOWN_CHARACTERS,
     });
   } catch (error) {
-    console.error('MarkItDown conversion failed:', error);
+    console.error('MarkItDown conversion failed.', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+    });
     if (isMarkitdownRuntimeUnavailableError(error)) {
       return NextResponse.json(
         {

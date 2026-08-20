@@ -23,6 +23,7 @@ import {
 } from '../src/lib/server/request-rate-limit';
 import {
   ADMIN_MAX_PAGE_SIZE,
+  aggregateBetaEvidence,
   assertOwnerAccountStatusChange,
   clampAdminPageSize,
   normalizeAdminUserSearch,
@@ -45,6 +46,7 @@ import {
   getMissingProductionVariables,
   getOptionalProductionWarnings,
   getRuntimeReadiness,
+  hasReleasedFreeProviderConfiguration,
   FEATURE_FLAG_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
   STRIPE_PRODUCTION_VARIABLES,
@@ -92,12 +94,14 @@ import {
   quotaPeriodKeys,
 } from '../src/lib/free-inference';
 import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
+import { MAX_EXTENSION_JSON_BYTES, readBoundedExtensionJson } from '../src/lib/server/extension-request-security';
 import { z } from 'zod';
 import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from '../src/lib/server/free-model-inference';
 import { freeManagedInferenceRoleBypassesRollout } from '../src/lib/server/free-inference-gateway';
 import {
   buildNewUserEmail,
   parseNotificationRecipients,
+  signupNotificationHourlyLimit,
   signupNotificationsAreConfigured,
 } from '../src/lib/server/signup-notification-service';
 
@@ -353,6 +357,9 @@ test('signup notifications deduplicate recipients and include safe Firebase iden
     SIGNUP_NOTIFICATION_FROM_EMAIL: 'Clarift <notifications@example.com>',
     OWNER_EMAILS: 'owner@example.com',
   }), true);
+  assert.equal(signupNotificationHourlyLimit({}), 20);
+  assert.equal(signupNotificationHourlyLimit({ SIGNUP_NOTIFICATION_HOURLY_LIMIT: '12' }), 12);
+  assert.equal(signupNotificationHourlyLimit({ SIGNUP_NOTIFICATION_HOURLY_LIMIT: '1000' }), 100);
 
   const email = buildNewUserEmail({
     uid: 'firebase-uid-123',
@@ -515,6 +522,33 @@ test('managed provider parsing classifies malformed output without retaining it'
   assert.throws(() => parseProviderJson('not-json', schema), ProviderSchemaError);
 });
 
+test('extension device requests use bounded parsing before distributed admission', async () => {
+  assert.deepEqual(
+    await readBoundedExtensionJson(new Request('https://clarift.test', {
+      method: 'POST',
+      body: JSON.stringify({ deviceCode: 'clf_link_example' }),
+    })),
+    { deviceCode: 'clf_link_example' },
+  );
+  await assert.rejects(
+    readBoundedExtensionJson(new Request('https://clarift.test', {
+      method: 'POST',
+      body: 'x'.repeat(MAX_EXTENSION_JSON_BYTES + 1),
+    })),
+    (error: unknown) => error instanceof Error && error.name === 'ExtensionRequestSecurityError',
+  );
+
+  for (const route of [
+    'src/app/api/extension/device/start/route.ts',
+    'src/app/api/extension/device/token/route.ts',
+    'src/app/api/extension/refresh/route.ts',
+  ]) {
+    assert.match(readFileSync(route, 'utf8'), /enforceExtensionRequestLimit/);
+  }
+  const refreshRoute = readFileSync('src/app/api/extension/refresh/route.ts', 'utf8');
+  assert.doesNotMatch(refreshRoute, /error instanceof Error \? error\.message/);
+});
+
 test('OpenRouter managed calls request strict structured output and capture usage', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | null = null;
@@ -529,7 +563,7 @@ test('OpenRouter managed calls request strict structured output and capture usag
     const completion = await createOpenModelCompletion({
       provider: 'openrouter',
       apiKey: 'test-key',
-      model: 'google/gemma-4-26b-a4b-it',
+      model: 'google/gemma-3-4b-it',
       messages: [{ role: 'user', content: 'Refine this.' }],
       maxTokens: 1024,
       timeoutMs: 1000,
@@ -546,6 +580,36 @@ test('OpenRouter managed calls request strict structured output and capture usag
     assert.equal(provider?.sort, 'throughput');
     assert.equal(reasoning?.effort, 'none');
     assert.deepEqual(completion.usage, { inputTokens: 100, outputTokens: 40, costUsd: 0.000009 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Together managed calls request the same strict output contract', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"refinedPrompt":"Ready"}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 20, completion_tokens: 10 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await createOpenModelCompletion({
+      provider: 'together',
+      apiKey: 'test-key',
+      model: 'google/gemma-3n-E4B-it',
+      messages: [{ role: 'user', content: 'Refine this.' }],
+      maxTokens: 1024,
+      timeoutMs: 1000,
+      responseSchema: { name: 'test', schema: { type: 'object', properties: { refinedPrompt: { type: 'string' } } } },
+    });
+    assert.ok(requestBody);
+    const format = (requestBody as Record<string, unknown>).response_format as { type?: string; json_schema?: { strict?: boolean } } | undefined;
+    assert.equal(format?.type, 'json_schema');
+    assert.equal(format?.json_schema?.strict, true);
+    assert.equal(Object.hasOwn(requestBody as object, 'provider'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1010,6 +1074,11 @@ test('stripe webhook event records are redacted, idempotency-safe, and complete'
 
 test('firestore rules deny browser access to privileged production collections and server-managed fields', () => {
   const rules = readFileSync('firestore.rules', 'utf8');
+  const profileRules = rules.slice(
+    rules.indexOf('match /users/{userId}'),
+    rules.indexOf('match /users/{userId}/prompts/{promptId}')
+  );
+  assert.match(profileRules, /allow create, update, delete: if false/);
   const createProfileRule = rules.slice(
     rules.indexOf('function hasValidUserDataOnCreate'),
     rules.indexOf('function isUpdatingImmutableUserData')
@@ -1084,6 +1153,22 @@ test('firestore rules deny browser access to privileged production collections a
   }
 });
 
+test('free inference readiness rejects stale or unsupported provider catalog entries', () => {
+  const valid = {
+    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-3-4b-it',
+    CLARIFT_FREE_TOGETHER_MODEL: 'google/gemma-3n-E4B-it',
+    CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION: '0.05',
+    CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION: '0.10',
+    CLARIFT_TOGETHER_INPUT_USD_PER_MILLION: '0.06',
+    CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION: '0.12',
+  };
+  assert.equal(hasReleasedFreeProviderConfiguration(valid), true);
+  assert.equal(hasReleasedFreeProviderConfiguration({
+    ...valid,
+    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-4-26b-a4b-it',
+  }), false);
+});
+
 test('admin user search preserves Firebase UID casing and normalizes only email lookup', () => {
   assert.deepEqual(normalizeAdminUserSearch('  cihKz9EQA.JdWaDy4leftxEpLBnR2  '), {
     exact: 'cihKz9EQA.JdWaDy4leftxEpLBnR2',
@@ -1114,6 +1199,8 @@ test('owner administration stays in Settings and prevents self-lockout', () => {
   assert.match(adminPanel, /Overview/);
   assert.match(adminPanel, /Grant Pro/);
   assert.match(adminPanel, /Enable AI Beta/);
+  assert.match(adminPanel, /Export JSON/);
+  assert.match(adminPanel, /content-free telemetry/);
   assert.match(adminPanel, /Sensitive values are redacted/);
   assert.match(adminPanel, /Promise\.allSettled/);
   assert.match(adminPanel, /The available sections are still shown/);
@@ -1124,6 +1211,47 @@ test('owner administration stays in Settings and prevents self-lockout', () => {
   const auditQuery = adminService.slice(adminService.indexOf('export async function readAuditLogs'), adminService.indexOf('export async function readSafeSystemHealth'));
   assert.match(auditQuery, /orderBy\('createdAt', 'desc'\)/);
   assert.doesNotMatch(auditQuery, /FieldPath\.documentId/);
+
+  const adminWrapper = readFileSync(join(process.cwd(), 'src/app/api/admin/_shared.ts'), 'utf8');
+  assert.match(adminWrapper, /await consumeDistributedLimit/);
+  assert.doesNotMatch(adminWrapper, /consumeRequestLimit/);
+});
+
+test('beta evidence aggregates content-free telemetry without exposing tenant or user identifiers', () => {
+  const report = aggregateBetaEvidence({
+    betaTenantCount: 2,
+    from: new Date('2026-08-01T00:00:00.000Z'),
+    to: new Date('2026-08-20T00:00:00.000Z'),
+    events: [
+      {
+        task: 'quick_refine', source: 'app', provider: 'openrouter', qualityTier: 'generative', status: 'succeeded',
+        latencyMs: 120, inputTokens: 100, outputTokens: 40, providerCostUsd: 0.00001,
+        createdAt: new Date('2026-08-19T10:00:00.000Z'),
+      },
+      {
+        task: 'evaluate', source: 'extension', provider: 'local', qualityTier: 'fallback', status: 'failed',
+        latencyMs: 400, errorCode: 'ProviderTimeoutError',
+        createdAt: new Date('2026-08-19T11:00:00.000Z'),
+      },
+    ],
+  });
+
+  assert.equal(report.cohort.enabledBetaTenants, 2);
+  assert.deepEqual(report.totals, {
+    requests: 2,
+    succeeded: 1,
+    failed: 1,
+    generative: 1,
+    fallback: 1,
+    inputTokens: 100,
+    outputTokens: 40,
+    providerCostUsd: 0.00001,
+  });
+  assert.deepEqual(report.latencyMs, { p50: 120, p95: 400 });
+  assert.equal(report.breakdowns.byErrorCode.ProviderTimeoutError, 1);
+  assert.equal(report.daily[0]?.requests, 2);
+  const serialized = JSON.stringify(report);
+  assert.doesNotMatch(serialized, /"(?:tenantId|principalId|uid|email|prompt|attachment|credential)"\s*:/i);
 });
 
 test('Stage 2 conversion metadata is deterministic and detects low-text PDFs', () => {

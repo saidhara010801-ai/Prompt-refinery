@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { auditUnauthorizedAdminAttempt, writeAdminAuditLog } from '@/lib/server/admin-service';
-import { consumeRequestLimit, getClientIp } from '@/lib/server/request-rate-limit';
+import { consumeDistributedLimit } from '@/lib/server/distributed-limits';
+import { getClientIp } from '@/lib/server/request-rate-limit';
 import { AuthorizationError } from '@/lib/server/user-access';
 
 function getAdminRateLimit(action: string): { limit: number; windowMs: number } {
@@ -47,7 +48,7 @@ export async function adminJson(handler: () => Promise<unknown>, request: Reques
   }
 
   const rateLimitPolicy = getAdminRateLimit(action);
-  const rateLimit = consumeRequestLimit({
+  const rateLimit = await consumeDistributedLimit({
     bucket: `admin:${action}`,
     key: getClientIp(request),
     limit: rateLimitPolicy.limit,

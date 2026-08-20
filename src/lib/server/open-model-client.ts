@@ -89,7 +89,7 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
         ...(input.provider === 'openrouter' && input.reasoningEffort ? {
           reasoning: { effort: input.reasoningEffort },
         } : {}),
-        ...(input.provider === 'openrouter' && input.responseSchema ? {
+        ...(input.responseSchema ? {
           response_format: {
             type: 'json_schema',
             json_schema: {
@@ -98,10 +98,10 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
               schema: input.responseSchema.schema,
             },
           },
-          provider: {
+          ...(input.provider === 'openrouter' ? { provider: {
             require_parameters: true,
             ...(input.providerSort ? { sort: input.providerSort } : {}),
-          },
+          } } : {}),
         } : {}),
       }),
       signal: controller.signal,

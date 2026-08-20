@@ -454,3 +454,149 @@ export async function readFreeInferenceHealth(request: NextRequest) {
   await writeAdminAuditLog({ actor, action: 'admin.free_inference_health_read', metadata: { requests: records.length }, request });
   return result;
 }
+
+interface BetaEvidenceEvent {
+  task?: unknown;
+  source?: unknown;
+  provider?: unknown;
+  qualityTier?: unknown;
+  status?: unknown;
+  latencyMs?: unknown;
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  providerCostUsd?: unknown;
+  errorCode?: unknown;
+  createdAt?: unknown;
+}
+
+function incrementCounter(target: Record<string, number>, value: unknown, fallback = 'unknown') {
+  const key = typeof value === 'string' && value.trim() ? value.trim().slice(0, 80) : fallback;
+  target[key] = (target[key] ?? 0) + 1;
+}
+
+function numericTotal(records: BetaEvidenceEvent[], field: keyof BetaEvidenceEvent) {
+  return records.reduce((total, record) => {
+    const value = Number(record[field]);
+    return total + (Number.isFinite(value) && value > 0 ? value : 0);
+  }, 0);
+}
+
+function evidenceEventDate(value: unknown): Date | null {
+  const date = value instanceof Timestamp
+    ? value.toDate()
+    : typeof (value as { toDate?: unknown } | null)?.toDate === 'function'
+      ? (value as { toDate: () => Date }).toDate()
+      : value instanceof Date
+        ? value
+        : null;
+  return date && Number.isFinite(date.getTime()) ? date : null;
+}
+
+export function aggregateBetaEvidence(input: {
+  events: BetaEvidenceEvent[];
+  betaTenantCount: number;
+  from: Date;
+  to: Date;
+  truncated?: boolean;
+}) {
+  const events = input.events;
+  const latencies = events
+    .map((record) => Number(record.latencyMs))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  const percentile = (fraction: number) => latencies.length
+    ? latencies[Math.min(Math.ceil(latencies.length * fraction) - 1, latencies.length - 1)]
+    : null;
+  const byTask: Record<string, number> = {};
+  const bySource: Record<string, number> = {};
+  const byProvider: Record<string, number> = {};
+  const byQualityTier: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  const byErrorCode: Record<string, number> = {};
+  const daily = new Map<string, { day: string; requests: number; succeeded: number; generative: number; fallback: number; failed: number }>();
+
+  for (const event of events) {
+    incrementCounter(byTask, event.task);
+    incrementCounter(bySource, event.source);
+    incrementCounter(byProvider, event.provider);
+    incrementCounter(byQualityTier, event.qualityTier);
+    incrementCounter(byStatus, event.status);
+    if (event.status === 'failed' || event.errorCode) incrementCounter(byErrorCode, event.errorCode, 'unclassified');
+
+    const date = evidenceEventDate(event.createdAt);
+    if (!date) continue;
+    const day = date.toISOString().slice(0, 10);
+    const bucket = daily.get(day) ?? { day, requests: 0, succeeded: 0, generative: 0, fallback: 0, failed: 0 };
+    bucket.requests += 1;
+    bucket.succeeded += event.status === 'succeeded' ? 1 : 0;
+    bucket.failed += event.status === 'failed' ? 1 : 0;
+    bucket.generative += event.qualityTier === 'generative' ? 1 : 0;
+    bucket.fallback += event.qualityTier === 'fallback' ? 1 : 0;
+    daily.set(day, bucket);
+  }
+
+  return {
+    reportVersion: 1,
+    generatedAt: new Date().toISOString(),
+    period: { from: input.from.toISOString(), to: input.to.toISOString() },
+    privacy: {
+      contentFree: true,
+      identifiersIncluded: false,
+      note: 'Aggregates exclude tester email, UID, tenant ID, principal ID, prompts, outputs, attachments, credentials, and provider response content.',
+    },
+    cohort: { enabledBetaTenants: input.betaTenantCount },
+    totals: {
+      requests: events.length,
+      succeeded: byStatus.succeeded ?? 0,
+      failed: byStatus.failed ?? 0,
+      generative: byQualityTier.generative ?? 0,
+      fallback: byQualityTier.fallback ?? 0,
+      inputTokens: numericTotal(events, 'inputTokens'),
+      outputTokens: numericTotal(events, 'outputTokens'),
+      providerCostUsd: Math.round(numericTotal(events, 'providerCostUsd') * 1_000_000) / 1_000_000,
+    },
+    latencyMs: { p50: percentile(0.5), p95: percentile(0.95) },
+    breakdowns: { byTask, bySource, byProvider, byQualityTier, byStatus, byErrorCode },
+    daily: Array.from(daily.values()).sort((a, b) => a.day.localeCompare(b.day)),
+    truncated: input.truncated === true,
+  };
+}
+
+export async function readBetaEvidenceReport(request: NextRequest, windowDays = 30) {
+  const actor = await requireOwner(request);
+  const firestore = getAdminFirestore();
+  const days = Math.min(Math.max(Math.trunc(windowDays) || 30, 1), 90);
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+  const entitlementSnapshot = await firestore
+    .collection('tenantEntitlements')
+    .where('freeManagedInferenceBeta', '==', true)
+    .limit(100)
+    .get();
+  const tenantIds = entitlementSnapshot.docs.map((document) => document.id);
+  const eventSnapshots = await Promise.all(Array.from({ length: Math.ceil(tenantIds.length / 30) }, (_, index) => {
+    const tenantChunk = tenantIds.slice(index * 30, index * 30 + 30);
+    return firestore
+      .collection('usageEvents')
+      .where('tenantId', 'in', tenantChunk)
+      .where('createdAt', '>=', Timestamp.fromDate(from))
+      .orderBy('createdAt', 'desc')
+      .limit(5000)
+      .get();
+  }));
+  const eventDocuments = eventSnapshots.flatMap((snapshot) => snapshot.docs);
+  const report = aggregateBetaEvidence({
+    events: eventDocuments.map((document) => document.data()),
+    betaTenantCount: tenantIds.length,
+    from,
+    to,
+    truncated: entitlementSnapshot.size === 100 || eventSnapshots.some((snapshot) => snapshot.size === 5000),
+  });
+  await writeAdminAuditLog({
+    actor,
+    action: 'admin.beta_evidence_report_read',
+    metadata: { betaTenantCount: tenantIds.length, requests: eventDocuments.length, windowDays: days, truncated: report.truncated },
+    request,
+  });
+  return report;
+}
