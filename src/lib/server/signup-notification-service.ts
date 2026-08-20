@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 
 import { getAdminFirestore } from './firebase-admin';
+import { consumeDistributedLimit } from './distributed-limits';
 
 const RESEND_EMAIL_ENDPOINT = 'https://api.resend.com/emails';
 const DELIVERY_LEASE_MS = 2 * 60 * 1000;
@@ -51,6 +52,13 @@ export function signupNotificationsAreConfigured(environment: Environment): bool
       environment.SIGNUP_NOTIFICATION_EMAILS || environment.OWNER_EMAILS
     ).length
   );
+}
+
+export function signupNotificationHourlyLimit(environment: Environment = process.env): number {
+  const configured = Number(environment.SIGNUP_NOTIFICATION_HOURLY_LIMIT);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.min(Math.floor(configured), 100)
+    : 20;
 }
 
 function getNotificationConfig(environment: Environment = process.env): SignupNotificationConfig | null {
@@ -191,6 +199,21 @@ async function deliverSignupNotification(uid: string): Promise<void> {
   const record = await claimNotification(uid);
   if (!record) return;
   const ref = getAdminFirestore().doc(`signupNotifications/${uid}`);
+  const deliveryLimit = await consumeDistributedLimit({
+    bucket: 'signup-notification-delivery',
+    key: 'global',
+    limit: signupNotificationHourlyLimit(),
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!deliveryLimit.allowed) {
+    await ref.set({
+      status: 'pending',
+      leaseUntil: null,
+      nextAttemptAt: Timestamp.fromMillis(Date.now() + deliveryLimit.retryAfterSeconds * 1000),
+      updatedAt: Timestamp.now(),
+    }, { merge: true });
+    return;
+  }
   try {
     const providerMessageId = await sendSignupEmail(config, {
       uid,

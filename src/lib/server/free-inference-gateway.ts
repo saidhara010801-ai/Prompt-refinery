@@ -106,10 +106,10 @@ function calculateCost(provider: OpenModelProvider, usage: OpenModelUsage) {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.15)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
       : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
     outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.6)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
       : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
   });
 }
@@ -119,10 +119,10 @@ function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
     inputTokens: FREE_INPUT_TOKEN_LIMIT,
     outputTokens: maxTokens,
     inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.15)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
       : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
     outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.6)
+      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
       : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
   });
 }
@@ -243,7 +243,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
     const runAttempt = async (attemptProvider: OpenModelProvider, timeoutCap: number, repair: boolean): Promise<T | null> => {
       attemptNumber += 1;
       const model = attemptProvider === 'openrouter'
-        ? process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it'
+        ? process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it'
         : process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-3n-E4B-it';
       const apiKey = attemptProvider === 'openrouter'
         ? process.env.CLARIFT_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || ''
@@ -278,7 +278,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
           timeoutMs: Math.max(1_000, Math.min(timeoutCap, remaining)),
           responseSchema: request.prepared.schema,
           providerSort: attemptProvider === 'openrouter' ? 'throughput' : undefined,
-          reasoningEffort: attemptProvider === 'openrouter' && model.includes('gemma-4') ? 'none' : undefined,
+          reasoningEffort: undefined,
         });
         const cost = calculateCost(attemptProvider, completion.usage) ?? budget.amountUsd;
         await settleProviderBudget(budget, cost);
@@ -327,7 +327,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
         }
       }
       if (primaryError) {
-        const model = process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it';
+        const model = process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it';
         await recordProviderFailure('openrouter', errorCode(primaryError), { model, requestId, status: providerStatus(primaryError) }).catch(() => undefined);
       }
     }

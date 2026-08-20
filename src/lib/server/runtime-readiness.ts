@@ -101,6 +101,15 @@ function hasCurrentProviderPricing(environment: Environment) {
   return ageMs >= 0 && ageMs <= 90 * 24 * 60 * 60 * 1000;
 }
 
+export function hasReleasedFreeProviderConfiguration(environment: Environment) {
+  return environment.CLARIFT_FREE_OPENROUTER_MODEL === 'google/gemma-3-4b-it' &&
+    environment.CLARIFT_FREE_TOGETHER_MODEL === 'google/gemma-3n-E4B-it' &&
+    Number(environment.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION) === 0.05 &&
+    Number(environment.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION) === 0.1 &&
+    Number(environment.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION) === 0.06 &&
+    Number(environment.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION) === 0.12;
+}
+
 function hasValidRazorpayCatalog(environment: Environment) {
   try {
     const catalog = JSON.parse(environment.RAZORPAY_CATALOG_JSON || 'null');
@@ -242,6 +251,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
     : hasValue(environment, variable) && Number(environment[variable]) > 0);
   const freeManagedInference = !isEnabled(environment, 'ENABLE_FREE_MANAGED_INFERENCE') || (
     freeInferenceConfig &&
+    hasReleasedFreeProviderConfiguration(environment) &&
     hasCurrentProviderPricing(environment) &&
     hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') &&
     hasValue(environment, 'CLARIFT_TOGETHER_API_KEY') &&

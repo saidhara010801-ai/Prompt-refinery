@@ -156,9 +156,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
-      allow create: if isOwner(userId) && hasValidUserDataOnCreate(userId);
-      allow update: if isExistingOwner(userId) && isUpdatingImmutableUserData();
-      allow delete: if false;
+      // Profiles and all entitlement/tenant fields are maintained by verified server actions.
+      allow create, update, delete: if false;
     }
 
     /**
