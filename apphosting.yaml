@@ -159,9 +159,12 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  # Enable after RESEND_API_KEY is added in Secret Manager and the sender is verified.
   - variable: ENABLE_SIGNUP_NOTIFICATIONS
-    value: "false"
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: RESEND_API_KEY
+    secret: RESEND_API_KEY
     availability:
       - RUNTIME
   - variable: SIGNUP_NOTIFICATION_EMAILS
