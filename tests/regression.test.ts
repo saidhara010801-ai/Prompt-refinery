@@ -1079,10 +1079,6 @@ test('firestore rules deny browser access to privileged production collections a
     rules.indexOf('match /users/{userId}/prompts/{promptId}')
   );
   assert.match(profileRules, /allow create, update, delete: if false/);
-  const createProfileRule = rules.slice(
-    rules.indexOf('function hasValidUserDataOnCreate'),
-    rules.indexOf('function isUpdatingImmutableUserData')
-  );
   for (const collectionName of [
     'adminEntitlements',
     'adminAuditLogs',
@@ -1116,41 +1112,6 @@ test('firestore rules deny browser access to privileged production collections a
     assert.ok(rules.includes(`match /${collectionName}/{document=**}`));
   }
 
-  for (const fieldName of [
-    'role',
-    'accountStatus',
-    'subscriptionSource',
-    'subscriptionTier',
-    'subscriptionStatus',
-    'stripeCustomerId',
-    'stripeSubscriptionId',
-    'savedPromptCount',
-    'managedRefinementsDate',
-    'managedRefinementsUsedToday',
-    'adminEntitlements',
-    'entitlements',
-    'quota',
-    'quotas',
-    'usage',
-    'audit',
-    'admin',
-    'adminRole',
-    'billingRole',
-  ]) {
-    assert.match(rules, new RegExp(`'${fieldName}'`));
-  }
-
-  for (const creationBlockedField of [
-    'savedPromptCount',
-    'managedRefinementsDate',
-    'managedRefinementsUsedToday',
-    'usage',
-    'quota',
-    'audit',
-    'admin',
-  ]) {
-    assert.match(createProfileRule, new RegExp(`'${creationBlockedField}'`));
-  }
 });
 
 test('free inference readiness rejects stale or unsupported provider catalog entries', () => {

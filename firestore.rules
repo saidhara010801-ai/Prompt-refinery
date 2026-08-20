@@ -60,61 +60,6 @@ service cloud.firestore {
     }
 
     /**
-     * Validates required ownership fields when a new User document is created.
-     * Ensures the document's internal ID matches its path ID.
-     */
-    function hasValidUserDataOnCreate(userId) {
-      return request.resource.data.id == userId &&
-        request.resource.data.subscriptionTier == 'free' &&
-        !request.resource.data.keys().hasAny([
-          'role',
-          'accountStatus',
-          'subscriptionSource',
-          'subscriptionStatus',
-          'stripeCustomerId',
-          'stripeSubscriptionId',
-          'savedPromptCount',
-          'managedRefinementsDate',
-          'managedRefinementsUsedToday',
-          'adminEntitlements',
-          'entitlements',
-          'quota',
-          'quotas',
-          'usage',
-          'audit',
-          'admin',
-          'adminRole',
-          'billingRole'
-        ]);
-    }
-    
-    /**
-     * Enforces immutability of critical fields for a User document on update.
-     */
-    function isUpdatingImmutableUserData() {
-      return request.resource.data.id == resource.data.id &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'subscriptionTier',
-          'subscriptionSource',
-          'subscriptionStatus',
-          'role',
-          'accountStatus',
-          'stripeCustomerId',
-          'stripeSubscriptionId',
-          'savedPromptCount',
-          'managedRefinementsDate',
-          'managedRefinementsUsedToday',
-          'quota',
-          'quotas',
-          'usage',
-          'audit',
-          'admin',
-          'adminRole',
-          'billingRole'
-        ]);
-    }
-
-    /**
      * Validates required ownership fields when a new Prompt document is created.
      */
     function hasValidPromptDataOnCreate(userId) {
