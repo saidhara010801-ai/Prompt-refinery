@@ -31,6 +31,21 @@ Calls: 1
 Cost: $0
 ```
 
+Executed MatrAIx Harbor Web smoke:
+
+```text
+Recipe: configs/jobs/example-job-recipe/harbor-smoke-local.yaml
+Trials: 1
+Completed: 1
+Exceptions: 0
+Retries: 0
+Mean reward: 1.000
+Runtime: 1m 9s
+Provider tokens/cost: none reported (local smoke)
+```
+
+The content-free synthetic result is preserved in `docs/test-data/matraix-smoke-2026-08-20.json`.
+
 Clarift verification:
 
 - TypeScript: passed.
@@ -57,15 +72,20 @@ Clarift verification:
 
 ## Residual Release Gates
 
-These items block a full live MatrAIx persona run, but not the completed no-key smoke test:
+These items block a full live model-backed MatrAIx persona run, but not the completed Survey and Web smoke tests:
 
-1. Enable Docker Desktop integration for the Ubuntu WSL2 distribution before Web or OS simulations.
-2. Create a dedicated, budget-capped model key for MatrAIx. Do not reuse Clarift production provider secrets.
-3. Create a dedicated Clarift test account and tenant, label it as test/beta, and exclude it from user-product KPI reporting.
-4. Enable Firebase App Check where supported, a signup CAPTCHA or equivalent bot control, password policy enforcement, and email-enumeration protection in Firebase Authentication.
-5. Confirm OpenRouter and Together production secrets, released model IDs, prices, and readiness through `/api/health?ready=1` after deployment.
-6. Resolve or formally accept the remaining dependency risk: `npm audit --omit=dev` reports 9 high and 53 moderate production findings, primarily in the Genkit/OpenTelemetry dependency tree and Next.js image tooling. The affected telemetry endpoints are not exposed, and untrusted converter images bypass Next image optimization, but upstream-compatible fixes are not currently available without major framework changes.
-7. Rehearse rollback and verify rules/index deployment before enabling additional beta tenants.
+1. Create a dedicated, budget-capped model key for MatrAIx. Do not reuse Clarift production provider secrets.
+2. Create a dedicated Clarift test account and tenant, label it as test/beta, and exclude it from user-product KPI reporting.
+3. Enable Firebase App Check where supported, a signup CAPTCHA or equivalent bot control, password policy enforcement, and email-enumeration protection in Firebase Authentication.
+4. Resolve or formally accept the remaining dependency risk: `npm audit --omit=dev` reports 9 high and 53 moderate production findings, primarily in the Genkit/OpenTelemetry dependency tree and Next.js image tooling. The affected telemetry endpoints are not exposed, and untrusted converter images bypass Next image optimization, but upstream-compatible fixes are not currently available without major framework changes.
+5. Rehearse rollback before enabling additional beta tenants.
+
+Completed production gates:
+
+- Docker Desktop is running and available inside Ubuntu WSL2.
+- Clarift `/api/health?ready=1` reports all checks ready on `https://clarift.dpdns.org`.
+- The protected beta-report route is live and rejects unauthenticated access.
+- Firestore rules and indexes are deployed; the final rules compile without warnings.
 
 ## Beta Evidence Policy
 

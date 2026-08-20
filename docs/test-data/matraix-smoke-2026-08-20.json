@@ -1,0 +1,48 @@
+{
+  "evidenceVersion": 1,
+  "generatedAt": "2026-08-20T14:01:22.451Z",
+  "privacy": {
+    "syntheticOnly": true,
+    "containsClariftUserData": false,
+    "containsPromptOrResponseContent": false,
+    "containsCredentials": false
+  },
+  "surveySmoke": {
+    "task": "application/tasks/example-survey_product-feedback",
+    "app": "survey",
+    "runtime": "host json_survey / persona-json-survey",
+    "mode": "fake",
+    "personas": 1,
+    "calls": 1,
+    "costUsd": 0,
+    "passed": true
+  },
+  "webSmoke": {
+    "recipe": "configs/jobs/example-job-recipe/harbor-smoke-local.yaml",
+    "evaluator": "oracle__adhoc",
+    "totalTrials": 1,
+    "completedTrials": 1,
+    "erroredTrials": 0,
+    "cancelledTrials": 0,
+    "retries": 0,
+    "meanReward": 1,
+    "rewardCounts": {
+      "1.0": 1
+    },
+    "runtimeSeconds": 69,
+    "inputTokens": null,
+    "outputTokens": null,
+    "costUsd": null,
+    "passed": true
+  },
+  "clariftVerification": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "regressionTestsPassed": 66,
+    "regressionTestsFailed": 0,
+    "productionBuild": "passed",
+    "hostedReadiness": "passed",
+    "protectedBetaReportRoute": "live",
+    "firestoreRules": "deployed_without_warnings"
+  }
+}
