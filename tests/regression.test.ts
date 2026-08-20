@@ -1358,6 +1358,21 @@ test('project refinements stay in the project workspace and support explicit pro
   assert.match(app, /setRequestedProjectSessionId\(sessionId\);\s*setActiveTab\('projects'\)/);
 });
 
+test('workspace V2 stays isolated behind its preview route and supports legacy rollback', () => {
+  const previewRoute = readFileSync('src/app/workspace-preview/page.tsx', 'utf8');
+  const shell = readFileSync('src/components/workspace-v2/workspace-shell.tsx', 'utf8');
+  const hosting = readFileSync('apphosting.yaml', 'utf8');
+
+  assert.match(previewRoute, /params\.ui === 'legacy'[\s\S]*redirect\('\/\?ui=legacy'\)/);
+  assert.match(previewRoute, /process\.env\.CLARIFT_WORKSPACE_V2 === 'true'/);
+  assert.match(hosting, /variable: CLARIFT_WORKSPACE_V2[\s\S]*value: "false"/);
+  assert.match(shell, /'--sidebar-width': '240px'/);
+  assert.match(shell, /'--sidebar-width-icon': '56px'/);
+  for (const destination of ['Workspace', 'Evaluator', 'Converter', 'Saved', 'Projects', 'Analytics', 'Shared']) {
+    assert.match(shell, new RegExp(`label: '${destination}'`));
+  }
+});
+
 test('production responses define strict security headers without blocking Firebase services', () => {
   const nextConfig = readFileSync('next.config.ts', 'utf8');
 

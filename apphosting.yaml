@@ -11,6 +11,10 @@ runConfig:
 # Configure public NEXT_PUBLIC_FIREBASE_* values and OWNER_EMAILS in the backend
 # environment. Add Stripe secret references only after test-mode billing is ready.
 env:
+  - variable: CLARIFT_WORKSPACE_V2
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: APP_BASE_URL
     value: https://clarift.dpdns.org
     availability:
