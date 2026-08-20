@@ -39,6 +39,7 @@ interface SubscriptionContextValue {
   taskCosts: TaskCosts;
   freeTaskUnits: Record<FreeInferenceTask, number>;
   freeAllowance: FreeInferenceAllowance | null;
+  usesFreeManagedInference: boolean;
   tenantPlan: string;
   tenantPlanStatus: string;
   capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
@@ -66,6 +67,7 @@ export const SubscriptionContext = createContext<SubscriptionContextValue>({
   taskCosts: DEFAULT_TASK_COSTS,
   freeTaskUnits: FREE_TASK_UNITS,
   freeAllowance: null,
+  usesFreeManagedInference: false,
   tenantPlan: 'free',
   tenantPlanStatus: 'active',
   capabilities: { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
@@ -88,6 +90,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     taskCosts: TaskCosts;
     freeTaskUnits: Record<FreeInferenceTask, number>;
     allowance: FreeInferenceAllowance;
+    usesFreeManagedInference: boolean;
     plan: string;
     planStatus: string;
     capabilities: { byok: boolean; developerApi: boolean; extension: boolean; razorpay: boolean; inference: 'managed' | 'local-fallback' | 'unavailable' };
@@ -149,6 +152,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       taskCosts: tenant?.taskCosts ?? DEFAULT_TASK_COSTS,
       freeTaskUnits: tenant?.freeTaskUnits ?? FREE_TASK_UNITS,
       freeAllowance: tenant?.allowance ?? null,
+      usesFreeManagedInference: tenant?.usesFreeManagedInference ?? false,
       tenantPlan: tenant?.plan ?? 'free',
       tenantPlanStatus: tenant?.planStatus ?? 'active',
       capabilities: tenant?.capabilities ?? { byok: false, developerApi: false, extension: false, razorpay: false, inference: 'unavailable' },
