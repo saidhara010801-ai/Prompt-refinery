@@ -56,6 +56,27 @@ export const FREE_TASK_OUTPUT_TOKENS: Record<FreeInferenceTask, number> = {
   evaluate: 1024,
 };
 
+export function freeTaskAvailability(task: FreeInferenceTask, allowance: FreeInferenceAllowance) {
+  const kind = taskAllowanceKind(task);
+  const requiredUnits = FREE_TASK_UNITS[task];
+  const dailyRemaining = allowance[kind].daily.remaining;
+  const monthlyRemaining = allowance[kind].monthly.remaining;
+  const availableUnits = Math.min(dailyRemaining, monthlyRemaining);
+  return {
+    available: availableUnits >= requiredUnits,
+    requiredUnits,
+    availableUnits,
+    dailyRemaining,
+    monthlyRemaining,
+    limitingPeriod: monthlyRemaining < requiredUnits ? 'monthly' as const : dailyRemaining < requiredUnits ? 'daily' as const : null,
+    resetAt: monthlyRemaining < requiredUnits
+      ? allowance[kind].monthly.resetAt
+      : dailyRemaining < requiredUnits
+        ? allowance[kind].daily.resetAt
+        : null,
+  };
+}
+
 export function taskAllowanceKind(task: FreeInferenceTask) {
   return task === 'evaluate' ? 'evaluation' as const : 'refinement' as const;
 }

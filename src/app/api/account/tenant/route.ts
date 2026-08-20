@@ -26,6 +26,7 @@ export async function GET(request: Request) {
       taskCosts: getAdvertisedTaskCosts(),
       freeTaskUnits: FREE_TASK_UNITS,
       allowance,
+      usesFreeManagedInference: freeManagedInference,
       capabilities: {
         byok: process.env.ENABLE_BYOK === 'true',
         developerApi: process.env.ENABLE_PUBLIC_API === 'true',

@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { basicModeMessage } from '@/lib/basic-mode-message';
+import { freeTaskAvailability } from '@/lib/free-inference';
 import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
 import { OutputActions } from './output-actions';
@@ -79,6 +80,22 @@ interface RefineryTabProps {
 }
 
 const NO_PROJECT_VALUE = '__no_project__';
+const REFINEMENT_MODES = [
+  ['quick_refine', 'Quick Refine'],
+  ['guided_fix', 'Guided Fix'],
+  ['full_council', 'Full Council'],
+] as const;
+type RefinementMode = (typeof REFINEMENT_MODES)[number][0];
+
+function refinementModeLabel(mode: RefinementMode) {
+  return REFINEMENT_MODES.find(([value]) => value === mode)?.[1] ?? 'This mode';
+}
+
+function resetDateTime(value: string | null) {
+  return value
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+    : null;
+}
 
 function buildProjectMemory(project: Project | null, entries: ProjectMemoryEntry[]): string | undefined {
   if (!project) {
@@ -261,14 +278,18 @@ export function RefineryTab({
   const [explanationMode, setExplanationMode] = useState(true);
   const [maxCharacters, setMaxCharacters] = useState('');
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
-  const [refinementMode, setRefinementMode] = useState<'quick_refine' | 'guided_fix' | 'full_council'>('quick_refine');
+  const [refinementMode, setRefinementMode] = useState<RefinementMode>('quick_refine');
   const [inferencePreference, setInferencePreference] = useState<{ mode: 'managed' | 'byok'; provider: 'gemini' | 'openrouter' }>({ mode: 'managed', provider: 'gemini' });
   const [diffFromVersion, setDiffFromVersion] = useState(1);
   const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, refreshTenant, capabilities } = useContext(SubscriptionContext);
+  const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, usesFreeManagedInference, refreshTenant, capabilities } = useContext(SubscriptionContext);
   const { refineryTransfer, clearRefineryTransfer } = useWorkflow();
+  const managedQuotaApplies = inferencePreference.mode === 'managed' && capabilities.inference === 'managed' && usesFreeManagedInference && Boolean(freeAllowance);
+  const selectedAvailability = managedQuotaApplies && freeAllowance
+    ? freeTaskAvailability(refinementMode, freeAllowance)
+    : null;
 
   const projectSessionsQuery = useMemoFirebase(() => {
     if (!user || !firestore || !selectedProject) return null;
@@ -363,6 +384,13 @@ export function RefineryTab({
   }, [refinedPrompt, toast]);
 
   const onSubmit = async (data: FormValues) => {
+    if (selectedAvailability && !selectedAvailability.available) {
+      toast({
+        title: `${refinementModeLabel(refinementMode)} is unavailable`,
+        description: `This mode needs ${selectedAvailability.requiredUnits} generative units, but ${selectedAvailability.availableUnits} remain. Choose an available mode or wait until ${resetDateTime(selectedAvailability.resetAt) ?? 'the next allowance reset'}.`,
+      });
+      return;
+    }
     setIsLoading(true);
     setRefinedPrompt(null);
     setRawPromptAtResult(null);
@@ -390,7 +418,11 @@ export function RefineryTab({
       if (result.qualityTier === 'fallback') {
         toast({
           title: 'Basic mode used',
-          description: basicModeMessage(result.basicMode),
+          description: basicModeMessage(result.basicMode, {
+            task: refinementMode,
+            taskLabel: refinementModeLabel(refinementMode),
+            allowance: result.allowance,
+          }),
         });
       }
       await refreshTenant();
@@ -613,30 +645,32 @@ export function RefineryTab({
               <div className="space-y-2">
                 <Label>Refinement Mode</Label>
                 <div className="grid grid-cols-3 gap-1 rounded-md border bg-muted p-1">
-                  {([
-                    ['quick_refine', 'Quick Refine'],
-                    ['guided_fix', 'Guided Fix'],
-                    ['full_council', 'Full Council'],
-                  ] as const).map(([value, label]) => (
-                    <Button
+                  {REFINEMENT_MODES.map(([value, label]) => {
+                    const availability = managedQuotaApplies && freeAllowance ? freeTaskAvailability(value, freeAllowance) : null;
+                    const unavailable = availability?.available === false;
+                    return <Button
                       key={value}
                       type="button"
                       size="sm"
                       variant={refinementMode === value ? 'default' : 'ghost'}
                       onClick={() => setRefinementMode(value)}
+                      disabled={isLoading || unavailable}
+                      title={unavailable ? `${label} needs ${availability.requiredUnits} units; ${availability.availableUnits} remain.` : undefined}
                       className="h-auto min-h-9 whitespace-normal px-2 py-2"
                     >
                       {label}
-                    </Button>
-                  ))}
+                    </Button>;
+                  })}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className={`text-xs ${selectedAvailability && !selectedAvailability.available ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
                   {refinementMode === 'quick_refine' && 'A focused pass for everyday prompts.'}
                   {refinementMode === 'guided_fix' && 'Three expert passes for prompts that need structure and critique.'}
                   {refinementMode === 'full_council' && 'Five specialist passes and a final synthesis for complex work.'}
                   {' '}{inferencePreference.mode === 'managed'
                     ? capabilities.inference === 'managed'
-                      ? `Uses ${freeTaskUnits[refinementMode]} generative unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}. ${freeAllowance ? `${freeAllowance.refinement.daily.remaining} daily and ${freeAllowance.refinement.monthly.remaining} monthly units remain.` : 'No provider key is required.'}`
+                      ? selectedAvailability && !selectedAvailability.available
+                        ? `Needs ${selectedAvailability.requiredUnits} generative units, but ${selectedAvailability.availableUnits} remain. Choose an available mode or wait until ${resetDateTime(selectedAvailability.resetAt) ?? 'the next allowance reset'}.`
+                        : `Uses ${freeTaskUnits[refinementMode]} generative unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}. ${freeAllowance ? `${freeAllowance.refinement.daily.remaining} daily and ${freeAllowance.refinement.monthly.remaining} monthly units remain.` : 'No provider key is required.'}`
                       : 'Basic mode is active. No provider key is required.'
                     : `Using encrypted ${inferencePreference.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} BYOK; no managed credits.`}
                 </p>
@@ -796,10 +830,12 @@ export function RefineryTab({
                   placeholder="e.g., 2000"
                 />
               </div>
-              <Button type="submit" disabled={isLoading || !user} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button type="submit" disabled={isLoading || !user || selectedAvailability?.available === false} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
                   ? capabilities.inference === 'managed'
-                    ? `Refine · ${freeTaskUnits[refinementMode]} unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}`
+                    ? selectedAvailability?.available === false
+                      ? 'Choose an available mode'
+                      : `Refine · ${freeTaskUnits[refinementMode]} unit${freeTaskUnits[refinementMode] === 1 ? '' : 's'}`
                     : 'Refine in Basic Mode'
                   : 'Refine with My Provider Key'}
               </Button>

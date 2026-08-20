@@ -90,9 +90,11 @@ import {
   FREE_TASK_UNITS,
   chooseBasicModeStatus,
   estimateSerializedTokens,
+  freeTaskAvailability,
   priceForMaximumAttempt,
   quotaPeriodKeys,
 } from '../src/lib/free-inference';
+import { basicModeMessage } from '../src/lib/basic-mode-message';
 import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
 import { MAX_EXTENSION_JSON_BYTES, readBoundedExtensionJson } from '../src/lib/server/extension-request-security';
 import { z } from 'zod';
@@ -465,6 +467,42 @@ test('Basic mode reason precedence favors durable request and quota blockers', (
   });
   assert.equal(chooseBasicModeStatus({ budgetLimit: true }).reason, 'budget_limit');
   assert.equal(chooseBasicModeStatus({}).reason, 'service_busy');
+});
+
+test('weighted refinement modes expose quota availability before falling back', () => {
+  const allowance = {
+    refinement: {
+      daily: { limit: 10, used: 8, reserved: 0, remaining: 2, resetAt: '2026-08-21T00:00:00.000Z' },
+      monthly: { limit: 200, used: 13, reserved: 0, remaining: 187, resetAt: '2026-09-01T00:00:00.000Z' },
+    },
+    evaluation: {
+      daily: { limit: 5, used: 0, reserved: 0, remaining: 5, resetAt: '2026-08-21T00:00:00.000Z' },
+      monthly: { limit: 100, used: 0, reserved: 0, remaining: 100, resetAt: '2026-09-01T00:00:00.000Z' },
+    },
+  };
+  assert.equal(freeTaskAvailability('guided_fix', allowance).available, true);
+  assert.deepEqual(freeTaskAvailability('full_council', allowance), {
+    available: false,
+    requiredUnits: 3,
+    availableUnits: 2,
+    dailyRemaining: 2,
+    monthlyRemaining: 187,
+    limitingPeriod: 'daily',
+    resetAt: '2026-08-21T00:00:00.000Z',
+  });
+  const message = basicModeMessage({ reason: 'daily_limit', resetScope: 'daily', resetAt: '2026-08-21T00:00:00.000Z' }, {
+    task: 'full_council',
+    taskLabel: 'Full Council',
+    allowance,
+  });
+  assert.match(message, /Full Council needs 3 daily generative units, but 2 remain/);
+  assert.doesNotMatch(message, /resets today/i);
+
+  const tenantRoute = readFileSync('src/app/api/account/tenant/route.ts', 'utf8');
+  const refinery = readFileSync('src/components/prompt-refinery/refinery-tab.tsx', 'utf8');
+  assert.match(tenantRoute, /usesFreeManagedInference: freeManagedInference/);
+  assert.match(refinery, /freeTaskAvailability/);
+  assert.match(refinery, /Choose an available mode/);
 });
 
 test('serialized token estimates include instructions and schema rather than raw prompt only', () => {
