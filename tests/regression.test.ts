@@ -1361,6 +1361,11 @@ test('project refinements stay in the project workspace and support explicit pro
 test('workspace V2 stays isolated behind its preview route and supports legacy rollback', () => {
   const previewRoute = readFileSync('src/app/workspace-preview/page.tsx', 'utf8');
   const shell = readFileSync('src/components/workspace-v2/workspace-shell.tsx', 'utf8');
+  const app = readFileSync('src/components/workspace-v2/workspace-v2-app.tsx', 'utf8');
+  const refinery = readFileSync('src/components/workspace-v2/workspace-refinery-layout.tsx', 'utf8');
+  const projects = readFileSync('src/components/prompt-refinery/projects-tab.tsx', 'utf8');
+  const analytics = readFileSync('src/components/prompt-refinery/analytics-tab.tsx', 'utf8');
+  const styles = readFileSync('src/app/globals.css', 'utf8');
   const hosting = readFileSync('apphosting.yaml', 'utf8');
 
   assert.match(previewRoute, /params\.ui === 'legacy'[\s\S]*redirect\('\/\?ui=legacy'\)/);
@@ -1368,9 +1373,26 @@ test('workspace V2 stays isolated behind its preview route and supports legacy r
   assert.match(hosting, /variable: CLARIFT_WORKSPACE_V2[\s\S]*value: "false"/);
   assert.match(shell, /'--sidebar-width': '240px'/);
   assert.match(shell, /'--sidebar-width-icon': '56px'/);
+  assert.match(shell, /mobilePrimary = \['refinery', 'projects', 'saved', 'analytics'\]/);
+  assert.match(shell, /data-testid="workspace-mobile-nav"/);
   for (const destination of ['Workspace', 'Evaluator', 'Converter', 'Saved', 'Projects', 'Analytics', 'Shared']) {
     assert.match(shell, new RegExp(`label: '${destination}'`));
   }
+
+  assert.match(app, /workspaceIsEmpty[\s\S]*<BrandTypewriter \/>/);
+  assert.match(app, /<h1 className="text-2xl font-semibold">\{heading\.title\}<\/h1>/);
+  assert.match(refinery, /xl:grid-cols-\[minmax\(0,5fr\)_minmax\(0,7fr\)\]/);
+  assert.match(refinery, /window\.visualViewport/);
+  assert.match(refinery, /!keyboardOpen/);
+  assert.match(refinery, /bottom-\[calc\(4\.75rem\+env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(refinery, /data-testid="workspace-refine-bar"/);
+  assert.match(refinery, />Create project<\/Button>/);
+  assert.match(projects, /variant === 'workspace-v2'[\s\S]*xl:grid-cols-\[320px_minmax\(0,1fr\)\]/);
+  assert.match(analytics, /label: 'Plan'/);
+  assert.match(analytics, /label: 'Refinement units'/);
+  assert.match(analytics, /label: 'Managed credits'/);
+  assert.match(analytics, /label: 'Saved prompts'/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
 test('production responses define strict security headers without blocking Firebase services', () => {

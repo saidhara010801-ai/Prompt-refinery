@@ -68,6 +68,7 @@ interface WorkspaceShellProps {
   availableCredits: number;
   reservedCredits: number;
   children: ReactNode;
+  showAccountControls?: boolean;
 }
 
 export function WorkspaceShell({
@@ -82,6 +83,7 @@ export function WorkspaceShell({
   availableCredits,
   reservedCredits,
   children,
+  showAccountControls = true,
 }: WorkspaceShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -132,8 +134,8 @@ export function WorkspaceShell({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarSeparator />
-        <SidebarFooter>
+        {showAccountControls && <SidebarSeparator />}
+        {showAccountControls && <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
               <SettingsDialog trigger={
@@ -144,7 +146,7 @@ export function WorkspaceShell({
               <SidebarMenuButton type="button" tooltip="Sign out" onClick={handleSignOut}><LogOut /><span>Sign out</span></SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-        </SidebarFooter>
+        </SidebarFooter>}
         <SidebarRail />
       </Sidebar>
 
@@ -160,7 +162,7 @@ export function WorkspaceShell({
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={isPro ? 'default' : 'outline'} className="hidden gap-1 sm:flex"><Crown className="h-3 w-3" />{planLabel}</Badge>
-            <SettingsDialog />
+            {showAccountControls && <SettingsDialog />}
             <ThemeToggle />
           </div>
         </header>
@@ -177,7 +179,7 @@ export function WorkspaceShell({
         <main className="min-w-0 flex-1 px-4 py-5 md:px-6 md:py-6">{children}</main>
       </SidebarInset>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(4.25rem+env(safe-area-inset-bottom))] grid-cols-5 border-t bg-background/98 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_hsl(var(--background)/0.45)] md:hidden" aria-label="Workspace navigation">
+      <nav data-testid="workspace-mobile-nav" className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(4.25rem+env(safe-area-inset-bottom))] grid-cols-5 border-t bg-background/98 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_hsl(var(--background)/0.45)] md:hidden" aria-label="Workspace navigation">
         {mobilePrimary.map((id) => {
           const item = destinations.find((candidate) => candidate.id === id)!;
           const Icon = item.icon;
@@ -216,8 +218,8 @@ export function WorkspaceShell({
                 </Button>
               );
             })}
-            <SettingsDialog trigger={<Button type="button" variant="ghost" className="justify-start"><Settings className="h-4 w-4" />Settings</Button>} />
-            <Button type="button" variant="ghost" className="justify-start" onClick={handleSignOut}><LogOut className="h-4 w-4" />Sign out</Button>
+            {showAccountControls && <SettingsDialog trigger={<Button type="button" variant="ghost" className="justify-start"><Settings className="h-4 w-4" />Settings</Button>} />}
+            {showAccountControls && <Button type="button" variant="ghost" className="justify-start" onClick={handleSignOut}><LogOut className="h-4 w-4" />Sign out</Button>}
           </div>
         </SheetContent>
       </Sheet>

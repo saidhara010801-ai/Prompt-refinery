@@ -17,5 +17,6 @@ export default async function WorkspacePreviewRoute({ searchParams }: WorkspaceP
     notFound();
   }
 
-  return <WorkspacePreviewPage />;
+  const fixture = process.env.NODE_ENV !== 'production' && params.fixture === '1';
+  return <WorkspacePreviewPage fixture={fixture} />;
 }
