@@ -1344,15 +1344,16 @@ test('Google sign-in uses account selection and redirect fallback', () => {
 test('project refinements stay in the project workspace and support explicit project switching', () => {
   const app = readFileSync('src/components/prompt-refinery/prompt-refinery-app.tsx', 'utf8');
   const projectsTab = readFileSync('src/components/prompt-refinery/projects-tab.tsx', 'utf8');
+  const projectWorkspace = readFileSync('src/components/prompt-refinery/project-workspace-panel.tsx', 'utf8');
   const refineryTab = readFileSync('src/components/prompt-refinery/refinery-tab.tsx', 'utf8');
 
   assert.match(refineryTab, /<SelectItem value=\{NO_PROJECT_VALUE\}>No project<\/SelectItem>/);
   assert.match(refineryTab, /const savedSession = await addProjectSessionAction/);
   assert.match(refineryTab, /onProjectRefinementSaved\?\.\(savedSession\.id\)/);
-  assert.match(projectsTab, /<SelectItem value=\{ALL_PROJECTS_VALUE\}>All projects<\/SelectItem>/);
-  assert.match(projectsTab, />\s*Leave Project\s*</);
-  assert.match(projectsTab, /selectedProject && workspaceView === 'chat' && isComposing && \(/);
-  assert.match(projectsTab, /<RefineryTab[\s\S]*projectWorkspace/);
+  assert.match(projectWorkspace, /<SelectItem value=\{ALL_PROJECTS_VALUE\}>All projects<\/SelectItem>/);
+  assert.match(projectWorkspace, />\s*Leave Project\s*</);
+  assert.match(projectWorkspace, /selectedProject && workspaceView === 'chat' && isComposing && \(/);
+  assert.match(projectWorkspace, /<RefineryTab[\s\S]*projectWorkspace/);
   assert.doesNotMatch(projectsTab, /onStartRefinement/);
   assert.match(app, /setRequestedProjectSessionId\(sessionId\);\s*setActiveTab\('projects'\)/);
 });

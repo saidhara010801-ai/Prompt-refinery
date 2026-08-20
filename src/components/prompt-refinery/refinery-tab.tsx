@@ -4,35 +4,31 @@ import { ChangeEvent, useState, useContext, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Wand2, Sparkles, Save, BrainCircuit, Cpu, Zap, Wind, Paperclip, X, GitCompareArrows, BookOpen, MessageSquareText } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Wand2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { basicModeMessage } from '@/lib/basic-mode-message';
 import { freeTaskAvailability } from '@/lib/free-inference';
 import { PROMPT_TECHNIQUES, PROMPT_TEMPLATES, PromptTechnique } from '@/lib/constants';
 import { refinePromptAction, getTokenCountsAction } from '@/app/actions';
-import { OutputActions } from './output-actions';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, limit, orderBy, query } from 'firebase/firestore';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Project } from './project-types';
-import { Badge } from '../ui/badge';
 import { SubscriptionContext } from '@/context/subscription-context';
 import { isFreeTechnique } from '@/lib/subscription';
 import { savePromptAction } from '@/app/subscription-actions';
 import { addProjectSessionAction } from '@/app/project-actions';
 import { useWorkflow } from '@/context/workflow-context';
 import type { ProjectMemoryEntry } from './stage2-types';
+import { RefinedOutputPanel } from './refined-output-panel';
+import type { PromptVersion, Refinement, RefinementAttachment, TokenCounts } from './refinery-types';
+import { RefineryContextControls, RefineryOptionsControls } from './refinery-form-sections';
 
 const formSchema = z.object({
   prompt: z.string().min(10, { message: 'Please enter a prompt of at least 10 characters.' }),
@@ -40,34 +36,6 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-interface Refinement {
-    councilMember: string;
-    thoughtProcess: string;
-    refinedText: string;
-}
-
-interface TokenCounts {
-    gemini: number;
-    openai: number;
-    deepseek: number;
-    qwen: number;
-}
-
-interface RefinementAttachment {
-    name: string;
-    mimeType: string;
-    content: string;
-    dataUri?: string;
-}
-
-interface PromptVersion {
-    version: number;
-    rawPrompt: string;
-    refinedPrompt: string;
-    promptType: string;
-    createdAt: string;
-}
 
 interface RefineryTabProps {
   selectedProject: Project | null;
@@ -234,29 +202,6 @@ async function convertDocumentToMarkdown(file: File, firebaseIdToken: string): P
   return result.content;
 }
 
-function buildDiffTokens(originalPrompt: string, refinedPrompt: string) {
-  const originalWords = new Set(
-    originalPrompt
-      .toLowerCase()
-      .split(/\s+/)
-      .map((word) => word.replace(/[^\w-]/g, ''))
-      .filter(Boolean)
-  );
-
-  return refinedPrompt.split(/(\s+)/).map((part, index) => {
-    const normalized = part.toLowerCase().replace(/[^\w-]/g, '');
-    const isWhitespace = /^\s+$/.test(part);
-    const isNew = normalized.length > 0 && !originalWords.has(normalized);
-
-    return {
-      id: `${part}-${index}`,
-      text: part,
-      isWhitespace,
-      isNew,
-    };
-  });
-}
-
 export function RefineryTab({
   selectedProject,
   projects,
@@ -280,8 +225,6 @@ export function RefineryTab({
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
   const [refinementMode, setRefinementMode] = useState<RefinementMode>('quick_refine');
   const [inferencePreference, setInferencePreference] = useState<{ mode: 'managed' | 'byok'; provider: 'gemini' | 'openrouter' }>({ mode: 'managed', provider: 'gemini' });
-  const [diffFromVersion, setDiffFromVersion] = useState(1);
-  const [diffToVersion, setDiffToVersion] = useState(1);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { isPro, savedPromptCount, savedPromptLimit, freeTaskUnits, freeAllowance, usesFreeManagedInference, refreshTenant, updateFreeAllowance, capabilities } = useContext(SubscriptionContext);
@@ -438,8 +381,6 @@ export function RefineryTab({
       };
       const nextVersions = [...previousVersions, nextVersion];
       setPromptVersions(nextVersions);
-      setDiffFromVersion(Math.max(1, nextVersion.version - 1));
-      setDiffToVersion(nextVersion.version);
 
       if (user && firestore && selectedProject) {
         try {
@@ -591,15 +532,6 @@ export function RefineryTab({
     }
   };
 
-  const diffTokens = rawPromptAtResult && refinedPrompt
-    ? buildDiffTokens(rawPromptAtResult, refinedPrompt)
-    : [];
-  const fromVersion = promptVersions.find((version) => version.version === diffFromVersion);
-  const toVersion = promptVersions.find((version) => version.version === diffToVersion);
-  const versionDiffTokens = fromVersion && toVersion
-    ? buildDiffTokens(fromVersion.refinedPrompt, toVersion.refinedPrompt)
-    : [];
-
   return (
     <div className={`grid gap-6 ${projectWorkspace ? 'xl:grid-cols-2' : 'md:grid-cols-2'}`}>
       <Card className="border-primary/20">
@@ -676,54 +608,15 @@ export function RefineryTab({
                     : `Using encrypted ${inferencePreference.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} BYOK; no managed credits.`}
                 </p>
               </div>
-              {selectedProject && relevantMemoryEntries.length > 0 && (
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-sm font-semibold">Relevant project memory</p>
-                  <div className="flex flex-wrap gap-2">
-                    {relevantMemoryEntries.map((entry) => {
-                      const selected = selectedMemoryIds.includes(entry.id);
-                      return (
-                        <button
-                          key={entry.id}
-                          type="button"
-                          title={entry.content.slice(0, 500)}
-                          onClick={() => setSelectedMemoryIds((current) => selected ? current.filter((id) => id !== entry.id) : [...current, entry.id])}
-                          className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground line-through'}`}
-                        >
-                          {entry.title}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="space-y-3 rounded-md border bg-muted/40 p-3">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-primary" />
-                  <Label htmlFor="prompt-template">Prompt Template</Label>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <select
-                    id="prompt-template"
-                    value={selectedTemplateId}
-                    onChange={(event) => setSelectedTemplateId(event.target.value)}
-                    className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Choose a starting point</option>
-                    {PROMPT_TEMPLATES.map((template) => (
-                      <option key={template.id} value={template.id}>{template.name}</option>
-                    ))}
-                  </select>
-                  <Button type="button" variant="outline" onClick={handleLoadTemplate} disabled={!selectedTemplateId}>
-                    Load Template
-                  </Button>
-                </div>
-                {selectedTemplateId && (
-                  <p className="text-xs text-muted-foreground">
-                    {PROMPT_TEMPLATES.find((template) => template.id === selectedTemplateId)?.description}
-                  </p>
-                )}
-              </div>
+              <RefineryContextControls
+                selectedProject={selectedProject}
+                relevantMemoryEntries={relevantMemoryEntries}
+                selectedMemoryIds={selectedMemoryIds}
+                onToggleMemory={(entryId) => setSelectedMemoryIds((current) => current.includes(entryId) ? current.filter((id) => id !== entryId) : [...current, entryId])}
+                selectedTemplateId={selectedTemplateId}
+                onTemplateChange={setSelectedTemplateId}
+                onLoadTemplate={handleLoadTemplate}
+              />
               <FormField
                 control={form.control}
                 name="prompt"
@@ -772,65 +665,15 @@ export function RefineryTab({
                   </FormItem>
                 )}
               />
-              <div className="space-y-3">
-                <FormLabel htmlFor="attachment-upload">Reference Files</FormLabel>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button type="button" variant="outline" asChild>
-                    <label htmlFor="attachment-upload" className="cursor-pointer">
-                      <Paperclip className="h-4 w-4" />
-                      Add Files
-                    </label>
-                  </Button>
-                  <input
-                    id="attachment-upload"
-                    type="file"
-                    multiple
-                    accept=".txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.log,.tsv,.pdf,.docx,.pptx,.xls,.xlsx,.html,.png,.jpg,.jpeg,.webp"
-                    onChange={handleAttachmentChange}
-                    className="sr-only"
-                  />
-                  <span className="text-sm text-muted-foreground">Text and documents become context; images use Gemini Vision.</span>
-                </div>
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {attachments.map((attachment) => (
-                      <Badge key={attachment.name} variant="secondary" className="gap-1">
-                        <Paperclip className="h-3 w-3" />
-                        {attachment.name}
-                        <button type="button" onClick={() => removeAttachment(attachment.name)} className="ml-1">
-                          <X className="h-3 w-3" />
-                          <span className="sr-only">Remove {attachment.name}</span>
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label htmlFor="explanation-mode" className="flex items-center gap-2">
-                    <MessageSquareText className="h-4 w-4 text-primary" />
-                    Explanation Mode
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Ask the council for clear, user-facing explanations of its refinement decisions.
-                  </p>
-                </div>
-                <Switch id="explanation-mode" checked={explanationMode} onCheckedChange={setExplanationMode} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="max-characters">Maximum Output Characters <span className="text-muted-foreground">(optional)</span></Label>
-                <Input
-                  id="max-characters"
-                  type="number"
-                  min={100}
-                  max={50000}
-                  step={100}
-                  value={maxCharacters}
-                  onChange={(event) => setMaxCharacters(event.target.value)}
-                  placeholder="e.g., 2000"
-                />
-              </div>
+              <RefineryOptionsControls
+                attachments={attachments}
+                onAttachmentChange={handleAttachmentChange}
+                onRemoveAttachment={removeAttachment}
+                explanationMode={explanationMode}
+                onExplanationModeChange={setExplanationMode}
+                maxCharacters={maxCharacters}
+                onMaxCharactersChange={setMaxCharacters}
+              />
               <Button type="submit" disabled={isLoading || !user || selectedAvailability?.available === false} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isLoading ? 'Refining...' : inferencePreference.mode === 'managed'
                   ? capabilities.inference === 'managed'
@@ -850,184 +693,19 @@ export function RefineryTab({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-            <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    <Sparkles className="text-primary" />
-                    <span>Refined Output</span>
-                    {promptVersions.length > 0 && <Badge variant="outline">v{promptVersions.at(-1)?.version}</Badge>}
-                </div>
-                {refinedPrompt && (
-                    <Button variant="outline" size="sm" onClick={handleSavePrompt} disabled={!user}>
-                        <Save className="mr-2 h-4 w-4" />
-                        Save Prompt
-                    </Button>
-                )}
-            </CardTitle>
-        </CardHeader>
-        <CardContent className="min-h-[300px]">
-          <AnimatePresence mode="wait">
-            {isLoading && (
-              <motion.div
-                key="loader"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-4"
-              >
-                <Skeleton className="h-8 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-              </motion.div>
-            )}
-            {!isLoading && refinedPrompt && (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-6"
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-end">
-                    <OutputActions
-                      prompt={refinedPrompt}
-                      originalPrompt={rawPromptAtResult ?? undefined}
-                      promptType={form.getValues('promptType')}
-                    />
-                  </div>
-                  <pre className="whitespace-pre-wrap font-code text-sm bg-muted p-4 rounded-md">
-                    <code>{refinedPrompt}</code>
-                  </pre>
-                </div>
-
-                {rawPromptAtResult && (
-                  <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="diff">
-                      <AccordionTrigger>
-                        <span className="flex items-center gap-2">
-                          <GitCompareArrows className="h-4 w-4" />
-                          Before / After Diff
-                        </span>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="grid lg:grid-cols-2 gap-4">
-                          <div>
-                            <h4 className="font-semibold text-sm mb-2">Before</h4>
-                            <pre className="whitespace-pre-wrap font-code text-xs bg-background p-3 rounded-md border">
-                              <code>{rawPromptAtResult}</code>
-                            </pre>
-                          </div>
-                          <div>
-                            <h4 className="font-semibold text-sm mb-2">After</h4>
-                            <div className="whitespace-pre-wrap font-code text-xs bg-background p-3 rounded-md border">
-                              {diffTokens.map((token) => (
-                                token.isWhitespace ? token.text : (
-                                  <span key={token.id} className={token.isNew ? 'rounded bg-green-500/15 text-green-700 dark:text-green-300' : undefined}>
-                                    {token.text}
-                                  </span>
-                                )
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                )}
-
-                {promptVersions.length > 1 && (
-                  <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="version-diff">
-                      <AccordionTrigger>Compare Prompt Versions</AccordionTrigger>
-                      <AccordionContent className="space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <Select value={String(diffFromVersion)} onValueChange={(value) => setDiffFromVersion(Number(value))}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>{promptVersions.map((version) => <SelectItem key={`from-${version.version}`} value={String(version.version)}>Version {version.version}</SelectItem>)}</SelectContent>
-                          </Select>
-                          <Select value={String(diffToVersion)} onValueChange={(value) => setDiffToVersion(Number(value))}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>{promptVersions.map((version) => <SelectItem key={`to-${version.version}`} value={String(version.version)}>Version {version.version}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          <pre className="whitespace-pre-wrap rounded-md border bg-background p-3 font-code text-xs"><code>{fromVersion?.refinedPrompt}</code></pre>
-                          <div className="whitespace-pre-wrap rounded-md border bg-background p-3 font-code text-xs">
-                            {versionDiffTokens.map((token) => token.isWhitespace ? token.text : <span key={token.id} className={token.isNew ? 'rounded bg-green-500/15 text-green-700 dark:text-green-300' : undefined}>{token.text}</span>)}
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                )}
-
-                {isTokenizing && (
-                  <div className="space-y-2">
-                    <Skeleton className="h-5 w-1/3" />
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Skeleton className="h-16 w-full" />
-                      <Skeleton className="h-16 w-full" />
-                      <Skeleton className="h-16 w-full" />
-                      <Skeleton className="h-16 w-full" />
-                    </div>
-                  </div>
-                )}
-
-                {tokenCounts && (
-                  <div>
-                    <h4 className="font-semibold mb-2">Estimated Token Counts</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                      <div className="p-3 rounded-lg bg-muted">
-                        <p className="font-bold text-lg flex items-center justify-center gap-2"><BrainCircuit /> Gemini</p>
-                        <p className="text-sm">{tokenCounts.gemini}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-muted">
-                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Zap /> OpenAI</p>
-                        <p className="text-sm">{tokenCounts.openai}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-muted">
-                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Cpu /> DeepSeek</p>
-                        <p className="text-sm">{tokenCounts.deepseek}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-muted">
-                        <p className="font-bold text-lg flex items-center justify-center gap-2"><Wind /> Qwen</p>
-                        <p className="text-sm">{tokenCounts.qwen}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {explanationMode && (
-                  <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="item-1">
-                      <AccordionTrigger>View Council Explanations</AccordionTrigger>
-                      <AccordionContent>
-                        <div className="space-y-4">
-                          {refinements.map((refinement, index) => (
-                            <div key={index} className="p-4 bg-background rounded-lg border">
-                              <h4 className="font-semibold text-primary">{refinement.councilMember}</h4>
-                              <p className="text-sm text-muted-foreground mt-1 mb-2 italic">&quot;{refinement.thoughtProcess}&quot;</p>
-                              <pre className="whitespace-pre-wrap font-code text-xs bg-muted p-3 rounded-md"><code>{refinement.refinedText}</code></pre>
-                            </div>
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                )}
-                
-              </motion.div>
-            )}
-            {!isLoading && !refinedPrompt && (
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <p>Your refined prompt will appear here.</p>
-              </div>
-            )}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
+      <RefinedOutputPanel
+        isLoading={isLoading}
+        refinedPrompt={refinedPrompt}
+        rawPromptAtResult={rawPromptAtResult}
+        refinements={refinements}
+        tokenCounts={tokenCounts}
+        isTokenizing={isTokenizing}
+        promptVersions={promptVersions}
+        explanationMode={explanationMode}
+        promptType={form.getValues('promptType')}
+        canSave={Boolean(user)}
+        onSavePrompt={handleSavePrompt}
+      />
     </div>
   );
 }
