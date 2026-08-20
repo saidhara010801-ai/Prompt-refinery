@@ -15,6 +15,7 @@ import { formatProjectDate, type ProjectSession } from './project-session-types'
 import { RefineryTab } from './refinery-tab';
 import { ShareDialog } from './share-dialog';
 import type { ProjectMemoryEntry } from './stage2-types';
+import { cn } from '@/lib/utils';
 
 const ALL_PROJECTS_VALUE = '__all_projects__';
 
@@ -46,6 +47,7 @@ interface ProjectWorkspacePanelProps {
   onMemoryDraftChange: (entryId: string, draft: { title: string; content: string }) => void;
   onUpdateMemory: (entry: ProjectMemoryEntry, active?: boolean) => void;
   onDeleteMemory: (entryId: string) => void;
+  variant?: 'legacy' | 'workspace-v2';
 }
 
 export function ProjectWorkspacePanel({
@@ -76,9 +78,10 @@ export function ProjectWorkspacePanel({
   onMemoryDraftChange,
   onUpdateMemory,
   onDeleteMemory,
+  variant = 'legacy',
 }: ProjectWorkspacePanelProps) {
   return (
-    <section className="min-w-0 rounded-lg border bg-background">
+    <section className={cn('min-w-0 rounded-lg border bg-background', variant === 'workspace-v2' && 'overflow-hidden')}>
       <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-lg font-semibold">{selectedProject ? selectedProject.name : 'Project Chats'}</h2>
@@ -121,7 +124,7 @@ export function ProjectWorkspacePanel({
         </div>
       </div>
 
-      <ScrollArea className="h-[624px]">
+      <ScrollArea className={cn('h-[624px]', variant === 'workspace-v2' && 'h-[620px] xl:h-[calc(100vh-13rem)]')}>
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-4 md:p-6">
           {!selectedProject && (
             <div className="flex min-h-[440px] items-center justify-center text-center text-sm text-muted-foreground">Select or create a project.</div>

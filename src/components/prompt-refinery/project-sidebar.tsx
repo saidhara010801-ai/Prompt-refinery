@@ -1,6 +1,6 @@
 'use client';
 
-import type { FormEvent } from 'react';
+import { type FormEvent, useState } from 'react';
 import {
   ArchiveRestore,
   FolderKanban,
@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   Trash2,
+  ChevronDown,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { PROJECT_TEMPLATES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { Project } from './project-types';
 import {
   formatProjectDate,
@@ -63,6 +65,9 @@ interface ProjectSidebarProps {
   sessions: ProjectSession[] | null;
   selectedSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
+  variant?: 'legacy' | 'workspace-v2';
+  sortOrder?: 'updated' | 'name';
+  onSortOrderChange?: (sortOrder: 'updated' | 'name') => void;
 }
 
 export function ProjectSidebar({
@@ -97,9 +102,37 @@ export function ProjectSidebar({
   sessions,
   selectedSessionId,
   onSelectSession,
+  variant = 'legacy',
+  sortOrder = 'updated',
+  onSortOrderChange,
 }: ProjectSidebarProps) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const createForm = (
+    <form onSubmit={onCreateProject} className="space-y-3">
+      <div className="space-y-2">
+        <Label htmlFor="projectName">Name</Label>
+        <Input id="projectName" value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Product launch prompts" />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="projectTemplate">Template</Label>
+        <Select value={templateId || '__blank__'} onValueChange={(value) => onTemplateIdChange(value === '__blank__' ? '' : value)}>
+          <SelectTrigger id="projectTemplate"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__blank__">Blank project</SelectItem>
+            {PROJECT_TEMPLATES.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="projectDescription">Description</Label>
+        <Textarea id="projectDescription" value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Audience, brand notes, goals." className="min-h-20" />
+      </div>
+      <Button type="submit" className="w-full" disabled={!canCreateProject}><Plus className="h-4 w-4" />Create Project</Button>
+    </form>
+  );
+
   return (
-    <aside className="rounded-lg border border-primary/20 bg-background">
+    <aside className={cn('rounded-lg border border-primary/20 bg-background', variant === 'workspace-v2' && 'overflow-hidden')}>
       <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
         {!isCollapsed && (
           <div className="flex min-w-0 items-center gap-2">
@@ -107,7 +140,7 @@ export function ProjectSidebar({
             <p className="truncate font-semibold">Projects</p>
           </div>
         )}
-        <Button type="button" variant="ghost" size="icon" className="ml-auto" onClick={onToggleCollapsed}>
+          <Button type="button" variant="ghost" size="icon" className={cn('ml-auto', variant === 'workspace-v2' && 'hidden xl:inline-flex')} onClick={onToggleCollapsed}>
           {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           <span className="sr-only">{isCollapsed ? 'Expand project menu' : 'Collapse project menu'}</span>
         </Button>
@@ -127,7 +160,7 @@ export function ProjectSidebar({
           )}
         </div>
       ) : (
-        <ScrollArea className="h-[624px]">
+        <ScrollArea className={cn('h-[624px]', variant === 'workspace-v2' && 'h-auto max-h-[70vh] md:h-[560px] xl:h-[calc(100vh-13rem)] xl:max-h-none')}>
           <div className="space-y-5 p-4">
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -173,37 +206,19 @@ export function ProjectSidebar({
               </Button>
             </div>
 
-            {!showTrash && (
-              <form onSubmit={onCreateProject} className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="projectName">Name</Label>
-                  <Input id="projectName" value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Product launch prompts" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="projectTemplate">Template</Label>
-                  <Select value={templateId || '__blank__'} onValueChange={(value) => onTemplateIdChange(value === '__blank__' ? '' : value)}>
-                    <SelectTrigger id="projectTemplate"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__blank__">Blank project</SelectItem>
-                      {PROJECT_TEMPLATES.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="projectDescription">Description</Label>
-                  <Textarea
-                    id="projectDescription"
-                    value={description}
-                    onChange={(event) => onDescriptionChange(event.target.value)}
-                    placeholder="Audience, brand notes, goals."
-                    className="min-h-20"
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={!canCreateProject}>
-                  <Plus className="h-4 w-4" />Create Project
-                </Button>
-              </form>
+            {variant === 'workspace-v2' && onSortOrderChange && (
+              <Select value={sortOrder} onValueChange={(value) => onSortOrderChange(value as 'updated' | 'name')}>
+                <SelectTrigger aria-label="Sort projects"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="updated">Recently updated</SelectItem><SelectItem value="name">Project name</SelectItem></SelectContent>
+              </Select>
             )}
+
+            {!showTrash && (variant === 'workspace-v2' ? (
+              <Collapsible open={createOpen} onOpenChange={setCreateOpen}>
+                <CollapsibleTrigger asChild><Button type="button" variant="outline" className="w-full justify-between"><span className="flex items-center gap-2"><Plus className="h-4 w-4" />Create project</span><ChevronDown className={cn('h-4 w-4 transition-transform', createOpen && 'rotate-180')} /></Button></CollapsibleTrigger>
+                <CollapsibleContent className="pt-3">{createForm}</CollapsibleContent>
+              </Collapsible>
+            ) : createForm)}
 
             <Separator />
 

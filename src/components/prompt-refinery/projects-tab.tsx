@@ -30,6 +30,7 @@ interface ProjectsTabProps {
   onSelectProject: (project: Project | null) => void;
   requestedSessionId?: string | null;
   onRequestedSessionSelected?: () => void;
+  variant?: 'legacy' | 'workspace-v2';
 }
 
 export function ProjectsTab({
@@ -39,6 +40,7 @@ export function ProjectsTab({
   onSelectProject,
   requestedSessionId,
   onRequestedSessionSelected,
+  variant = 'legacy',
 }: ProjectsTabProps) {
   const { firestore, user } = useFirebase();
   const { toast } = useToast();
@@ -58,6 +60,7 @@ export function ProjectsTab({
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<ProjectMemorySearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'updated' | 'name'>('updated');
   const selectedProjectId = selectedProject?.id ?? null;
   const activeProjectOptions = (projects ?? []).filter((project) => project.status !== 'trashed');
   const projectOptions = selectedProject && !activeProjectOptions.some((project) => project.id === selectedProject.id)
@@ -265,10 +268,19 @@ export function ProjectsTab({
     }
   };
 
-  const visibleProjects = (projects ?? []).filter((project) => showTrash ? project.status === 'trashed' : project.status !== 'trashed');
+  const visibleProjects = (projects ?? [])
+    .filter((project) => showTrash ? project.status === 'trashed' : project.status !== 'trashed')
+    .sort((left, right) => sortOrder === 'name'
+      ? left.name.localeCompare(right.name)
+      : (right.updatedAt?.seconds ?? 0) - (left.updatedAt?.seconds ?? 0));
 
   return (
-    <div className={cn('grid min-h-[680px] gap-6 lg:grid-cols-[340px_minmax(0,1fr)]', isSidebarCollapsed && 'lg:grid-cols-[72px_minmax(0,1fr)]')}>
+    <div className={cn(
+      'grid min-h-[680px] gap-6 lg:grid-cols-[340px_minmax(0,1fr)]',
+      isSidebarCollapsed && 'lg:grid-cols-[72px_minmax(0,1fr)]',
+      variant === 'workspace-v2' && 'gap-4 lg:grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]',
+      variant === 'workspace-v2' && isSidebarCollapsed && 'xl:grid-cols-[72px_minmax(0,1fr)]'
+    )}>
       <ProjectSidebar
         isCollapsed={isSidebarCollapsed}
         onToggleCollapsed={() => setIsSidebarCollapsed((current) => !current)}
@@ -304,6 +316,9 @@ export function ProjectsTab({
         sessions={sessions}
         selectedSessionId={selectedSessionId}
         onSelectSession={setSelectedSessionId}
+        variant={variant}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
       />
 
       <ProjectWorkspacePanel
@@ -337,6 +352,7 @@ export function ProjectsTab({
         onMemoryDraftChange={(entryId, draft) => setMemoryDrafts((current) => ({ ...current, [entryId]: draft }))}
         onUpdateMemory={handleUpdateMemory}
         onDeleteMemory={handleDeleteMemory}
+        variant={variant}
       />
     </div>
   );
