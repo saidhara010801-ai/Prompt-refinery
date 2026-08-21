@@ -81,6 +81,18 @@ body {
     --sidebar-border: 220 5% 80%;
     --sidebar-ring: 26 99% 51%;
   }
+  :root:not(.dark):not(.high-contrast) .workspace-v2 {
+    --background: 42 32% 94%;
+    --card: 40 23% 99%;
+    --popover: 40 23% 99%;
+    --secondary: 38 18% 90%;
+    --muted: 38 18% 90%;
+    --border: 34 15% 78%;
+    --input: 34 14% 70%;
+    --sidebar-background: 40 28% 92%;
+    --sidebar-accent: 36 18% 88%;
+    --sidebar-border: 34 14% 76%;
+  }
   .dark {
     --background: 240 4% 8%;
     --foreground: 0 0% 100%;

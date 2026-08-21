@@ -1393,6 +1393,8 @@ test('workspace V2 stays isolated behind its preview route and supports legacy r
   assert.match(analytics, /label: 'Managed credits'/);
   assert.match(analytics, /label: 'Saved prompts'/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(styles, /:root:not\(\.dark\):not\(\.high-contrast\) \.workspace-v2/);
+  assert.match(styles, /--background: 42 32% 94%/);
 });
 
 test('production responses define strict security headers without blocking Firebase services', () => {
