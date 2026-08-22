@@ -11,7 +11,7 @@ export interface TenantUsageInput {
   principalId: string;
   task: ClariftTask;
   inferenceMode: InferenceMode | 'system';
-  provider?: InferenceProviderName | 'together' | 'markitdown' | 'none';
+  provider?: InferenceProviderName | 'gemma' | 'together' | 'markitdown' | 'none';
   model?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;

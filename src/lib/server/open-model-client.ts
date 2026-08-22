@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { GoogleAuth } from 'google-auth-library';
 
-export type OpenModelProvider = 'openrouter' | 'together';
+export type OpenModelProvider = 'gemma' | 'openrouter' | 'together';
 
 export interface OpenModelUsage {
   inputTokens: number | null;
@@ -24,6 +25,8 @@ interface OpenModelCompletionInput {
   responseSchema?: { name: string; schema: Record<string, unknown> };
   providerSort?: 'price' | 'throughput' | 'latency';
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+  endpointUrl?: string;
+  cloudRunAudience?: string;
 }
 
 const ResponseSchema = z.object({
@@ -52,10 +55,24 @@ export class ProviderSchemaError extends Error {
   }
 }
 
-function endpoint(provider: OpenModelProvider) {
-  return provider === 'openrouter'
+function endpoint(input: OpenModelCompletionInput) {
+  if (input.provider === 'gemma') {
+    if (!input.endpointUrl) throw new OpenModelProviderError('The self-hosted provider endpoint is unavailable.', 503);
+    return input.endpointUrl;
+  }
+  return input.provider === 'openrouter'
     ? 'https://openrouter.ai/api/v1/chat/completions'
     : 'https://api.together.ai/v1/chat/completions';
+}
+
+async function cloudRunIdentityToken(audience: string | undefined) {
+  if (!audience) return null;
+  try {
+    const client = await new GoogleAuth().getIdTokenClient(audience);
+    return await client.idTokenProvider.fetchIdToken(audience);
+  } catch {
+    throw new OpenModelProviderError('The self-hosted provider identity could not be established.', 503);
+  }
 }
 
 export async function createOpenModelCompletion(input: OpenModelCompletionInput): Promise<OpenModelCompletion> {
@@ -65,16 +82,18 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
   let response: Response;
   let responseText = '';
   try {
-    const messages = input.provider === 'together' && input.responseSchema
+    const messages = input.provider !== 'openrouter' && input.responseSchema
       ? [...input.messages, {
           role: 'user' as const,
           content: `Return only a complete JSON object matching this schema exactly:\n${JSON.stringify(input.responseSchema.schema)}`,
         }]
       : input.messages;
-    response = await fetch(endpoint(input.provider), {
+    const identityToken = await cloudRunIdentityToken(input.cloudRunAudience);
+    response = await fetch(endpoint(input), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${input.apiKey}`,
+        ...(identityToken ? { 'X-Serverless-Authorization': `Bearer ${identityToken}` } : {}),
         'Content-Type': 'application/json',
         ...(input.provider === 'openrouter' ? {
           'HTTP-Referer': process.env.APP_BASE_URL || 'https://clarift--clarift-e4f6f.us-east4.hosted.app',
@@ -107,7 +126,8 @@ export async function createOpenModelCompletion(input: OpenModelCompletionInput)
       signal: controller.signal,
     });
     responseText = await response.text();
-  } catch {
+  } catch (error) {
+    if (error instanceof OpenModelProviderError) throw error;
     if (controller.signal.aborted) throw new OpenModelProviderError('The managed provider timed out.', 504);
     throw new OpenModelProviderError('The managed provider could not be reached.', 502);
   } finally {

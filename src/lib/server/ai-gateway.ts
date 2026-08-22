@@ -29,7 +29,7 @@ import { readFreeInferenceAllowance, resolveInferenceAllowancePlan } from './fre
 import { chooseBasicModeStatus, type BasicModeStatus, type FreeInferenceAllowance, type InferenceQualityTier } from '@/lib/free-inference';
 
 export type GatewaySource = 'app' | 'api' | 'extension';
-export type GatewayProvider = InferenceProviderName | 'together';
+export type GatewayProvider = InferenceProviderName | 'gemma' | 'together';
 
 export interface GatewayPublicMetadata {
   qualityTier: InferenceQualityTier;

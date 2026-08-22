@@ -34,6 +34,12 @@ import {
   type OpenModelProvider,
   type OpenModelUsage,
 } from './open-model-client';
+import {
+  freeRemoteDeadlineMs,
+  getFreeProviderOrder,
+  getOpenModelProviderConfig,
+  type OpenModelProviderConfig,
+} from './open-model-provider-config';
 import type { TenantContext } from './tenant-service';
 import { recordTenantUsage } from './usage-meter';
 import { getEffectiveUserRole } from './user-access';
@@ -94,24 +100,13 @@ function providerStatus(error: unknown) {
   return error instanceof OpenModelProviderError ? error.status : undefined;
 }
 
-function isRetryable(error: unknown) {
-  if (error instanceof ProviderSchemaError) return true;
-  const status = providerStatus(error);
-  return status === 429 || status === 502 || status === 503 || status === 504;
-}
-
 function calculateCost(provider: OpenModelProvider, usage: OpenModelUsage) {
   if (usage.costUsd !== null && Number.isFinite(usage.costUsd)) return usage.costUsd;
   if (usage.inputTokens === null && usage.outputTokens === null) return null;
   return priceForMaximumAttempt({
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
-    inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
-      : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
-    outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
-      : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
+    ...providerRates(provider),
   });
 }
 
@@ -119,13 +114,23 @@ function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
   return priceForMaximumAttempt({
     inputTokens: FREE_INPUT_TOKEN_LIMIT,
     outputTokens: maxTokens,
-    inputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05)
-      : positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.06),
-    outputUsdPerMillion: provider === 'openrouter'
-      ? positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1)
-      : positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.12),
+    ...providerRates(provider),
   });
+}
+
+function providerRates(provider: OpenModelProvider) {
+  if (provider === 'openrouter') return {
+    inputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05),
+    outputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1),
+  };
+  if (provider === 'together') return {
+    inputUsdPerMillion: positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.2),
+    outputUsdPerMillion: positiveNumber(process.env.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION, 0.5),
+  };
+  return {
+    inputUsdPerMillion: positiveNumber(process.env.CLARIFT_GEMMA_INPUT_USD_PER_MILLION, 0.05),
+    outputUsdPerMillion: positiveNumber(process.env.CLARIFT_GEMMA_OUTPUT_USD_PER_MILLION, 0.1),
+  };
 }
 
 export function freeManagedInferenceRoleBypassesRollout(role: string | null | undefined) {
@@ -238,18 +243,13 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
       return await finishFallback(chooseBasicModeStatus({}));
     }
 
-    const deadline = startedAt + positiveNumber(process.env.CLARIFT_FREE_REMOTE_DEADLINE_MS, 38_000);
+    const deadline = startedAt + freeRemoteDeadlineMs(request.source);
     let attemptNumber = 0;
     let budgetBlocked = false;
 
-    const runAttempt = async (attemptProvider: OpenModelProvider, timeoutCap: number, repair: boolean): Promise<T | null> => {
+    const runAttempt = async (config: OpenModelProviderConfig, timeoutCap: number, repair: boolean): Promise<T | null> => {
       attemptNumber += 1;
-      const model = attemptProvider === 'openrouter'
-        ? process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it'
-        : process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-3n-E4B-it';
-      const apiKey = attemptProvider === 'openrouter'
-        ? process.env.CLARIFT_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || ''
-        : process.env.CLARIFT_TOGETHER_API_KEY || process.env.TOGETHER_API_KEY || '';
+      const { provider: attemptProvider, model, apiKey } = config;
       const remaining = deadline - Date.now();
       if (!apiKey || remaining < 1_000) {
         attempts.push({ provider: attemptProvider, model, status: 'skipped', inputTokens: null, outputTokens: null, costUsd: null, errorCode: !apiKey ? 'ProviderKeyMissingError' : 'RemoteDeadlineExceeded' });
@@ -281,6 +281,8 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
           responseSchema: request.prepared.schema,
           providerSort: attemptProvider === 'openrouter' ? 'throughput' : undefined,
           reasoningEffort: undefined,
+          endpointUrl: config.endpointUrl,
+          cloudRunAudience: config.cloudRunAudience,
         });
         const cost = calculateCost(attemptProvider, completion.usage) ?? budget.amountUsd;
         await settleProviderBudget(budget, cost);
@@ -315,31 +317,49 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
     };
 
     let result: T | null = null;
-    let primaryError: unknown = null;
-    try {
-      result = await runAttempt('openrouter', 18_000, false);
-    } catch (error) {
-      primaryError = error;
-      if (isRetryable(error) && deadline - Date.now() >= 2_000) {
-        try {
-          result = await runAttempt('openrouter', 14_000, error instanceof ProviderSchemaError);
-          primaryError = null;
-        } catch (retryError) {
-          primaryError = retryError;
+    for (const attemptProvider of getFreeProviderOrder()) {
+      const config = getOpenModelProviderConfig(attemptProvider, request.source);
+      if (!config) {
+        attempts.push({
+          provider: attemptProvider,
+          model: attemptProvider === 'gemma'
+            ? process.env.GEMMA_MODEL_ID || 'google/gemma-4-E4B-it'
+            : attemptProvider === 'together'
+              ? process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-4-31B-it'
+              : process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it',
+          status: 'skipped',
+          inputTokens: null,
+          outputTokens: null,
+          costUsd: null,
+          errorCode: 'ProviderConfigurationMissing',
+        });
+        continue;
+      }
+      let finalError: unknown = null;
+      try {
+        result = await runAttempt(config, config.timeoutMs, false);
+      } catch (error) {
+        finalError = error;
+        const remaining = deadline - Date.now();
+        const repairTimeout = Math.min(10_000, remaining - 8_000);
+        if (error instanceof ProviderSchemaError && repairTimeout >= 4_000) {
+          try {
+            result = await runAttempt(config, repairTimeout, true);
+            finalError = null;
+          } catch (repairError) {
+            finalError = repairError;
+          }
         }
       }
-      if (primaryError) {
-        const model = process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it';
-        await recordProviderFailure('openrouter', errorCode(primaryError), { model, requestId, status: providerStatus(primaryError) }).catch(() => undefined);
+      if (result) break;
+      if (finalError) {
+        await recordProviderFailure(attemptProvider, errorCode(finalError), {
+          model: config.model,
+          requestId,
+          status: providerStatus(finalError),
+        }).catch(() => undefined);
       }
-    }
-    if (!result) {
-      try {
-        result = await runAttempt('together', 10_000, false);
-      } catch (secondaryError) {
-        const model = process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-3n-E4B-it';
-        await recordProviderFailure('together', errorCode(secondaryError), { model, requestId, status: providerStatus(secondaryError) }).catch(() => undefined);
-      }
+      if (deadline - Date.now() < 4_000) break;
     }
     if (!result) return await finishFallback(chooseBasicModeStatus({ budgetLimit: budgetBlocked }));
 

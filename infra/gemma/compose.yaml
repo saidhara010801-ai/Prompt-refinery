@@ -1,0 +1,21 @@
+services:
+  gemma:
+    build:
+      context: ../..
+      dockerfile: infra/gemma/Dockerfile
+    environment:
+      GEMMA_API_KEY: ${GEMMA_API_KEY:?Set GEMMA_API_KEY}
+      HF_TOKEN: ${HF_TOKEN:?Set HF_TOKEN after accepting the Gemma license}
+      MODEL_ID: ${GEMMA_MODEL_ID:-google/gemma-4-E4B-it}
+      MAX_MODEL_LEN: ${GEMMA_MAX_MODEL_LEN:-8192}
+      GPU_MEMORY_UTILIZATION: ${GEMMA_GPU_MEMORY_UTILIZATION:-0.90}
+    ports:
+      - "8000:8000"
+    gpus: all
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 180s

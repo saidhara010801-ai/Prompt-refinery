@@ -1,8 +1,14 @@
 import type { UserRecord } from 'firebase-admin/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import type { NextRequest } from 'next/server';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 
 import { getRuntimeReadiness } from './runtime-readiness';
+import { getFreeProviderOrder, getOpenModelProviderConfig } from './open-model-provider-config';
+import { createOpenModelCompletion, parseProviderJson } from './open-model-client';
+import { recordProviderFailure, recordProviderSuccess } from './provider-circuit-breaker';
+import { releaseProviderBudget, reserveProviderBudget, settleProviderBudget } from './free-inference-control';
 import { getAdminAuth, getAdminFirestore } from './firebase-admin';
 import { ensurePersonalTenant, personalTenantId } from './tenant-service';
 import {
@@ -435,9 +441,10 @@ export async function readFreeInferenceHealth(request: NextRequest) {
   const firestore = getAdminFirestore();
   const since = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
   const day = new Date().toISOString().slice(0, 10);
-  const [events, circuits, openRouterBudget, togetherBudget, overallBudget] = await Promise.all([
+  const [events, circuits, gemmaBudget, openRouterBudget, togetherBudget, overallBudget] = await Promise.all([
     firestore.collection('usageEvents').where('createdAt', '>=', since).limit(1000).get(),
     firestore.collection('providerCircuits').limit(50).get(),
+    firestore.doc(`providerBudgets/gemma_${day}`).get(),
     firestore.doc(`providerBudgets/openrouter_${day}`).get(),
     firestore.doc(`providerBudgets/together_${day}`).get(),
     firestore.doc(`providerBudgets/all_${day}`).get(),
@@ -471,6 +478,7 @@ export async function readFreeInferenceHealth(request: NextRequest) {
     attemptIssues: Array.from(attemptIssueCounts.values()).sort((a, b) => b.count - a.count).slice(0, 12),
     latencyMs: { p50: percentile(0.5), p95: percentile(0.95) },
     budgets: {
+      gemma: gemmaBudget.data() ?? null,
       openrouter: openRouterBudget.data() ?? null,
       together: togetherBudget.data() ?? null,
       overall: overallBudget.data() ?? null,
@@ -479,6 +487,67 @@ export async function readFreeInferenceHealth(request: NextRequest) {
   };
   await writeAdminAuditLog({ actor, action: 'admin.free_inference_health_read', metadata: { requests: records.length }, request });
   return result;
+}
+
+export async function probeFreeInferenceProviders(request: NextRequest) {
+  const actor = await requireSupport(request);
+  const requestId = randomUUID();
+  const outputSchema = z.object({ ready: z.literal(true) });
+  const schema = {
+    name: 'clarift_provider_probe',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['ready'],
+      properties: { ready: { type: 'boolean', const: true } },
+    },
+  };
+  const results = [];
+  for (const provider of getFreeProviderOrder()) {
+    const config = getOpenModelProviderConfig(provider, 'app');
+    if (!config) {
+      results.push({ provider, status: 'not_configured', latencyMs: null, errorCode: 'ProviderConfigurationMissing' });
+      continue;
+    }
+    const startedAt = Date.now();
+    const budget = await reserveProviderBudget({
+      requestId,
+      attempt: results.length + 1,
+      provider,
+      estimatedCostUsd: 0.001,
+    });
+    if (!budget) {
+      results.push({ provider, model: config.model, status: 'budget_blocked', latencyMs: null, errorCode: 'ProviderBudgetLimitError' });
+      continue;
+    }
+    try {
+      const completion = await createOpenModelCompletion({
+        provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        messages: [{ role: 'user', content: 'Return the provider readiness object.' }],
+        maxTokens: 32,
+        timeoutMs: Math.min(config.timeoutMs, 15_000),
+        responseSchema: schema,
+        endpointUrl: config.endpointUrl,
+        cloudRunAudience: config.cloudRunAudience,
+      });
+      parseProviderJson(completion.content, outputSchema);
+      await settleProviderBudget(budget, completion.usage.costUsd ?? 0.001);
+      await recordProviderSuccess(provider, config.model);
+      results.push({ provider, model: config.model, status: 'ready', latencyMs: Date.now() - startedAt, errorCode: null });
+    } catch (error) {
+      await releaseProviderBudget(budget).catch(() => undefined);
+      const errorCode = error instanceof Error ? error.name.slice(0, 120) : 'UnknownError';
+      const status = typeof error === 'object' && error && 'status' in error && Number.isInteger(error.status)
+        ? Number(error.status)
+        : undefined;
+      await recordProviderFailure(provider, errorCode, { model: config.model, requestId, status }).catch(() => undefined);
+      results.push({ provider, model: config.model, status: 'failed', latencyMs: Date.now() - startedAt, errorCode, httpStatus: status ?? null });
+    }
+  }
+  await writeAdminAuditLog({ actor, action: 'admin.free_inference_provider_probe', metadata: { results }, request });
+  return { checkedAt: new Date().toISOString(), results };
 }
 
 interface BetaEvidenceEvent {

@@ -1,4 +1,5 @@
 import { signupNotificationsAreConfigured } from './signup-notification-service';
+import { isValidSelfHostedGemmaConfiguration } from './open-model-provider-config';
 
 type Environment = Record<string, string | undefined>;
 
@@ -17,6 +18,7 @@ export interface RuntimeReadiness {
     fileConversionRuntime: boolean;
     managedInference: boolean;
     freeManagedInference: boolean;
+    selfHostedGemma: boolean;
     localInferenceFallback: boolean;
     byokEncryption: boolean;
     razorpayBilling: boolean;
@@ -71,6 +73,7 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_MANAGED_OPENROUTER',
   'ENABLE_MANAGED_INFERENCE',
   'ENABLE_FREE_MANAGED_INFERENCE',
+  'ENABLE_SELF_HOSTED_GEMMA',
   'ENABLE_LOCAL_INFERENCE_FALLBACK',
   'ENABLE_BYOK',
   'ENABLE_RAZORPAY_BILLING',
@@ -103,11 +106,11 @@ function hasCurrentProviderPricing(environment: Environment) {
 
 export function hasReleasedFreeProviderConfiguration(environment: Environment) {
   return environment.CLARIFT_FREE_OPENROUTER_MODEL === 'google/gemma-3-4b-it' &&
-    environment.CLARIFT_FREE_TOGETHER_MODEL === 'google/gemma-3n-E4B-it' &&
+    environment.CLARIFT_FREE_TOGETHER_MODEL === 'google/gemma-4-31B-it' &&
     Number(environment.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION) === 0.05 &&
     Number(environment.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION) === 0.1 &&
-    Number(environment.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION) === 0.06 &&
-    Number(environment.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION) === 0.12;
+    Number(environment.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION) === 0.2 &&
+    Number(environment.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION) === 0.5;
 }
 
 function hasValidRazorpayCatalog(environment: Environment) {
@@ -172,7 +175,11 @@ export function getOptionalProductionWarnings(environment: Environment): string[
 
   if (isEnabled(environment, 'ENABLE_FREE_MANAGED_INFERENCE') &&
     (!hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || !hasValue(environment, 'CLARIFT_TOGETHER_API_KEY'))) {
-    warnings.push('Free managed inference is enabled but both managed provider secrets are not configured.');
+    warnings.push('Free managed inference is enabled but one or more managed provider secrets are not configured.');
+  }
+
+  if (!isValidSelfHostedGemmaConfiguration(environment)) {
+    warnings.push('Self-hosted Gemma is enabled but its HTTPS endpoint, model, or server credential is invalid.');
   }
 
   if (isEnabled(environment, 'ENABLE_PROMOTION_CODES') && !hasValue(environment, 'PROMO_CODE_PEPPER')) {
@@ -228,6 +235,9 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
   const managedInference = !isEnabled(environment, 'ENABLE_MANAGED_INFERENCE') ||
     hasValue(environment, 'CLARIFT_GEMINI_API_KEY') || hasValue(environment, 'GEMINI_API_KEY') || hasValue(environment, 'GOOGLE_API_KEY') ||
     (isEnabled(environment, 'ENABLE_MANAGED_OPENROUTER') && (hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || hasValue(environment, 'OPENROUTER_API_KEY'))) ||
+    (isEnabled(environment, 'ENABLE_FREE_MANAGED_INFERENCE') &&
+      (hasValue(environment, 'CLARIFT_OPENROUTER_API_KEY') || hasValue(environment, 'CLARIFT_TOGETHER_API_KEY'))) ||
+    (isEnabled(environment, 'ENABLE_SELF_HOSTED_GEMMA') && isValidSelfHostedGemmaConfiguration(environment)) ||
     localInferenceFallback;
   const freeInferenceConfig = [
     'CLARIFT_FREE_OPENROUTER_MODEL',
@@ -260,6 +270,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
     Number(environment.CLARIFT_REMOTE_ADMISSION_BUDGET_USD) <=
       Number(environment.CLARIFT_OPENROUTER_DAILY_BUDGET_USD) + Number(environment.CLARIFT_TOGETHER_DAILY_BUDGET_USD)
   );
+  const selfHostedGemma = isValidSelfHostedGemmaConfiguration(environment);
   const byokEncryption = !isEnabled(environment, 'ENABLE_BYOK') || hasValidByokKey(environment);
   const razorpayBilling = !isEnabled(environment, 'ENABLE_RAZORPAY_BILLING') || [
     'RAZORPAY_KEY_ID',
@@ -284,6 +295,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       fileConversionRuntime &&
       managedInference &&
       freeManagedInference &&
+      selfHostedGemma &&
       byokEncryption &&
       razorpayBilling &&
       apiTokenSecurity &&
@@ -302,6 +314,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       fileConversionRuntime,
       managedInference,
       freeManagedInference,
+      selfHostedGemma,
       localInferenceFallback,
       byokEncryption,
       razorpayBilling,

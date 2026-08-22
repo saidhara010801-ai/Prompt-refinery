@@ -99,6 +99,12 @@ import {
 import { inferenceAllowancePlan } from '../src/lib/server/free-inference-control';
 import { basicModeMessage } from '../src/lib/basic-mode-message';
 import { ProviderSchemaError, createOpenModelCompletion, parseProviderJson } from '../src/lib/server/open-model-client';
+import {
+  freeRemoteDeadlineMs,
+  getFreeProviderOrder,
+  getOpenModelProviderConfig,
+  isValidSelfHostedGemmaConfiguration,
+} from '../src/lib/server/open-model-provider-config';
 import { MAX_EXTENSION_JSON_BYTES, readBoundedExtensionJson } from '../src/lib/server/extension-request-security';
 import { z } from 'zod';
 import { buildFreeEvaluationRequest, buildFreeRefinementRequest } from '../src/lib/server/free-model-inference';
@@ -666,7 +672,7 @@ test('Together managed calls request the same strict output contract', async () 
     await createOpenModelCompletion({
       provider: 'together',
       apiKey: 'test-key',
-      model: 'google/gemma-3n-E4B-it',
+      model: 'google/gemma-4-31B-it',
       messages: [{ role: 'user', content: 'Refine this.' }],
       maxTokens: 1024,
       timeoutMs: 1000,
@@ -680,6 +686,62 @@ test('Together managed calls request the same strict output contract', async () 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('self-hosted Gemma uses a server-owned OpenAI-compatible endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = '';
+  let authorizationHeader = '';
+  globalThis.fetch = async (input, init) => {
+    requestUrl = String(input);
+    authorizationHeader = new Headers(init?.headers).get('Authorization') || '';
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"ready":true}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8, completion_tokens: 4 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await createOpenModelCompletion({
+      provider: 'gemma',
+      apiKey: 'server-only-key',
+      model: 'google/gemma-4-E4B-it',
+      endpointUrl: 'https://gemma.example.test/v1/chat/completions',
+      messages: [{ role: 'user', content: 'Readiness.' }],
+      maxTokens: 32,
+      timeoutMs: 1000,
+      responseSchema: { name: 'probe', schema: { type: 'object', properties: { ready: { type: 'boolean' } } } },
+    });
+    assert.equal(requestUrl, 'https://gemma.example.test/v1/chat/completions');
+    assert.equal(authorizationHeader, 'Bearer server-only-key');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('managed provider routing prefers Gemma 4 and preserves an extension fallback budget', () => {
+  const environment = {
+    NODE_ENV: 'production',
+    ENABLE_SELF_HOSTED_GEMMA: 'false',
+    CLARIFT_FREE_PROVIDER_ORDER: 'gemma,together,openrouter',
+    CLARIFT_TOGETHER_API_KEY: 'together-key',
+    CLARIFT_OPENROUTER_API_KEY: 'openrouter-key',
+  };
+  assert.deepEqual(getFreeProviderOrder(environment), ['together', 'openrouter']);
+  assert.equal(getOpenModelProviderConfig('together', 'app', environment)?.model, 'google/gemma-4-31B-it');
+  assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.timeoutMs, 32_000);
+  assert.equal(freeRemoteDeadlineMs('extension', environment), 43_000);
+
+  const gemmaEnvironment = {
+    ...environment,
+    NODE_ENV: 'development',
+    ENABLE_SELF_HOSTED_GEMMA: 'true',
+    GEMMA_BASE_URL: 'http://localhost:8000',
+    GEMMA_API_KEY: 'gemma-key',
+  };
+  assert.deepEqual(getFreeProviderOrder(gemmaEnvironment), ['gemma', 'together', 'openrouter']);
+  assert.equal(getOpenModelProviderConfig('gemma', 'app', gemmaEnvironment)?.endpointUrl, 'http://localhost:8000/v1/chat/completions');
+  assert.equal(isValidSelfHostedGemmaConfiguration(gemmaEnvironment), true);
+  assert.equal(isValidSelfHostedGemmaConfiguration({ ...gemmaEnvironment, NODE_ENV: 'production' }), false);
 });
 
 test('managed task prices are server-owned, bounded, and resilient to invalid configuration', () => {
@@ -717,6 +779,8 @@ test('local beta fallback is deterministic, preserves the task, and charges no a
   assert.equal(isLocalInferenceFallbackActive(environment), true);
   assert.equal(getAdvertisedTaskCosts(environment).quick_refine, 0);
   assert.equal(getAdvertisedTaskCosts({ ...environment, GEMINI_API_KEY: 'managed-key' }).quick_refine, 1);
+  assert.equal(hasManagedRemoteProvider({ ENABLE_FREE_MANAGED_INFERENCE: 'true', CLARIFT_TOGETHER_API_KEY: 'managed-key' }), true);
+  assert.equal(hasManagedRemoteProvider({ ENABLE_SELF_HOSTED_GEMMA: 'true', GEMMA_BASE_URL: 'https://gemma.example.test', GEMMA_API_KEY: 'managed-key' }), true);
 });
 
 test('local beta evaluator returns bounded, ordered guideline results without a provider key', () => {
@@ -1184,11 +1248,11 @@ test('firestore rules deny browser access to privileged production collections a
 test('free inference readiness rejects stale or unsupported provider catalog entries', () => {
   const valid = {
     CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-3-4b-it',
-    CLARIFT_FREE_TOGETHER_MODEL: 'google/gemma-3n-E4B-it',
+    CLARIFT_FREE_TOGETHER_MODEL: 'google/gemma-4-31B-it',
     CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION: '0.05',
     CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION: '0.10',
-    CLARIFT_TOGETHER_INPUT_USD_PER_MILLION: '0.06',
-    CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION: '0.12',
+    CLARIFT_TOGETHER_INPUT_USD_PER_MILLION: '0.20',
+    CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION: '0.50',
   };
   assert.equal(hasReleasedFreeProviderConfiguration(valid), true);
   assert.equal(hasReleasedFreeProviderConfiguration({
@@ -1358,7 +1422,7 @@ test('project refinements stay in the project workspace and support explicit pro
   assert.match(app, /setRequestedProjectSessionId\(sessionId\);\s*setActiveTab\('projects'\)/);
 });
 
-test('workspace V2 stays isolated behind its preview route and supports legacy rollback', () => {
+test('workspace V2 uses a production flag and preserves preview and legacy rollback routes', () => {
   const previewRoute = readFileSync('src/app/workspace-preview/page.tsx', 'utf8');
   const shell = readFileSync('src/components/workspace-v2/workspace-shell.tsx', 'utf8');
   const app = readFileSync('src/components/workspace-v2/workspace-v2-app.tsx', 'utf8');
@@ -1370,7 +1434,12 @@ test('workspace V2 stays isolated behind its preview route and supports legacy r
 
   assert.match(previewRoute, /params\.ui === 'legacy'[\s\S]*redirect\('\/\?ui=legacy'\)/);
   assert.match(previewRoute, /process\.env\.CLARIFT_WORKSPACE_V2 === 'true'/);
-  assert.match(hosting, /variable: CLARIFT_WORKSPACE_V2[\s\S]*value: "false"/);
+  assert.match(hosting, /variable: CLARIFT_WORKSPACE_V2[\s\S]*value: "true"/);
+
+  const homeRoute = readFileSync('src/app/page.tsx', 'utf8');
+  assert.match(homeRoute, /process\.env\.CLARIFT_WORKSPACE_V2 === 'true'/);
+  assert.match(homeRoute, /workspaceV2Enabled && params\.ui !== 'legacy'/);
+  assert.match(homeRoute, /return <LegacyHomePage \/>/);
   assert.match(shell, /'--sidebar-width': '240px'/);
   assert.match(shell, /'--sidebar-width-icon': '56px'/);
   assert.match(shell, /mobilePrimary = \['refinery', 'projects', 'saved', 'analytics'\]/);
