@@ -11,6 +11,10 @@ runConfig:
 # Configure public NEXT_PUBLIC_FIREBASE_* values and OWNER_EMAILS in the backend
 # environment. Add Stripe secret references only after test-mode billing is ready.
 env:
+  - variable: CLARIFT_WORKSPACE_V2
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: APP_BASE_URL
     value: https://clarift.dpdns.org
     availability:
@@ -55,6 +59,10 @@ env:
     value: "true"
     availability:
       - RUNTIME
+  - variable: ENABLE_SELF_HOSTED_GEMMA
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: CLARIFT_FREE_INFERENCE_ROLLOUT_PERCENT
     value: "0"
     availability:
@@ -72,7 +80,11 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_TOGETHER_MODEL
-    value: google/gemma-3n-E4B-it
+    value: google/gemma-4-31B-it
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_PROVIDER_ORDER
+    value: gemma,together,openrouter
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_REFINEMENT_DAILY_UNITS
@@ -104,15 +116,35 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_REMOTE_DEADLINE_MS
-    value: "38000"
+    value: "65000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_FREE_EXTENSION_DEADLINE_MS
+    value: "43000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_TIMEOUT_MS
+    value: "24000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_TOGETHER_EXTENSION_TIMEOUT_MS
+    value: "21000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_TIMEOUT_MS
+    value: "32000"
+    availability:
+      - RUNTIME
+  - variable: CLARIFT_OPENROUTER_EXTENSION_TIMEOUT_MS
+    value: "20000"
     availability:
       - RUNTIME
   - variable: CLARIFT_OPENROUTER_DAILY_BUDGET_USD
-    value: "4.00"
+    value: "2.50"
     availability:
       - RUNTIME
   - variable: CLARIFT_TOGETHER_DAILY_BUDGET_USD
-    value: "0.50"
+    value: "2.00"
     availability:
       - RUNTIME
   - variable: CLARIFT_REMOTE_ADMISSION_BUDGET_USD
@@ -128,15 +160,15 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_TOGETHER_INPUT_USD_PER_MILLION
-    value: "0.06"
+    value: "0.20"
     availability:
       - RUNTIME
   - variable: CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION
-    value: "0.12"
+    value: "0.50"
     availability:
       - RUNTIME
   - variable: CLARIFT_PROVIDER_PRICING_EFFECTIVE_DATE
-    value: "2026-08-20"
+    value: "2026-08-22"
     availability:
       - RUNTIME
   - variable: ENABLE_LOCAL_INFERENCE_FALLBACK

@@ -36,7 +36,16 @@ export function hasManagedRemoteProvider(environment: Record<string, string | un
   const openRouter = environment.ENABLE_MANAGED_OPENROUTER === 'true'
     ? environment.CLARIFT_OPENROUTER_API_KEY || environment.OPENROUTER_API_KEY
     : undefined;
-  return Boolean(gemini?.trim() || openRouter?.trim());
+  const freeOpenRouter = environment.ENABLE_FREE_MANAGED_INFERENCE === 'true'
+    ? environment.CLARIFT_OPENROUTER_API_KEY || environment.OPENROUTER_API_KEY
+    : undefined;
+  const together = environment.ENABLE_FREE_MANAGED_INFERENCE === 'true'
+    ? environment.CLARIFT_TOGETHER_API_KEY || environment.TOGETHER_API_KEY
+    : undefined;
+  const selfHostedGemma = environment.ENABLE_SELF_HOSTED_GEMMA === 'true' && environment.GEMMA_BASE_URL
+    ? environment.GEMMA_API_KEY
+    : undefined;
+  return Boolean(gemini?.trim() || openRouter?.trim() || freeOpenRouter?.trim() || together?.trim() || selfHostedGemma?.trim());
 }
 
 export function isLocalInferenceFallbackActive(environment: Record<string, string | undefined> = process.env) {

@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 interface PromoCodeRecord { id: string; prefix: string; label: string | null; mode: string; maxRedemptions: number | null; redemptionCount: number; active: boolean }
 interface PromoUser { id: string; uid: string; email: string; codeId: string }
 interface InferenceHealth { requests: number; succeeded: number; failed: number; generative: number; fallback: number; malformedAttempts: number; latencyMs: { p50: number | null; p95: number | null }; budgets: Record<string, { settledUsd?: number; reservedUsd?: number } | null>; circuits: Array<{ id: string; state?: string; provider?: string }>; attemptIssues?: Array<{ provider: string; model: string; status: string; errorCode: string; httpStatus: number | null; count: number }> }
+interface ProviderProbe { provider: string; model?: string; status: 'ready' | 'failed' | 'not_configured' | 'budget_blocked'; latencyMs: number | null; errorCode: string | null; httpStatus?: number | null }
 interface SystemHealth { ready: boolean; checks: Record<string, boolean>; featureFlags: Record<string, boolean> }
 interface AdminUser { uid: string; email: string; name: string; role: string; subscriptionTier: string; subscriptionSource: string | null; accountStatus: 'active' | 'disabled' | 'suspended' | 'deleted_pending'; profileStatus?: 'ready' | 'auth_only'; freeManagedInferenceBeta: boolean }
 interface AuditLog { id: string; actorUid: string | null; actorRole: string | null; action: string; targetUid: string | null; metadataRedacted: Record<string, unknown>; createdAt: string | null }
@@ -32,6 +33,7 @@ export function AdminPanel() {
   const [busy, setBusy] = useState(false);
   const [betaUid, setBetaUid] = useState('');
   const [inferenceHealth, setInferenceHealth] = useState<InferenceHealth | null>(null);
+  const [providerProbes, setProviderProbes] = useState<ProviderProbe[]>([]);
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [search, setSearch] = useState('');
@@ -184,6 +186,20 @@ export function AdminPanel() {
     }
   };
 
+  const probeProviders = async () => {
+    setBusy(true);
+    try {
+      const result = await api('/api/admin/free-inference', { method: 'POST', body: JSON.stringify({ action: 'probe' }) });
+      setProviderProbes(result.results ?? []);
+      toast({ title: 'Provider Check Complete', description: 'No prompts or refined output were included in this diagnostic.' });
+      await refresh();
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Provider Check Failed', description: error instanceof Error ? error.message : 'Please try again.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return <div className="space-y-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h3 className="font-semibold">Clarift Administration</h3><p className="text-sm text-muted-foreground">Manage users, controlled access, release health, and audit activity.</p></div>
@@ -241,6 +257,8 @@ export function AdminPanel() {
 
       <TabsContent value="inference" className="space-y-4 pt-4">
         {loadErrors.inference && <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Inference health could not load. Use Refresh to try again.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div><p className="text-sm font-medium">Managed provider check</p><p className="text-xs text-muted-foreground">Send a tiny, content-free structured-output probe and refresh provider circuits.</p></div><Button type="button" variant="outline" onClick={() => void probeProviders()} disabled={busy}><Activity className="h-4 w-4" />Run check</Button></div>
+        {providerProbes.length > 0 && <div className="space-y-2">{providerProbes.map((probe) => <div key={probe.provider} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"><span className="break-all">{probe.provider}{probe.model ? ` · ${probe.model}` : ''}</span><div className="flex flex-wrap items-center gap-2"><Badge variant={probe.status === 'ready' ? 'secondary' : 'destructive'}>{probe.status.replace('_', ' ')}</Badge>{probe.latencyMs !== null && <Badge variant="outline">{probe.latencyMs} ms</Badge>}{probe.errorCode && <span className="text-xs text-muted-foreground">{probe.httpStatus ? `HTTP ${probe.httpStatus}` : probe.errorCode}</span>}</div></div>)}</div>}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div><p className="text-sm font-medium">Beta evidence</p><p className="text-xs text-muted-foreground">Export 30 days of aggregate, content-free telemetry for enabled beta tenants.</p></div><Button type="button" variant="outline" onClick={() => void exportBetaEvidence()} disabled={busy}><Download className="h-4 w-4" />Export JSON</Button></div>
         <div className="flex flex-col gap-2 sm:flex-row"><Input value={betaUid} onChange={(event) => setBetaUid(event.target.value)} placeholder="Firebase user UID" aria-label="Beta tester user ID" /><Button type="button" onClick={() => void updateBeta(betaUid, true)} disabled={busy || !betaUid.trim()}><UserCheck className="h-4 w-4" />Enable</Button><Button type="button" variant="outline" onClick={() => void updateBeta(betaUid, false)} disabled={busy || !betaUid.trim()}><UserX className="h-4 w-4" />Disable</Button></div>
         {inferenceHealth && <><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[['Requests', inferenceHealth.requests], ['Generative', inferenceHealth.generative], ['Basic mode', inferenceHealth.fallback], ['Malformed', inferenceHealth.malformedAttempts]].map(([itemLabel, value]) => <div key={String(itemLabel)} className="rounded-md border p-3"><p className="text-xs text-muted-foreground">{itemLabel}</p><p className="text-xl font-semibold">{value}</p></div>)}</div><div className="rounded-md border p-3 text-sm"><div className="mb-2 flex items-center gap-2 font-medium"><Activity className="h-4 w-4" />Last 24 hours</div><p>Success: {inferenceHealth.succeeded} · Failed: {inferenceHealth.failed} · p50: {inferenceHealth.latencyMs.p50 ?? 'n/a'} ms · p95: {inferenceHealth.latencyMs.p95 ?? 'n/a'} ms</p><p className="mt-1 text-muted-foreground">Spend: ${Number(inferenceHealth.budgets.overall?.settledUsd ?? 0).toFixed(4)} settled · ${Number(inferenceHealth.budgets.overall?.reservedUsd ?? 0).toFixed(4)} reserved</p></div>{(inferenceHealth.attemptIssues?.length ?? 0) > 0 && <div className="space-y-2"><p className="text-sm font-medium">Provider issues</p>{inferenceHealth.attemptIssues?.map((issue) => <div key={`${issue.provider}-${issue.model}-${issue.status}-${issue.errorCode}-${issue.httpStatus}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"><span className="break-all">{issue.provider} · {issue.model}</span><div className="flex flex-wrap gap-2"><Badge variant="outline">{issue.status}</Badge><Badge variant="destructive">{issue.httpStatus ? `HTTP ${issue.httpStatus}` : issue.errorCode}</Badge><Badge variant="secondary">{issue.count}</Badge></div></div>)}</div>}<div className="space-y-2">{inferenceHealth.circuits.map((circuit) => <div key={circuit.id} className="flex items-center justify-between rounded-md border p-3 text-sm"><span>{circuit.provider || circuit.id}</span><Badge variant={circuit.state === 'open' ? 'destructive' : 'secondary'}>{circuit.state || 'closed'}</Badge></div>)}</div></>}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useEffect, useState } from 'react';
+import { type ReactNode, useContext, useEffect, useState } from 'react';
 import { Database, KeyRound, Settings, Shield, ShieldCheck, Type, UserRound, WalletCards } from 'lucide-react';
 
 import { AdminPanel } from '@/components/admin-dialog';
@@ -18,7 +18,7 @@ import { SubscriptionContext } from '@/context/subscription-context';
 import { useFirebase } from '@/firebase';
 import { cn } from '@/lib/utils';
 
-export function SettingsDialog() {
+export function SettingsDialog({ trigger }: { trigger?: ReactNode }) {
   const { animate, setAnimate, fontScale, setFontScale, highContrast, setHighContrast } = useContext(SettingsContext);
   const { isPro, tenantId, workspaceId, capabilities } = useContext(SubscriptionContext);
   const { user } = useFirebase();
@@ -43,9 +43,11 @@ export function SettingsDialog() {
 
   return <Dialog open={open} onOpenChange={handleOpenChange}>
     <DialogTrigger asChild>
-      <Button variant="outline" size="icon" className={cn(animate && 'animate-pulse ring-2 ring-destructive ring-offset-2')}>
-        <Settings className="h-4 w-4" /><span className="sr-only">Settings</span>
-      </Button>
+      {trigger ?? (
+        <Button variant="outline" size="icon" className={cn(animate && 'animate-pulse ring-2 ring-destructive ring-offset-2')}>
+          <Settings className="h-4 w-4" /><span className="sr-only">Settings</span>
+        </Button>
+      )}
     </DialogTrigger>
     <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader>

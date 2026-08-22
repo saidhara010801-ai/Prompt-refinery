@@ -269,9 +269,9 @@ export function releaseFreeQuota(reservationId: string) {
 }
 
 function providerBudgetLimit(provider: OpenModelProvider) {
-  return provider === 'openrouter'
-    ? positiveNumber(process.env.CLARIFT_OPENROUTER_DAILY_BUDGET_USD, 4)
-    : positiveNumber(process.env.CLARIFT_TOGETHER_DAILY_BUDGET_USD, 0.5);
+  if (provider === 'openrouter') return positiveNumber(process.env.CLARIFT_OPENROUTER_DAILY_BUDGET_USD, 2.5);
+  if (provider === 'together') return positiveNumber(process.env.CLARIFT_TOGETHER_DAILY_BUDGET_USD, 2);
+  return positiveNumber(process.env.CLARIFT_GEMMA_DAILY_BUDGET_USD, 0.5);
 }
 
 export interface ProviderBudgetReservation {

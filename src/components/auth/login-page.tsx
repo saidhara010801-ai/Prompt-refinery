@@ -33,6 +33,7 @@ import {
 import { useAuth } from '@/firebase';
 import { FirebaseError } from 'firebase/app';
 import { Logo } from '@/components/icons/logo';
+import { BrandTypewriter } from '@/components/prompt-refinery/brand-typewriter';
 
 const signUpSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email.' }),
@@ -47,7 +48,7 @@ const signInSchema = z.object({
   password: z.string().min(1, { message: 'Password is required.' }),
 });
 
-export function LoginPage() {
+export function LoginPage({ showBrandMessage = false }: { showBrandMessage?: boolean }) {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const auth = useAuth();
@@ -154,6 +155,7 @@ export function LoginPage() {
           <Logo variant="wordmark" className="h-20 w-64" />
           <h1 className="sr-only">Sign in to Clarift</h1>
         </div>
+        {showBrandMessage && <BrandTypewriter />}
       <Tabs defaultValue="sign-in" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="sign-in">Sign In</TabsTrigger>
