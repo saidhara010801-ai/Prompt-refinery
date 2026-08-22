@@ -10,7 +10,7 @@ export interface OpenModelProviderConfig {
   timeoutMs: number;
 }
 
-const DEFAULT_PROVIDER_ORDER: OpenModelProvider[] = ['gemma', 'together', 'openrouter'];
+const DEFAULT_PROVIDER_ORDER: OpenModelProvider[] = ['gemma', 'openrouter', 'together'];
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value);
@@ -92,7 +92,7 @@ export function getOpenModelProviderConfig(
   if (!apiKey) return null;
   return {
     provider,
-    model: environment.CLARIFT_FREE_OPENROUTER_MODEL?.trim() || 'google/gemma-3-4b-it',
+    model: environment.CLARIFT_FREE_OPENROUTER_MODEL?.trim() || 'google/gemma-4-26b-a4b-it',
     apiKey,
     timeoutMs: positiveInteger(
       source === 'extension' ? environment.CLARIFT_OPENROUTER_EXTENSION_TIMEOUT_MS : environment.CLARIFT_OPENROUTER_TIMEOUT_MS,

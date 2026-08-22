@@ -105,10 +105,10 @@ function hasCurrentProviderPricing(environment: Environment) {
 }
 
 export function hasReleasedFreeProviderConfiguration(environment: Environment) {
-  return environment.CLARIFT_FREE_OPENROUTER_MODEL === 'google/gemma-3-4b-it' &&
+  return environment.CLARIFT_FREE_OPENROUTER_MODEL === 'google/gemma-4-26b-a4b-it' &&
     environment.CLARIFT_FREE_TOGETHER_MODEL === 'google/gemma-4-31B-it' &&
-    Number(environment.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION) === 0.05 &&
-    Number(environment.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION) === 0.1 &&
+    Number(environment.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION) === 0.17 &&
+    Number(environment.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION) === 0.6 &&
     Number(environment.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION) === 0.2 &&
     Number(environment.CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION) === 0.5;
 }

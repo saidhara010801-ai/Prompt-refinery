@@ -120,8 +120,8 @@ function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
 
 function providerRates(provider: OpenModelProvider) {
   if (provider === 'openrouter') return {
-    inputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.05),
-    outputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.1),
+    inputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION, 0.17),
+    outputUsdPerMillion: positiveNumber(process.env.CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION, 0.6),
   };
   if (provider === 'together') return {
     inputUsdPerMillion: positiveNumber(process.env.CLARIFT_TOGETHER_INPUT_USD_PER_MILLION, 0.2),
@@ -326,7 +326,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
             ? process.env.GEMMA_MODEL_ID || 'google/gemma-4-E4B-it'
             : attemptProvider === 'together'
               ? process.env.CLARIFT_FREE_TOGETHER_MODEL || 'google/gemma-4-31B-it'
-              : process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-3-4b-it',
+              : process.env.CLARIFT_FREE_OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it',
           status: 'skipped',
           inputTokens: null,
           outputTokens: null,
