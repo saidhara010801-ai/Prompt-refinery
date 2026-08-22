@@ -24,7 +24,7 @@ GEMMA_BASE_URL=http://localhost:8000
 GEMMA_API_KEY=the-same-vllm-key
 GEMMA_MODEL_ID=google/gemma-4-E4B-it
 GEMMA_AUTH_MODE=api-key
-CLARIFT_FREE_PROVIDER_ORDER=gemma,together,openrouter
+CLARIFT_FREE_PROVIDER_ORDER=gemma,openrouter,together
 ```
 
 ## Private Cloud Run GPU

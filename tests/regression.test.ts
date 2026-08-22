@@ -636,7 +636,7 @@ test('OpenRouter managed calls request strict structured output and capture usag
     const completion = await createOpenModelCompletion({
       provider: 'openrouter',
       apiKey: 'test-key',
-      model: 'google/gemma-3-4b-it',
+      model: 'google/gemma-4-26b-a4b-it',
       messages: [{ role: 'user', content: 'Refine this.' }],
       maxTokens: 1024,
       timeoutMs: 1000,
@@ -722,12 +722,13 @@ test('managed provider routing prefers Gemma 4 and preserves an extension fallba
   const environment = {
     NODE_ENV: 'production',
     ENABLE_SELF_HOSTED_GEMMA: 'false',
-    CLARIFT_FREE_PROVIDER_ORDER: 'gemma,together,openrouter',
+    CLARIFT_FREE_PROVIDER_ORDER: 'gemma,openrouter,together',
     CLARIFT_TOGETHER_API_KEY: 'together-key',
     CLARIFT_OPENROUTER_API_KEY: 'openrouter-key',
   };
-  assert.deepEqual(getFreeProviderOrder(environment), ['together', 'openrouter']);
+  assert.deepEqual(getFreeProviderOrder(environment), ['openrouter', 'together']);
   assert.equal(getOpenModelProviderConfig('together', 'app', environment)?.model, 'google/gemma-4-31B-it');
+  assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.model, 'google/gemma-4-26b-a4b-it');
   assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.timeoutMs, 32_000);
   assert.equal(freeRemoteDeadlineMs('extension', environment), 43_000);
 
@@ -738,7 +739,7 @@ test('managed provider routing prefers Gemma 4 and preserves an extension fallba
     GEMMA_BASE_URL: 'http://localhost:8000',
     GEMMA_API_KEY: 'gemma-key',
   };
-  assert.deepEqual(getFreeProviderOrder(gemmaEnvironment), ['gemma', 'together', 'openrouter']);
+  assert.deepEqual(getFreeProviderOrder(gemmaEnvironment), ['gemma', 'openrouter', 'together']);
   assert.equal(getOpenModelProviderConfig('gemma', 'app', gemmaEnvironment)?.endpointUrl, 'http://localhost:8000/v1/chat/completions');
   assert.equal(isValidSelfHostedGemmaConfiguration(gemmaEnvironment), true);
   assert.equal(isValidSelfHostedGemmaConfiguration({ ...gemmaEnvironment, NODE_ENV: 'production' }), false);
@@ -1247,17 +1248,17 @@ test('firestore rules deny browser access to privileged production collections a
 
 test('free inference readiness rejects stale or unsupported provider catalog entries', () => {
   const valid = {
-    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-3-4b-it',
+    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-4-26b-a4b-it',
     CLARIFT_FREE_TOGETHER_MODEL: 'google/gemma-4-31B-it',
-    CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION: '0.05',
-    CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION: '0.10',
+    CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION: '0.17',
+    CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION: '0.60',
     CLARIFT_TOGETHER_INPUT_USD_PER_MILLION: '0.20',
     CLARIFT_TOGETHER_OUTPUT_USD_PER_MILLION: '0.50',
   };
   assert.equal(hasReleasedFreeProviderConfiguration(valid), true);
   assert.equal(hasReleasedFreeProviderConfiguration({
     ...valid,
-    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-4-26b-a4b-it',
+    CLARIFT_FREE_OPENROUTER_MODEL: 'google/gemma-3-4b-it',
   }), false);
 });
 

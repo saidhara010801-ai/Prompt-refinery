@@ -76,7 +76,7 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_OPENROUTER_MODEL
-    value: google/gemma-3-4b-it
+    value: google/gemma-4-26b-a4b-it
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_TOGETHER_MODEL
@@ -84,7 +84,7 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_PROVIDER_ORDER
-    value: gemma,together,openrouter
+    value: gemma,openrouter,together
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_REFINEMENT_DAILY_UNITS
@@ -152,11 +152,11 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_OPENROUTER_INPUT_USD_PER_MILLION
-    value: "0.05"
+    value: "0.17"
     availability:
       - RUNTIME
   - variable: CLARIFT_OPENROUTER_OUTPUT_USD_PER_MILLION
-    value: "0.10"
+    value: "0.60"
     availability:
       - RUNTIME
   - variable: CLARIFT_TOGETHER_INPUT_USD_PER_MILLION
