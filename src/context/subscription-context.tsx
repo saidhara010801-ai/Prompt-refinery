@@ -48,7 +48,7 @@ interface SubscriptionContextValue {
 }
 
 type TaskCosts = Record<'quick_refine' | 'guided_fix' | 'full_council' | 'evaluate' | 'apply_fix' | 'convert_document', number>;
-const DEFAULT_TASK_COSTS: TaskCosts = { quick_refine: 1, guided_fix: 2, full_council: 5, evaluate: 1, apply_fix: 2, convert_document: 0 };
+const DEFAULT_TASK_COSTS: TaskCosts = { quick_refine: 1, guided_fix: 2, full_council: 3, evaluate: 1, apply_fix: 2, convert_document: 0 };
 
 export const SubscriptionContext = createContext<SubscriptionContextValue>({
   tier: 'free',

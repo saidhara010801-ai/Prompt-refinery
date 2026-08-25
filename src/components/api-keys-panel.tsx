@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 
-const TOKEN_SCOPES = ['refinements:write', 'evaluations:write', 'conversions:write', 'projects:read', 'projects:write', 'usage:read'] as const;
+const TOKEN_SCOPES = ['refinements:write', 'evaluations:write', 'conversions:write', 'projects:read', 'projects:write', 'memory:read', 'memory:write', 'usage:read'] as const;
 type TokenScope = typeof TOKEN_SCOPES[number];
 interface ApiKeyRecord { id: string; name: string; prefix: string; scopes: TokenScope[]; active: boolean; createdAt: string | null; expiresAt: string | null; lastUsedAt: string | null }
 
@@ -57,8 +57,8 @@ export function ApiKeysPanel({ enabled }: { enabled: boolean }) {
   };
 
   return <div className="border-t pt-4">
-    <div className="mb-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-primary" /><h3 className="font-medium">Clarift API Tokens</h3><Badge variant="outline">Pro</Badge></div>
-    {!enabled ? <p className="text-sm text-muted-foreground">Developer API tokens are unavailable until both the Individual entitlement and the public API release gate are active.</p> : <div className="space-y-3">
+    <div className="mb-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-primary" /><h3 className="font-medium">Clarift API Tokens</h3><Badge variant="outline">Developer</Badge></div>
+    {!enabled ? <p className="text-sm text-muted-foreground">Developer API tokens are unavailable until both the Developer entitlement and the public API release gate are active.</p> : <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto] sm:items-end"><div className="space-y-2"><Label htmlFor="api-key-name">Token name</Label><Input id="api-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} /></div><div className="space-y-2"><Label htmlFor="api-key-expiry">Expires</Label><select id="api-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option></select></div><Button type="button" onClick={create} disabled={busy || !name.trim() || !scopes.length}><Plus className="h-4 w-4" />Create</Button></div>
       <div className="grid gap-2 sm:grid-cols-2">{TOKEN_SCOPES.map((scope) => <label key={scope} className="flex items-center gap-2 rounded-md border p-2 text-xs"><Checkbox checked={scopes.includes(scope)} onCheckedChange={(checked) => setScopes((current) => checked ? Array.from(new Set([...current, scope])) : current.filter((value) => value !== scope))} /><code>{scope}</code></label>)}</div>
       {newKey && <div className="flex items-center gap-2 rounded-md border border-primary bg-primary/5 p-3"><code className="min-w-0 flex-1 break-all text-xs">{newKey}</code><Button type="button" variant="outline" size="icon" onClick={() => navigator.clipboard.writeText(newKey)}><Copy className="h-4 w-4" /><span className="sr-only">Copy API key</span></Button></div>}

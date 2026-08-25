@@ -23,6 +23,11 @@ import {
 import { ensurePersonalTenant } from './tenant-service';
 import { migrateUserTenantData } from './tenant-migration';
 import { registerNewUserSignup, retryPendingSignupNotification } from './signup-notification-service';
+import {
+  createProjectMemoryDocument,
+  projectMemoryAuditDocument,
+  updateProjectMemoryDocument,
+} from './project-memory';
 
 interface UserProfile {
   subscriptionTier?: SubscriptionTier;
@@ -484,23 +489,34 @@ export async function createProjectMemoryEntryForUser(
   const entryRef = projectRef.collection('memoryEntries').doc();
   const now = Timestamp.now();
   const content = entry.content.slice(0, 100000);
+  const provenance = {
+    userId: decodedToken.uid,
+    source: 'web' as const,
+    agent: 'clarift-web',
+    consent: 'explicit' as const,
+  };
   const batch = firestore.batch();
-  batch.create(entryRef, {
+  batch.create(entryRef, createProjectMemoryDocument({
     projectId,
     ownerUid: decodedToken.uid,
-    actorUid: decodedToken.uid,
     tenantId: tenant.tenantId,
     workspaceId: tenant.workspaceId,
     kind: entry.kind,
-    title: entry.title.slice(0, 160),
+    title: entry.title,
     content,
-    active: true,
-    tokenEstimate: estimateTokenCounts(content).gemini,
-    sourceRef: entry.sourceRef ?? null,
-    searchTerms: normalizedSearchTerms(entry.title, content),
-    createdAt: now,
-    updatedAt: now,
-  });
+    sourceRef: entry.sourceRef,
+    provenance,
+    now,
+  }));
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    projectId,
+    entryId: entryRef.id,
+    action: 'create',
+    provenance,
+    now,
+  }));
   batch.update(projectRef, { updatedAt: now });
   await batch.commit();
   return { id: entryRef.id };
@@ -524,16 +540,37 @@ export async function updateProjectMemoryEntryForUser(
   const snapshot = await entryRef.get();
   if (!snapshot.exists) throw new Error('The selected memory entry no longer exists.');
   const current = snapshot.data() ?? {};
-  const title = updates.title?.slice(0, 160) ?? current.title ?? '';
-  const content = updates.content?.slice(0, 100000) ?? current.content ?? '';
-  await entryRef.set({
-    title,
-    content,
-    active: updates.active ?? current.active ?? true,
-    tokenEstimate: estimateTokenCounts(content).gemini,
-    searchTerms: normalizedSearchTerms(title, content),
-    updatedAt: Timestamp.now(),
-  }, { merge: true });
+  const now = Timestamp.now();
+  const provenance = {
+    userId: decodedToken.uid,
+    source: 'web' as const,
+    agent: 'clarift-web',
+    consent: 'explicit' as const,
+  };
+  const nextActive = updates.active ?? (current.active !== false);
+  const action = updates.active === undefined || nextActive === (current.active !== false)
+    ? 'update'
+    : nextActive ? 'reactivate' : 'deactivate';
+  const batch = firestore.batch();
+  batch.set(entryRef, updateProjectMemoryDocument({
+    current,
+    title: updates.title,
+    content: updates.content,
+    active: updates.active,
+    provenance,
+    now,
+  }), { merge: true });
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    projectId,
+    entryId,
+    action,
+    provenance,
+    now,
+  }));
+  batch.update(projectRef, { updatedAt: now });
+  await batch.commit();
 }
 
 export async function deleteProjectMemoryEntryForUser(
@@ -548,7 +585,30 @@ export async function deleteProjectMemoryEntryForUser(
   const projectRef = getAdminFirestore().doc(`projects/${projectId}`);
   const project = await projectRef.get();
   if (!project.exists || project.data()?.tenantId !== tenant.tenantId) throw new Error('The selected project is unavailable.');
-  await projectRef.collection('memoryEntries').doc(entryId).delete();
+  const firestore = getAdminFirestore();
+  const entryRef = projectRef.collection('memoryEntries').doc(entryId);
+  const entry = await entryRef.get();
+  if (!entry.exists) return;
+  const now = Timestamp.now();
+  const provenance = {
+    userId: decodedToken.uid,
+    source: 'web' as const,
+    agent: 'clarift-web',
+    consent: 'explicit' as const,
+  };
+  const batch = firestore.batch();
+  batch.delete(entryRef);
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    projectId,
+    entryId,
+    action: 'delete',
+    provenance,
+    now,
+  }));
+  batch.update(projectRef, { updatedAt: now });
+  await batch.commit();
 }
 
 export async function searchProjectMemoryForUser(firebaseIdToken: string | undefined, search: string) {
@@ -571,6 +631,7 @@ export async function searchProjectMemoryForUser(firebaseIdToken: string | undef
     kind?: unknown;
     content?: unknown;
     searchTerms?: unknown;
+    active?: unknown;
   };
   return snapshot.docs
     .map((document): SearchableMemoryEntry => ({
@@ -579,7 +640,7 @@ export async function searchProjectMemoryForUser(firebaseIdToken: string | undef
     }))
     .filter((entry) => {
       const searchTerms = Array.isArray(entry.searchTerms) ? entry.searchTerms.map(String) : [];
-      return terms.every((term) => searchTerms.includes(term));
+      return entry.active !== false && terms.every((term) => searchTerms.includes(term));
     })
     .slice(0, 50)
     .map((entry) => ({
@@ -611,6 +672,13 @@ export async function addProjectSessionForUser(
   const sessionRef = projectRef.collection('projectSessions').doc();
   const memoryRef = projectRef.collection('memoryEntries').doc();
   const now = Timestamp.now();
+  const provenance = {
+    userId: decodedToken.uid,
+    source: 'web' as const,
+    agent: 'clarift-web',
+    requestId: sessionRef.id,
+    consent: 'workflow' as const,
+  };
   const batch = firestore.batch();
   batch.create(sessionRef, {
     ...session,
@@ -620,22 +688,27 @@ export async function addProjectSessionForUser(
     createdBy: decodedToken.uid,
     timestamp: now,
   });
-  batch.create(memoryRef, {
+  batch.create(memoryRef, createProjectMemoryDocument({
     projectId,
     ownerUid: decodedToken.uid,
-    actorUid: decodedToken.uid,
     tenantId: tenant.tenantId,
     workspaceId: tenant.workspaceId,
     kind: 'refinement',
     title: session.rawPrompt.slice(0, 160),
     content: `Raw prompt:\n${session.rawPrompt}\n\nRefined prompt:\n${session.refinedPrompt}`.slice(0, 100000),
-    active: true,
-    tokenEstimate: estimateTokenCounts(`${session.rawPrompt}\n${session.refinedPrompt}`).gemini,
     sourceRef: sessionRef.id,
-    searchTerms: normalizedSearchTerms(session.rawPrompt, session.refinedPrompt),
-    createdAt: now,
-    updatedAt: now,
-  });
+    provenance,
+    now,
+  }));
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
+    tenantId: tenant.tenantId,
+    workspaceId: tenant.workspaceId,
+    projectId,
+    entryId: memoryRef.id,
+    action: 'create',
+    provenance,
+    now,
+  }));
   batch.update(projectRef, { updatedAt: now });
   await batch.commit();
 
@@ -663,25 +736,50 @@ export async function updateProjectSessionResponseForUser(
     throw new Error('The selected project session no longer exists.');
   }
 
-  const batch = firestore.batch();
-  batch.update(sessionRef, { llmResponse });
   const memoryRef = projectRef.collection('memoryEntries').doc(`response-${sessionId}`);
-  batch.set(memoryRef, {
-    projectId,
-    ownerUid: decodedToken.uid,
-    actorUid: decodedToken.uid,
+  const memorySnapshot = await memoryRef.get();
+  const batch = firestore.batch();
+  const now = Timestamp.now();
+  batch.update(sessionRef, { llmResponse, updatedAt: now });
+  const provenance = {
+    userId: decodedToken.uid,
+    source: 'web' as const,
+    agent: 'clarift-web',
+    requestId: sessionId,
+    consent: 'workflow' as const,
+  };
+  if (memorySnapshot.exists) {
+    batch.set(memoryRef, updateProjectMemoryDocument({
+      current: memorySnapshot.data() ?? {},
+      title: 'Response note',
+      content: llmResponse,
+      active: true,
+      provenance,
+      now,
+    }), { merge: true });
+  } else {
+    batch.create(memoryRef, createProjectMemoryDocument({
+      projectId,
+      ownerUid: decodedToken.uid,
+      tenantId: tenant.tenantId,
+      workspaceId: tenant.workspaceId,
+      kind: 'response',
+      title: 'Response note',
+      content: llmResponse,
+      sourceRef: sessionId,
+      provenance,
+      now,
+    }));
+  }
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
     tenantId: tenant.tenantId,
     workspaceId: tenant.workspaceId,
-    kind: 'response',
-    title: 'Response note',
-    content: llmResponse,
-    active: true,
-    tokenEstimate: estimateTokenCounts(llmResponse).gemini,
-    sourceRef: sessionId,
-    searchTerms: normalizedSearchTerms(llmResponse),
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  }, { merge: true });
-  batch.update(projectRef, { updatedAt: Timestamp.now() });
+    projectId,
+    entryId: memoryRef.id,
+    action: memorySnapshot.exists ? 'update' : 'create',
+    provenance,
+    now,
+  }));
+  batch.update(projectRef, { updatedAt: now });
   await batch.commit();
 }

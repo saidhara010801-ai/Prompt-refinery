@@ -51,16 +51,16 @@ export function publicApiErrorDetails(error: unknown) {
       ? (error as Error & { status: number }).status
       : undefined;
     const message = providerStatus === 401 || providerStatus === 403
-      ? 'OpenRouter rejected the provider API key. Check the key in extension settings.'
+      ? 'The managed inference service rejected its credentials. Contact Clarift support.'
       : providerStatus === 402
-        ? 'The OpenRouter account has insufficient credits for this refinement.'
+        ? 'The managed inference service is temporarily unavailable.'
         : providerStatus === 429
-          ? 'OpenRouter rate limit reached. Wait briefly and try again.'
+          ? 'The managed inference service is busy. Wait briefly and try again.'
           : providerStatus === 504
-            ? 'OpenRouter took too long to respond. Please try again.'
+            ? 'Managed inference took too long to respond. Please try again.'
             : providerStatus === 404
-              ? 'A selected OpenRouter model is unavailable. Restore the default council models and try again.'
-              : 'OpenRouter could not complete the refinement. Check the provider key and try again.';
+              ? 'The managed inference configuration is unavailable. Contact Clarift support.'
+              : 'Managed inference could not complete the request. Please try again.';
     return {
       status: providerStatus === 504 ? 504 : 502,
       body: { error: { code: providerStatus === 504 ? 'ProviderTimeoutError' : 'ProviderRequestError', message } },
@@ -72,19 +72,19 @@ export function publicApiErrorDetails(error: unknown) {
     if (message.includes('api key not valid') || message.includes('api_key_invalid')) {
       return {
         status: 401,
-        body: { error: { code: 'ProviderApiKeyInvalidError', message: 'Gemini rejected the provider API key. Check the key in extension settings.' } },
+        body: { error: { code: 'ProviderApiKeyInvalidError', message: 'The managed inference service rejected its credentials. Contact Clarift support.' } },
       };
     }
     if (message.includes('quota') || message.includes('resource_exhausted') || message.includes('rate limit')) {
       return {
         status: 429,
-        body: { error: { code: 'ProviderQuotaError', message: 'Gemini quota or rate limit reached. Wait briefly or use a key with available quota.' } },
+        body: { error: { code: 'ProviderQuotaError', message: 'The managed inference service is busy. Wait briefly and try again.' } },
       };
     }
     if (message.includes('model') && (message.includes('not found') || message.includes('no longer available'))) {
       return {
         status: 503,
-        body: { error: { code: 'ProviderModelUnavailableError', message: 'The configured Gemini model is unavailable. Clarift needs a model update.' } },
+        body: { error: { code: 'ProviderModelUnavailableError', message: 'The managed inference configuration is unavailable. Contact Clarift support.' } },
       };
     }
   }
@@ -92,7 +92,7 @@ export function publicApiErrorDetails(error: unknown) {
   if (error instanceof Error && error.name === 'EmptyAIOutputError') {
     return {
       status: 502,
-      body: { error: { code: 'ProviderOutputError', message: 'Gemini did not return a usable structured refinement. Please try again.' } },
+      body: { error: { code: 'ProviderOutputError', message: 'Managed inference did not return a usable structured result. Please try again.' } },
     };
   }
 

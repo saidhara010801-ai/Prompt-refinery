@@ -1,0 +1,25 @@
+{
+  "name": "@clarift/sdk",
+  "version": "0.1.0",
+  "description": "Typed client for the Clarift Developer API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "UNLICENSED"
+}

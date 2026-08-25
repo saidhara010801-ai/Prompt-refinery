@@ -394,6 +394,12 @@ export async function readSafeSystemHealth(request: NextRequest) {
       supportAccessRequests: process.env.ENABLE_SUPPORT_ACCESS_REQUESTS === 'true',
       managedOpenRouter: process.env.ENABLE_MANAGED_OPENROUTER === 'true',
       freeManagedInference: process.env.ENABLE_FREE_MANAGED_INFERENCE === 'true',
+      publicApi: process.env.ENABLE_PUBLIC_API === 'true',
+      dspyOptimization: process.env.ENABLE_DSPY_OPTIMIZATION === 'true',
+      hybridMemory: process.env.ENABLE_HYBRID_MEMORY === 'true',
+      skillGeneration: process.env.ENABLE_SKILL_GENERATION === 'true',
+      necessityCheck: process.env.ENABLE_NECESSITY_CHECK === 'true',
+      adversarialReview: process.env.ENABLE_ADVERSARIAL_REVIEW === 'true',
     },
   };
 }

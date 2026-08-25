@@ -3,7 +3,7 @@ export type ClariftTask = 'quick_refine' | 'guided_fix' | 'full_council' | 'eval
 const DEFAULT_TASK_COSTS: Record<ClariftTask, number> = {
   quick_refine: 1,
   guided_fix: 2,
-  full_council: 5,
+  full_council: 3,
   evaluate: 1,
   apply_fix: 2,
   convert_document: 0,

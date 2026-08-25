@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { Timestamp } from 'firebase-admin/firestore';
 
 import { getTokenCounts } from '../src/ai/flows/get-token-counts';
 import { formatOutput } from '../src/lib/output-formats';
@@ -71,6 +72,12 @@ import {
 import { analyzeMarkdownStructure, buildConversionWarnings, estimateTokenCounts, normalizedSearchTerms } from '../src/lib/stage2-utils';
 import { DEFAULT_OPENROUTER_MODELS, withDefaultOpenRouterModels } from '../src/lib/openrouter-models';
 import { publicApiErrorDetails } from '../src/app/api/v1/_shared';
+import { API_TOKEN_SCOPES } from '../src/lib/server/api-key-service';
+import { buildClariftOpenApiDocument } from '../src/lib/clarift-openapi';
+import { createProjectMemoryDocument, projectMemoryAuditDocument, updateProjectMemoryDocument } from '../src/lib/server/project-memory';
+import { evaluateDeveloperEntitlement } from '../src/lib/server/tenant-service';
+import { distillMemoryNodeType, rankHybridMemoryNodes } from '../src/lib/server/hybrid-memory-service';
+import { ClariftClient } from '../packages/sdk/src/index';
 import { OPENROUTER_REQUEST_TIMEOUT_MS } from '../src/ai/flows/openrouter-client';
 import { decryptSecret, encryptSecret } from '../src/lib/server/encryption-service';
 import {
@@ -749,13 +756,13 @@ test('managed task prices are server-owned, bounded, and resilient to invalid co
   assert.deepEqual(getTaskCosts({}), {
     quick_refine: 1,
     guided_fix: 2,
-    full_council: 5,
+    full_council: 3,
     evaluate: 1,
     apply_fix: 2,
     convert_document: 0,
   });
   assert.equal(taskCost('guided_fix', { CLARIFT_TASK_COSTS_JSON: '{"guided_fix":3}' }), 3);
-  assert.equal(taskCost('full_council', { CLARIFT_TASK_COSTS_JSON: '{"full_council":-4}' }), 5);
+  assert.equal(taskCost('full_council', { CLARIFT_TASK_COSTS_JSON: '{"full_council":-4}' }), 3);
   assert.deepEqual(getTaskCosts({ CLARIFT_TASK_COSTS_JSON: 'not-json' }), getTaskCosts({}));
 });
 
@@ -1224,6 +1231,7 @@ test('firestore rules deny browser access to privileged production collections a
     'promoRedemptions',
     'promoRateLimits',
     'apiKeys',
+    'projectMemoryAudit',
     'creditWallets',
     'creditReservations',
     'creditLedger',
@@ -1243,6 +1251,8 @@ test('firestore rules deny browser access to privileged production collections a
   ]) {
     assert.ok(rules.includes(`match /${collectionName}/{document=**}`));
   }
+  assert.match(rules, /match \/projects\/\{projectId\}\/memoryGraphNodes\/\{nodeId\}[\s\S]*?allow read, write: if false/);
+  assert.match(rules, /match \/projects\/\{projectId\}\/memoryGraphEdges\/\{edgeId\}[\s\S]*?allow read, write: if false/);
 
 });
 
@@ -1512,6 +1522,119 @@ test('public AI routes require scoped Clarift tokens before parsing caller input
   }
 });
 
+test('Developer entitlement maps active Pro users without surviving a later Pro revocation', () => {
+  assert.deepEqual(evaluateDeveloperEntitlement({
+    status: 'active',
+    developerAccess: true,
+    developerAccessSource: 'pro-migration',
+    developerFeatures: ['api', 'cli', 'mcp'],
+  }, { isPro: true, source: 'stripe' }), {
+    enabled: true,
+    source: 'legacy-pro',
+    features: ['api', 'cli', 'mcp'],
+  });
+  assert.equal(evaluateDeveloperEntitlement({
+    status: 'active',
+    developerAccess: true,
+    developerAccessSource: 'pro-migration',
+  }, { isPro: false, source: null }).enabled, false);
+  assert.equal(evaluateDeveloperEntitlement({
+    status: 'active',
+    developerAccess: true,
+    developerAccessSource: 'developer-plan',
+  }, { isPro: false, source: null }).enabled, true);
+  assert.deepEqual(evaluateDeveloperEntitlement({
+    status: 'active',
+    developerAccess: false,
+    developerFeatures: [],
+  }, { isPro: true, source: 'owner' }).features, ['api', 'cli', 'mcp']);
+});
+
+test('project memory lifecycle records provenance, validity windows, and content-free audits', () => {
+  const createdAt = Timestamp.fromMillis(1_000);
+  const provenance = { userId: 'user-1', source: 'mcp' as const, agent: 'clarift-mcp', requestId: 'request-1', consent: 'explicit' as const };
+  const created = createProjectMemoryDocument({
+    projectId: 'project-1',
+    ownerUid: 'user-1',
+    tenantId: 'tenant-1',
+    workspaceId: 'workspace-1',
+    kind: 'note',
+    title: 'Decision',
+    content: 'Use the existing gateway.',
+    provenance,
+    now: createdAt,
+  });
+  assert.equal(created.active, true);
+  assert.equal(created.status, 'active');
+  assert.equal(created.provenance.requestId, 'request-1');
+  assert.equal(created.validFrom.toMillis(), 1_000);
+  assert.equal(created.validTo, null);
+
+  const deactivated = updateProjectMemoryDocument({ current: created, active: false, provenance, now: Timestamp.fromMillis(2_000) });
+  assert.equal(deactivated.active, false);
+  assert.equal(deactivated.status, 'inactive');
+  assert.equal((deactivated.validTo as Timestamp).toMillis(), 2_000);
+  assert.equal(deactivated.inactiveBy, 'user-1');
+
+  const audit = projectMemoryAuditDocument({ tenantId: 'tenant-1', workspaceId: 'workspace-1', projectId: 'project-1', entryId: 'entry-1', action: 'deactivate', provenance, now: Timestamp.fromMillis(2_000) });
+  assert.equal(audit.action, 'deactivate');
+  assert.equal('content' in audit, false);
+  assert.equal('title' in audit, false);
+});
+
+test('hybrid memory distillation and ranking combine vector, keyword, and temporal signals', () => {
+  assert.equal(distillMemoryNodeType('note', 'Constraint', 'Never expose provider keys.'), 'Constraint');
+  assert.equal(distillMemoryNodeType('note', 'Agent handoff', 'Continue from this point.'), 'AgentHandoff');
+  assert.equal(distillMemoryNodeType('evaluation', 'Score', 'Passed'), 'EvaluationResult');
+  const ranked = rankHybridMemoryNodes([
+    { id: 'matching-vector', type: 'Decision', title: 'Gateway', content: 'Use gateway', tokenEstimate: 3, searchTerms: ['gateway'], embedding: [1, 0], updatedAtMs: 1_000 },
+    { id: 'matching-keyword', type: 'Decision', title: 'Gateway fallback', content: 'Fallback', tokenEstimate: 3, searchTerms: ['gateway', 'fallback'], embedding: [0, 1], updatedAtMs: 1_000 },
+  ], 'gateway', [1, 0], 1_000);
+  assert.equal(ranked[0].id, 'matching-vector');
+  assert.ok(ranked[0].vectorScore > ranked[1].vectorScore);
+  assert.match(getOptionalProductionWarnings({ ENABLE_HYBRID_MEMORY: 'true' }).join(' '), /embedding endpoint or model/i);
+});
+
+test('Developer OpenAPI and SDK expose scoped memory without provider/model controls', async () => {
+  const document = buildClariftOpenApiDocument('https://clarift.example');
+  assert.equal(document.info.version, '1.1.0');
+  for (const path of ['/refinements', '/projects', '/projects/{projectId}/memory', '/memory/search', '/memory/context', '/usage']) {
+    assert.ok(path in document.paths);
+  }
+  assert.ok(API_TOKEN_SCOPES.includes('memory:read'));
+  assert.ok(API_TOKEN_SCOPES.includes('memory:write'));
+  const serialized = JSON.stringify(document);
+  assert.doesNotMatch(serialized, /openrouter|gemini|together|models/i);
+
+  const captured: { headers?: Headers } = {};
+  const client = new ClariftClient({
+    apiKey: `clf_live_${'a'.repeat(32)}`,
+    baseUrl: 'https://clarift.example/api/v1',
+    clientName: 'mcp',
+    agentName: 'codex',
+    fetch: async (_input, init) => {
+      captured.headers = new Headers(init?.headers);
+      return new Response(JSON.stringify({ id: 'memory-1' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  await client.createMemory('project-1', { title: 'Handoff', content: 'Continue Phase A.', consent: true });
+  assert.equal(captured.headers?.get('x-clarift-client'), 'mcp');
+  assert.equal(captured.headers?.get('x-clarift-agent'), 'codex');
+  assert.equal(captured.headers?.get('x-clarift-write-consent'), 'true');
+  assert.match(captured.headers?.get('authorization') ?? '', /^Bearer clf_live_/);
+});
+
+test('Clarift CLI ships both MCP transports and enforces consent at its write boundary', () => {
+  const mcp = readFileSync('packages/cli/src/mcp.ts', 'utf8');
+  const cli = readFileSync('packages/cli/src/index.ts', 'utf8');
+  assert.match(mcp, /StdioServerTransport/);
+  assert.match(mcp, /StreamableHTTPServerTransport/);
+  assert.match(mcp, /enableDnsRebindingProtection: true/);
+  assert.match(mcp, /consent: z\.literal\(true\)/);
+  assert.match(cli, /Memory writes require --yes/);
+  assert.doesNotMatch(cli, /console\.log\(.*apiKey|process\.stderr\.write\(.*apiKey/);
+});
+
 test('OpenRouter refinements use complete defaults when API clients omit council models', () => {
   const flow = readFileSync('src/ai/flows/refine-prompt-with-ai-council.ts', 'utf8');
   assert.deepEqual(withDefaultOpenRouterModels(), DEFAULT_OPENROUTER_MODELS);
@@ -1546,7 +1669,7 @@ test('public API failures never expose raw provider or schema errors', () => {
   const quotaError = Object.assign(new Error('raw OpenRouter response'), { name: 'OpenRouterError', status: 402 });
   const quotaDetails = publicApiErrorDetails(quotaError);
   assert.equal(quotaDetails.body.error.code, 'ProviderRequestError');
-  assert.match(quotaDetails.body.error.message, /insufficient credits/);
+  assert.match(quotaDetails.body.error.message, /temporarily unavailable/);
   assert.doesNotMatch(quotaDetails.body.error.message, /raw OpenRouter response/);
 
   const timeoutError = Object.assign(new Error('raw timeout details'), { name: 'OpenRouterError', status: 504 });

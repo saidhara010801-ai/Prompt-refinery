@@ -1,7 +1,8 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
-import { estimateTokenCounts, normalizedSearchTerms } from '@/lib/stage2-utils';
 import { getAdminAuth, getAdminFirestore } from './firebase-admin';
+import { createProjectMemoryDocument, projectMemoryAuditDocument } from './project-memory';
+import { personalTenantId, personalWorkspaceId } from '@/lib/tenant-ids';
 import { AuthorizationError, assertActiveAccount, requireUser, type CurrentUserContext } from './user-access';
 
 export type ShareResourceType = 'project' | 'savedPrompt';
@@ -157,23 +158,40 @@ export async function updateSharedContent(request: Request, shareId: string, inp
   const content = input.content?.trim().slice(0, 100000);
   if (!content) throw new Error('Add a memory note before saving.');
   const projectRef = firestore.doc(resourcePath(shareData.ownerUid, 'project', shareData.resourceId));
+  const projectSnapshot = await projectRef.get();
+  if (!projectSnapshot.exists) throw new Error('The shared project is unavailable.');
+  const projectData = projectSnapshot.data() ?? {};
   const entryRef = projectRef.collection('memoryEntries').doc();
   const now = Timestamp.now();
+  const provenance = {
+    userId: context.uid,
+    source: 'web' as const,
+    agent: 'clarift-web-share',
+    requestId: shareId,
+    consent: 'explicit' as const,
+  };
   const batch = firestore.batch();
-  batch.create(entryRef, {
+  batch.create(entryRef, createProjectMemoryDocument({
     projectId: shareData.resourceId,
     ownerUid: shareData.ownerUid,
-    actorUid: context.uid,
+    tenantId: String(projectData.tenantId ?? personalTenantId(shareData.ownerUid)),
+    workspaceId: String(projectData.workspaceId ?? personalWorkspaceId(shareData.ownerUid)),
     kind: 'note',
     title,
     content,
-    active: true,
-    tokenEstimate: estimateTokenCounts(content).gemini,
     sourceRef: `share:${shareId}`,
-    searchTerms: normalizedSearchTerms(title, content),
-    createdAt: now,
-    updatedAt: now,
-  });
+    provenance,
+    now,
+  }));
+  batch.create(firestore.collection('projectMemoryAudit').doc(), projectMemoryAuditDocument({
+    tenantId: String(projectData.tenantId ?? personalTenantId(shareData.ownerUid)),
+    workspaceId: String(projectData.workspaceId ?? personalWorkspaceId(shareData.ownerUid)),
+    projectId: shareData.resourceId,
+    entryId: entryRef.id,
+    action: 'create',
+    provenance,
+    now,
+  }));
   batch.set(projectRef, { updatedAt: now }, { merge: true });
   await batch.commit();
   return { id: entryRef.id };

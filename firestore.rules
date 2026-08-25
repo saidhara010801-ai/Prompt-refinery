@@ -365,5 +365,17 @@ service cloud.firestore {
     match /apiKeys/{document=**} {
       allow read, write: if false;
     }
+
+    match /projects/{projectId}/memoryGraphNodes/{nodeId} {
+      allow read, write: if false;
+    }
+
+    match /projects/{projectId}/memoryGraphEdges/{edgeId} {
+      allow read, write: if false;
+    }
+
+    match /projectMemoryAudit/{document=**} {
+      allow read, write: if false;
+    }
   }
 }

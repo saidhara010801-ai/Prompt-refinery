@@ -19,6 +19,7 @@
 
 # production
 /build
+packages/*/dist/
 /.markitdown-runtime/
 
 # misc

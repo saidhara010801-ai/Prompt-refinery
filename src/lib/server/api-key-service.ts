@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 import { getAdminFirestore } from './firebase-admin';
 import { consumeDistributedLimit } from './distributed-limits';
-import { resolveTenantForUid } from './tenant-service';
+import { getDeveloperEntitlementForUid, resolveTenantForUid, type TenantContext } from './tenant-service';
 import {
   AuthorizationError,
   assertActiveAccount,
@@ -18,9 +18,19 @@ export const API_TOKEN_SCOPES = [
   'conversions:write',
   'projects:read',
   'projects:write',
+  'memory:read',
+  'memory:write',
   'usage:read',
 ] as const;
 export type ApiTokenScope = typeof API_TOKEN_SCOPES[number];
+
+export interface PublicApiCaller {
+  uid: string;
+  keyId: string;
+  entitlement: Awaited<ReturnType<typeof getEffectiveUserEntitlement>>;
+  context: TenantContext;
+  scopes: ApiTokenScope[];
+}
 
 function apiKeyPepper() {
   const value = (process.env.CLARIFT_API_TOKEN_PEPPER || process.env.CLARIFT_API_KEY_PEPPER)?.trim();
@@ -43,9 +53,9 @@ function normalizeScopes(value: unknown): ApiTokenScope[] {
   return Array.from(new Set(value.filter((scope): scope is ApiTokenScope => API_TOKEN_SCOPES.includes(scope as ApiTokenScope))));
 }
 
-async function tenantAllowsDeveloperApi(tenantId: string, legacyPro: boolean) {
-  const entitlement = await getAdminFirestore().doc(`tenantEntitlements/${tenantId}`).get();
-  return legacyPro || (entitlement.data()?.developerApiAllowed === true && ['active', 'authenticated'].includes(String(entitlement.data()?.status || '')));
+async function tenantAllowsDeveloperApi(uid: string, context: TenantContext) {
+  const entitlement = await getDeveloperEntitlementForUid(uid, context);
+  return entitlement.enabled && entitlement.features.includes('api');
 }
 
 export async function createApiKey(request: Request, input: {
@@ -57,8 +67,8 @@ export async function createApiKey(request: Request, input: {
   const user = await requireUser(request);
   assertActiveAccount(user.profile, 'create API tokens');
   const context = await resolveTenantForUid(user.uid);
-  if (!await tenantAllowsDeveloperApi(context.tenantId, user.entitlement.isPro)) {
-    throw new AuthorizationError('Developer API access is unavailable for this workspace.', 403, 'ProFeatureRequiredError');
+  if (!await tenantAllowsDeveloperApi(user.uid, context)) {
+    throw new AuthorizationError('Developer API access is unavailable for this workspace.', 403, 'DeveloperFeatureRequiredError');
   }
   const firestore = getAdminFirestore();
   const current = await firestore.collection('apiKeys')
@@ -102,8 +112,8 @@ export async function listApiKeys(request: Request) {
   const user = await requireUser(request);
   assertActiveAccount(user.profile, 'list API tokens');
   const context = await resolveTenantForUid(user.uid);
-  if (!await tenantAllowsDeveloperApi(context.tenantId, user.entitlement.isPro)) {
-    throw new AuthorizationError('Developer API access is available on an active Individual plan.', 403, 'ProFeatureRequiredError');
+  if (!await tenantAllowsDeveloperApi(user.uid, context)) {
+    throw new AuthorizationError('Developer API access is unavailable for this workspace.', 403, 'DeveloperFeatureRequiredError');
   }
   const snapshot = await getAdminFirestore().collection('apiKeys')
     .where('tenantId', '==', context.tenantId)
@@ -138,7 +148,7 @@ export async function revokeApiKey(request: Request, keyId: string) {
   return { revoked: true };
 }
 
-export async function authenticatePublicApi(request: Request, requiredScope: ApiTokenScope) {
+export async function authenticatePublicApi(request: Request, requiredScope: ApiTokenScope): Promise<PublicApiCaller> {
   assertPublicApiEnabled();
   const authorization = request.headers.get('authorization');
   const plaintext = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
@@ -155,8 +165,8 @@ export async function authenticatePublicApi(request: Request, requiredScope: Api
   assertActiveAccount(normalizeUserProfile(ownerUid, userSnapshot.data() as Record<string, unknown> | undefined), 'use the Clarift API');
   const entitlement = await getEffectiveUserEntitlement(ownerUid);
   const context = await resolveTenantForUid(ownerUid, keyData.workspaceId || null);
-  if (!await tenantAllowsDeveloperApi(context.tenantId, entitlement.isPro)) {
-    throw new AuthorizationError('This Clarift API token requires an active Individual plan.', 403, 'ProFeatureRequiredError');
+  if (!await tenantAllowsDeveloperApi(ownerUid, context)) {
+    throw new AuthorizationError('This Clarift API token requires an active Developer entitlement.', 403, 'DeveloperFeatureRequiredError');
   }
   if (keyData.tenantId && keyData.tenantId !== context.tenantId) throw new AuthorizationError('This token is not valid for the active tenant.', 403, 'TenantIsolationError');
   const scopes = normalizeScopes(keyData.scopes);

@@ -29,6 +29,13 @@ export interface TenantAccountSummary extends TenantContext {
   plan: string;
   planStatus: string;
   planSource: string | null;
+  developer: DeveloperEntitlement;
+}
+
+export interface DeveloperEntitlement {
+  enabled: boolean;
+  source: 'owner' | 'tenant' | 'legacy-pro' | null;
+  features: Array<'api' | 'cli' | 'mcp'>;
 }
 
 function positiveInteger(value: string | undefined, fallback: number) {
@@ -127,10 +134,22 @@ export async function ensurePersonalTenant(uid: string): Promise<TenantContext> 
         managedInference: true,
         byokAllowed: true,
         developerApiAllowed: migratedPro,
+        developerAccess: migratedPro,
+        developerAccessSource: migratedPro ? 'pro-migration' : null,
+        developerFeatures: migratedPro ? ['api', 'cli', 'mcp'] : [],
         source: migratedPro ? (profile.subscriptionSource || 'legacy') : 'trial',
         createdAt: now,
         updatedAt: now,
       });
+    } else if (entitlement.data()?.developerAccess === undefined) {
+      const migratedPro = isProTier(profile.subscriptionTier);
+      const legacyAllowed = entitlement.data()?.developerApiAllowed === true;
+      transaction.set(entitlementRef, {
+        developerAccess: migratedPro || legacyAllowed,
+        developerAccessSource: migratedPro || legacyAllowed ? 'pro-migration' : null,
+        developerFeatures: migratedPro || legacyAllowed ? ['api', 'cli', 'mcp'] : [],
+        updatedAt: now,
+      }, { merge: true });
     }
 
     transaction.set(userRef, {
@@ -169,10 +188,59 @@ export async function resolveTenantFromToken(firebaseIdToken: string, requestedW
 export async function getTenantAccountSummary(firebaseIdToken: string): Promise<TenantAccountSummary> {
   const decoded = await verifyFirebaseIdToken(firebaseIdToken);
   const context = await resolveTenantForUid(decoded.uid);
+  return getTenantAccountSummaryForUid(decoded.uid, context);
+}
+
+export async function getDeveloperEntitlementForUid(
+  uid: string,
+  context?: TenantContext
+): Promise<DeveloperEntitlement> {
+  const resolvedContext = context ?? await resolveTenantForUid(uid);
+  const [tenantEntitlement, userEntitlement] = await Promise.all([
+    getAdminFirestore().doc(`tenantEntitlements/${resolvedContext.tenantId}`).get(),
+    getEffectiveUserEntitlement(uid),
+  ]);
+  const data = tenantEntitlement.data() ?? {};
+  return evaluateDeveloperEntitlement(data, userEntitlement);
+}
+
+export function evaluateDeveloperEntitlement(
+  data: Record<string, unknown>,
+  userEntitlement: { isPro: boolean; source: string | null }
+): DeveloperEntitlement {
+  const statusActive = ['active', 'authenticated', 'trialing'].includes(String(data.status || 'active'));
+  const accessSource = String(data.developerAccessSource ?? '');
+  const explicit = data.developerAccess === true && ['manual', 'developer-plan', 'owner'].includes(accessSource);
+  const enabled = statusActive && (explicit || userEntitlement.isPro);
+  const configuredFeatures: DeveloperEntitlement['features'] = Array.isArray(data.developerFeatures)
+    ? data.developerFeatures.filter((feature): feature is 'api' | 'cli' | 'mcp' => ['api', 'cli', 'mcp'].includes(String(feature)))
+    : [];
+  const features: DeveloperEntitlement['features'] = !enabled
+    ? []
+    : configuredFeatures.length
+      ? configuredFeatures
+      : userEntitlement.isPro
+        ? ['api', 'cli', 'mcp']
+        : [];
+  const source = !enabled
+    ? null
+    : userEntitlement.source === 'owner'
+      ? 'owner'
+      : explicit
+        ? 'tenant'
+        : 'legacy-pro';
+  return { enabled, source, features };
+}
+
+export async function getTenantAccountSummaryForUid(
+  uid: string,
+  context?: TenantContext
+): Promise<TenantAccountSummary> {
+  const resolvedContext = context ?? await resolveTenantForUid(uid);
   const [wallet, tenantEntitlement, userEntitlement] = await Promise.all([
-    getAdminFirestore().doc(`creditWallets/${context.tenantId}`).get(),
-    getAdminFirestore().doc(`tenantEntitlements/${context.tenantId}`).get(),
-    getEffectiveUserEntitlement(decoded.uid),
+    getAdminFirestore().doc(`creditWallets/${resolvedContext.tenantId}`).get(),
+    getAdminFirestore().doc(`tenantEntitlements/${resolvedContext.tenantId}`).get(),
+    getEffectiveUserEntitlement(uid),
   ]);
   const balance = Number(wallet.data()?.balance) || 0;
   const reserved = Number(wallet.data()?.reserved) || 0;
@@ -181,7 +249,7 @@ export async function getTenantAccountSummary(firebaseIdToken: string): Promise<
     ? 'individual'
     : tenantPlan || userEntitlement.tier || 'free';
   return {
-    ...context,
+    ...resolvedContext,
     balance,
     reserved,
     available: Math.max(balance - reserved, 0),
@@ -192,6 +260,7 @@ export async function getTenantAccountSummary(firebaseIdToken: string): Promise<
       : typeof tenantEntitlement.data()?.source === 'string'
         ? String(tenantEntitlement.data()?.source)
         : null,
+    developer: await getDeveloperEntitlementForUid(uid, resolvedContext),
   };
 }
 

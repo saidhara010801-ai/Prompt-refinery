@@ -23,6 +23,7 @@ export interface RuntimeReadiness {
     byokEncryption: boolean;
     razorpayBilling: boolean;
     apiTokenSecurity: boolean;
+    hybridMemory: boolean;
     extensionAccountLinking: boolean;
     signupNotifications: boolean;
   };
@@ -79,6 +80,11 @@ export const FEATURE_FLAG_VARIABLES = [
   'ENABLE_RAZORPAY_BILLING',
   'ENABLE_EXTENSION_ACCOUNT_LINKING',
   'ENABLE_PUBLIC_API',
+  'ENABLE_DSPY_OPTIMIZATION',
+  'ENABLE_HYBRID_MEMORY',
+  'ENABLE_SKILL_GENERATION',
+  'ENABLE_NECESSITY_CHECK',
+  'ENABLE_ADVERSARIAL_REVIEW',
   'ENABLE_PROJECT_SHARING',
   'ENABLE_USAGE_ANALYTICS',
   'ENABLE_SIGNUP_NOTIFICATIONS',
@@ -95,6 +101,16 @@ function isBooleanFlag(environment: Environment, variable: string) {
 
 function isEnabled(environment: Environment, variable: string) {
   return environment[variable]?.trim().toLowerCase() === 'true';
+}
+
+function hasValidEmbeddingConfiguration(environment: Environment) {
+  if (!hasValue(environment, 'CLARIFT_EMBEDDING_ENDPOINT') || !hasValue(environment, 'CLARIFT_EMBEDDING_MODEL')) return false;
+  try {
+    const url = new URL(String(environment.CLARIFT_EMBEDDING_ENDPOINT));
+    return environment.NODE_ENV !== 'production' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function hasCurrentProviderPricing(environment: Environment) {
@@ -186,8 +202,13 @@ export function getOptionalProductionWarnings(environment: Environment): string[
     warnings.push('ENABLE_PROMOTION_CODES is true but PROMO_CODE_PEPPER is missing.');
   }
 
-  if (isEnabled(environment, 'ENABLE_PUBLIC_API') && !hasValue(environment, 'CLARIFT_API_KEY_PEPPER')) {
+  if (isEnabled(environment, 'ENABLE_PUBLIC_API') &&
+    !hasValue(environment, 'CLARIFT_API_TOKEN_PEPPER') && !hasValue(environment, 'CLARIFT_API_KEY_PEPPER')) {
     warnings.push('ENABLE_PUBLIC_API is true but CLARIFT_API_KEY_PEPPER is missing.');
+  }
+
+  if (isEnabled(environment, 'ENABLE_HYBRID_MEMORY') && !hasValidEmbeddingConfiguration(environment)) {
+    warnings.push('Hybrid memory is enabled but its HTTPS embedding endpoint or model is missing or invalid.');
   }
 
   if (isEnabled(environment, 'ENABLE_BYOK') && !hasValidByokKey(environment)) {
@@ -279,6 +300,8 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
   ].every((variable) => hasValue(environment, variable)) && hasValidRazorpayCatalog(environment);
   const apiTokenSecurity = !isEnabled(environment, 'ENABLE_PUBLIC_API') ||
     hasValue(environment, 'CLARIFT_API_TOKEN_PEPPER') || hasValue(environment, 'CLARIFT_API_KEY_PEPPER');
+  const hybridMemory = !isEnabled(environment, 'ENABLE_HYBRID_MEMORY') ||
+    hasValidEmbeddingConfiguration(environment);
   const extensionAccountLinking = !isEnabled(environment, 'ENABLE_EXTENSION_ACCOUNT_LINKING') ||
     (managedInference && checkoutReturnOrigin);
   const signupNotifications = signupNotificationsAreConfigured(environment);
@@ -299,6 +322,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       byokEncryption &&
       razorpayBilling &&
       apiTokenSecurity &&
+      hybridMemory &&
       extensionAccountLinking &&
       signupNotifications,
     checks: {
@@ -319,6 +343,7 @@ export function getRuntimeReadiness(environment: Environment): RuntimeReadiness 
       byokEncryption,
       razorpayBilling,
       apiTokenSecurity,
+      hybridMemory,
       extensionAccountLinking,
       signupNotifications,
     },

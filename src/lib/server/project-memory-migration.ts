@@ -1,7 +1,8 @@
 import { FieldPath, Timestamp } from 'firebase-admin/firestore';
 
-import { estimateTokenCounts, normalizedSearchTerms } from '@/lib/stage2-utils';
+import { personalTenantId, personalWorkspaceId } from '@/lib/tenant-ids';
 import { getAdminFirestore } from './firebase-admin';
+import { createProjectMemoryDocument } from './project-memory';
 
 export async function migrateProjectMemoryPage(input: { apply: boolean; limit?: number; pageToken?: string | null }) {
   const firestore = getAdminFirestore();
@@ -33,20 +34,24 @@ export async function migrateProjectMemoryPage(input: { apply: boolean; limit?: 
     for (const entry of entries) {
       writes.push({
         path: `users/${uid}/projects/${projectId}/memoryEntries/${entry.id}`,
-        data: {
+        data: createProjectMemoryDocument({
           projectId,
           ownerUid: uid,
-          actorUid: uid,
-          kind: entry.kind,
+          tenantId: personalTenantId(uid),
+          workspaceId: personalWorkspaceId(uid),
+          kind: entry.kind as 'refinement' | 'response',
           title: entry.title,
           content: entry.content,
-          active: true,
-          tokenEstimate: estimateTokenCounts(entry.content).gemini,
           sourceRef: `projectSession:${session.id}`,
-          searchTerms: normalizedSearchTerms(entry.title, entry.content),
-          createdAt,
-          updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt,
-        },
+          provenance: {
+            userId: uid,
+            source: 'migration',
+            agent: 'clarift-project-memory-migration',
+            requestId: session.id,
+            consent: 'system',
+          },
+          now: createdAt,
+        }),
       });
     }
   }

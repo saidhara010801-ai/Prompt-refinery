@@ -1,13 +1,12 @@
 'use client';
 
 import { type ReactNode, useContext, useEffect, useState } from 'react';
-import { Database, KeyRound, Settings, Shield, ShieldCheck, Type, UserRound, WalletCards } from 'lucide-react';
+import { Database, KeyRound, Settings, ShieldCheck, Type, UserRound, WalletCards } from 'lucide-react';
 
 import { AdminPanel } from '@/components/admin-dialog';
 import { ApiKeysPanel } from '@/components/api-keys-panel';
 import { BillingPanel } from '@/components/billing-panel';
 import { BrowserExtensionPanel } from '@/components/browser-extension-panel';
-import { ProviderKeysPanel } from '@/components/provider-keys-panel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -20,7 +19,7 @@ import { cn } from '@/lib/utils';
 
 export function SettingsDialog({ trigger }: { trigger?: ReactNode }) {
   const { animate, setAnimate, fontScale, setFontScale, highContrast, setHighContrast } = useContext(SettingsContext);
-  const { isPro, tenantId, workspaceId, capabilities } = useContext(SubscriptionContext);
+  const { tenantId, workspaceId, capabilities } = useContext(SubscriptionContext);
   const { user } = useFirebase();
   const [open, setOpen] = useState(false);
   const [accountRole, setAccountRole] = useState<string>('user');
@@ -55,10 +54,9 @@ export function SettingsDialog({ trigger }: { trigger?: ReactNode }) {
         <DialogDescription>Manage your account, personal workspace, credits, security, integrations, and data preferences.</DialogDescription>
       </DialogHeader>
       <Tabs defaultValue="account" className="mt-2">
-        <TabsList className={`grid h-auto grid-cols-3 gap-1 ${isOwner ? 'md:grid-cols-7' : 'md:grid-cols-6'}`}>
+        <TabsList className={`grid h-auto grid-cols-3 gap-1 ${isOwner ? 'md:grid-cols-6' : 'md:grid-cols-5'}`}>
           <TabsTrigger value="account" aria-label="Account"><UserRound className="h-4 w-4" /><span className="hidden lg:inline">Account</span></TabsTrigger>
           <TabsTrigger value="billing" aria-label="Plan and credits"><WalletCards className="h-4 w-4" /><span className="hidden lg:inline">Plan</span></TabsTrigger>
-          <TabsTrigger value="security" aria-label="Security"><Shield className="h-4 w-4" /><span className="hidden lg:inline">Security</span></TabsTrigger>
           <TabsTrigger value="developer" aria-label="Developer API"><KeyRound className="h-4 w-4" /><span className="hidden lg:inline">Developer</span></TabsTrigger>
           <TabsTrigger value="data" aria-label="Data and accessibility"><Database className="h-4 w-4" /><span className="hidden lg:inline">Data</span></TabsTrigger>
           <TabsTrigger value="extension" aria-label="Browser extension"><Settings className="h-4 w-4" /><span className="hidden lg:inline">Extension</span></TabsTrigger>
@@ -72,8 +70,7 @@ export function SettingsDialog({ trigger }: { trigger?: ReactNode }) {
           <div className="rounded-md border p-3 text-xs text-muted-foreground"><p>Tenant: {tenantId || 'Initializing'}</p><p>Workspace: {workspaceId || 'Initializing'}</p></div>
         </TabsContent>
         <TabsContent value="billing" className="pt-4"><BillingPanel /></TabsContent>
-        <TabsContent value="security" className="pt-4"><ProviderKeysPanel enabled={capabilities.byok} /></TabsContent>
-        <TabsContent value="developer" className="pt-4"><ApiKeysPanel enabled={isPro && capabilities.developerApi} /></TabsContent>
+        <TabsContent value="developer" className="pt-4"><ApiKeysPanel enabled={capabilities.developerApi} /></TabsContent>
         <TabsContent value="data" className="space-y-4 pt-4">
           <div className="flex items-center gap-2"><Type className="h-4 w-4 text-primary" /><h3 className="font-medium">Accessibility</h3></div>
           <div className="grid gap-4 sm:grid-cols-4 sm:items-center">

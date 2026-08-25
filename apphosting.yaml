@@ -188,6 +188,26 @@ env:
     availability:
       - RUNTIME
   - variable: ENABLE_PUBLIC_API
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_DSPY_OPTIMIZATION
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_HYBRID_MEMORY
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_SKILL_GENERATION
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_NECESSITY_CHECK
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: ENABLE_ADVERSARIAL_REVIEW
     value: "false"
     availability:
       - RUNTIME
@@ -232,7 +252,7 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_TASK_COSTS_JSON
-    value: '{"quick_refine":1,"guided_fix":2,"full_council":5,"evaluate":1,"apply_fix":2,"convert_document":0}'
+    value: '{"quick_refine":1,"guided_fix":2,"full_council":3,"evaluate":1,"apply_fix":2,"convert_document":0}'
     availability:
       - RUNTIME
   - variable: CLARIFT_USER_RPM

@@ -2,7 +2,7 @@
 
 Refine raw prompts with an AI Council of expert agents for dramatically better LLM outputs.
 
-Clarift helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, OpenRouter routing, and user-provided API keys stored locally in the browser.
+Clarift helps AI enthusiasts, developers, creators, marketers, researchers, and teams turn vague prompts into structured, high-quality prompts. The current app uses a five-agent council, Firebase Auth/Firestore, Google Genkit, and managed Gemma inference with deterministic Basic-mode fallback. Normal users do not provide provider keys or choose provider/model names.
 
 ## Current Product Scope
 
@@ -17,12 +17,12 @@ Clarift helps AI enthusiasts, developers, creators, marketers, researchers, and 
 - Prompt templates, explanation mode, styled copy actions, and TXT/Markdown/JSON exports.
 - Free and Pro segmentation with protected subscription tiers, daily managed-key limits, and server-enforced saved-prompt limits.
 - Stripe subscription Checkout and webhook fulfillment for Pro upgrades.
-- Local Bring Your Own Key Gemini support.
-- OpenRouter support with configurable model IDs for each council member.
+- Provider-agnostic Developer API, typed SDK, CLI, and MCP bridge behind scoped Clarift tokens and the Developer entitlement.
+- Managed provider routing with server-owned provider order, model selection, quotas, budgets, and circuit breakers.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
 - Optional max-character target for refined output.
 - Email, Google, and guest sign-in through Firebase Authentication.
-- Signed-out BYOK refinement, evaluation, conversion, and template browsing; authentication remains required for saved prompts, Projects, managed-key usage, and Pro checkout.
+- Signed-out template browsing and deterministic local fallback where allowed; authentication remains required for saved prompts, Projects, managed inference, Developer access, and checkout.
 - Dark/light mode and responsive Next.js UI.
 
 Production-readiness tooling includes regression tests, CI, route throttles, a redacted health endpoint, and an operator runbook.
@@ -60,7 +60,7 @@ Production-readiness tooling includes regression tests, CI, route throttles, a r
 
 3. Fill in Firebase values in `.env.local`.
 
-   Firebase client config is required for auth and saved prompts. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Gemini keys are entered by users in the app Settings dialog and are stored only in browser local storage.
+   Firebase client config is required for auth and saved prompts. Enable Email/Password, Anonymous, and Google sign-in providers in Firebase Authentication. Managed inference credentials remain server-side.
 
 4. Optional for local development: install Microsoft MarkItDown to convert PDF and Office attachments into prompt context:
 
@@ -139,14 +139,14 @@ Outside Firebase App Hosting, server-side tier enforcement also needs Firebase A
 GOOGLE_APPLICATION_CREDENTIALS=
 ```
 
-Optional for managed server-side provider fallback. BYOK remains the recommended launch mode until managed access has quotas, model allowlists, usage logging, and cost monitoring:
+Optional managed server-side provider configuration:
 
 ```env
 GEMINI_API_KEY=
 OPENROUTER_API_KEY=
 ```
 
-OpenRouter can also be used as a user-provided browser-local key from Settings. In that BYOK mode, each AI Council member can use a different OpenRouter model ID.
+Provider keys and model IDs are not exposed through the consumer or Developer contracts.
 
 Optional for document conversion when the MarkItDown CLI is not discoverable as `markitdown`. Firebase App Hosting uses the managed runtime built with `MARKITDOWN_COMMAND=packaged`:
 
@@ -167,6 +167,9 @@ npm run build        # Create a production Next.js build
 npm run verify       # Run lint, typecheck, regression tests, and production build
 npm run check:production-env # Validate required production environment values
 npm run genkit:dev   # Start Genkit dev flow runner
+npm run build:developer # Build @clarift/sdk and @clarift/cli
+npm run clarift -- help # Run the local Clarift CLI
+npm run clarift:mcp  # Start the Clarift MCP stdio bridge
 ```
 
 ## Phase 1 Verification
@@ -188,7 +191,7 @@ The app stores user-owned data under each authenticated user path in Firestore:
 - `/users/{uid}/projects`
 - `/users/{uid}/projects/{projectId}/projectSessions`
 
-User profiles store `subscriptionTier`, the server-maintained `savedPromptCount`, and managed-refinement usage metadata. Free accounts can save up to 10 prompts and use up to 5 managed-key refinements per day. BYOK refinements do not consume managed usage. Pro accounts unlock all eight techniques, Projects & Memory, unlimited saved prompts, and unlimited managed-key refinements.
+User profiles store `subscriptionTier`, the server-maintained `savedPromptCount`, and managed-refinement usage metadata. Free accounts can save up to 10 prompts and receive a weighted managed-inference allowance. Pro accounts unlock all eight techniques, Projects & Memory, unlimited saved prompts, and a larger managed-inference allowance.
 
 Saved-prompt writes, project-memory writes, recursive project deletion, and Stripe tier changes run through server-side Firebase Admin code. Browser clients may read their own tier and Pro project memory but cannot self-promote or bypass server enforcement.
 
@@ -200,7 +203,9 @@ Firestore transactions enforce the Free managed-key quota. Checkout and document
 
 See [docs/production-runbook.md](docs/production-runbook.md) for Firebase App Hosting secrets, Stripe webhook registration, alerting, release gates, and manual promotion checks.
 
-Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. API keys must remain local-only or server env-only and must never be stored in Firestore.
+Project sessions store raw prompts, refined prompts, selected technique, timestamps, and optional downstream LLM response notes. Recent project sessions are compressed into a bounded text memory block and passed into new refinements when a project is selected. Clarift Developer tokens are stored only as HMAC hashes; provider credentials remain server-only and must never be stored in Firestore.
+
+See [docs/developer-layer-implementation.md](docs/developer-layer-implementation.md) for Developer API scopes, SDK/CLI/MCP usage, consent rules, hybrid-memory gates, and the remaining DSPy/skills/multi-agent rollout phases.
 
 ## Development Notes
 

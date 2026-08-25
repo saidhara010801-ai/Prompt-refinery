@@ -2,6 +2,9 @@
   "name": "clarift",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20.19.0"
   },
@@ -33,7 +36,10 @@
     "dev": "next dev -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
-    "build": "npm run package:extension && next build && npm run install:markitdown",
+    "build": "npm run build:developer && npm run package:extension && next build && npm run install:markitdown",
+    "build:developer": "npm run build --workspace @clarift/sdk && npm run build --workspace @clarift/cli",
+    "clarift": "npm run build:developer --silent && node packages/cli/dist/index.js",
+    "clarift:mcp": "npm run build:developer --silent && node packages/cli/dist/index.js mcp --transport stdio",
     "package:extension": "node scripts/package-extension.mjs",
     "install:markitdown": "node scripts/install-markitdown-runtime.mjs",
     "start": "next start -p 9002",

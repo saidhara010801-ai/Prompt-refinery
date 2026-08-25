@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       usesFreeManagedInference: freeManagedInference,
       capabilities: {
         byok: process.env.ENABLE_BYOK === 'true',
-        developerApi: process.env.ENABLE_PUBLIC_API === 'true',
+        developerApi: process.env.ENABLE_PUBLIC_API === 'true' && summary.developer.enabled && summary.developer.features.includes('api'),
         extension: process.env.ENABLE_EXTENSION_ACCOUNT_LINKING === 'true',
         razorpay: process.env.ENABLE_RAZORPAY_BILLING === 'true',
         inference: freeManagedInference || hasManagedRemoteProvider()
