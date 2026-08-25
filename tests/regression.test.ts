@@ -1596,6 +1596,7 @@ test('hybrid memory distillation and ranking combine vector, keyword, and tempor
 });
 
 test('Developer OpenAPI and SDK expose scoped memory without provider/model controls', async () => {
+  const openApiRoute = readFileSync('src/app/api/v1/openapi.json/route.ts', 'utf8');
   const document = buildClariftOpenApiDocument('https://clarift.example');
   assert.equal(document.info.version, '1.1.0');
   for (const path of ['/refinements', '/projects', '/projects/{projectId}/memory', '/memory/search', '/memory/context', '/usage']) {
@@ -1605,6 +1606,7 @@ test('Developer OpenAPI and SDK expose scoped memory without provider/model cont
   assert.ok(API_TOKEN_SCOPES.includes('memory:write'));
   const serialized = JSON.stringify(document);
   assert.doesNotMatch(serialized, /openrouter|gemini|together|models/i);
+  assert.match(openApiRoute, /process\.env\.APP_BASE_URL/);
 
   const captured: { headers?: Headers } = {};
   const client = new ClariftClient({
