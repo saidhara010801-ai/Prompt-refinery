@@ -148,6 +148,12 @@ export async function revokeApiKey(request: Request, keyId: string) {
   return { revoked: true };
 }
 
+export function resolveEffectiveTokenScopes(keyData: { tenantId?: string | null; scopes?: unknown }): ApiTokenScope[] {
+  const scopes = normalizeScopes(keyData.scopes);
+  const legacyToken = !keyData.tenantId && !Array.isArray(keyData.scopes);
+  return legacyToken ? ['refinements:write', 'evaluations:write', 'conversions:write'] : scopes;
+}
+
 export async function authenticatePublicApi(request: Request, requiredScope: ApiTokenScope): Promise<PublicApiCaller> {
   assertPublicApiEnabled();
   const authorization = request.headers.get('authorization');
@@ -169,9 +175,9 @@ export async function authenticatePublicApi(request: Request, requiredScope: Api
     throw new AuthorizationError('This Clarift API token requires an active Developer entitlement.', 403, 'DeveloperFeatureRequiredError');
   }
   if (keyData.tenantId && keyData.tenantId !== context.tenantId) throw new AuthorizationError('This token is not valid for the active tenant.', 403, 'TenantIsolationError');
-  const scopes = normalizeScopes(keyData.scopes);
   const legacyToken = !keyData.tenantId && !Array.isArray(keyData.scopes);
-  if (!legacyToken && !scopes.includes(requiredScope)) throw new AuthorizationError('This API token does not have the required scope.', 403, 'ApiScopeError');
+  const effectiveScopes = resolveEffectiveTokenScopes(keyData);
+  if (!effectiveScopes.includes(requiredScope)) throw new AuthorizationError('This API token does not have the required scope.', 403, 'ApiScopeError');
   const rate = await consumeDistributedLimit({
     bucket: 'public-api',
     key: keyDocument.id,
@@ -182,9 +188,9 @@ export async function authenticatePublicApi(request: Request, requiredScope: Api
   await keyDocument.ref.set({
     tenantId: context.tenantId,
     workspaceId: context.workspaceId,
-    scopes: legacyToken ? ['refinements:write', 'evaluations:write', 'conversions:write'] : scopes,
+    scopes: effectiveScopes,
     lastUsedAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
   }, { merge: true });
-  return { uid: ownerUid, keyId: keyDocument.id, entitlement, context, scopes };
+  return { uid: ownerUid, keyId: keyDocument.id, entitlement, context, scopes: effectiveScopes };
 }

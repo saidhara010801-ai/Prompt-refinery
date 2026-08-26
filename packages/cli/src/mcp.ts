@@ -164,6 +164,19 @@ export async function startHttpMcp(client: ClariftClient, options: { host: strin
       sendMethodNotAllowed(response);
       return;
     }
+    const origin = request.headers.origin;
+    if (origin) {
+      const allowedOrigins = [
+        `http://${options.host}:${options.port}`,
+        `http://127.0.0.1:${options.port}`,
+        `http://localhost:${options.port}`,
+      ];
+      if (!allowedOrigins.includes(origin)) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Forbidden: untrusted origin.' }, id: null }));
+        return;
+      }
+    }
     try {
       const body = await readJson(request);
       const mcp = createClariftMcpServer(client);
@@ -191,4 +204,5 @@ export async function startHttpMcp(client: ClariftClient, options: { host: strin
     httpServer.listen(options.port, options.host, resolve);
   });
   process.stderr.write(`Clarift MCP listening on http://${options.host}:${options.port}/mcp\n`);
+  return httpServer;
 }
