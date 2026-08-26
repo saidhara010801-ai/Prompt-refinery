@@ -1,11 +1,44 @@
 import assert from 'node:assert/strict';
+import { createServer, request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import path from 'node:path';
 import test from 'node:test';
 
 import { ClariftClient } from '@clarift/sdk';
-import { startHttpMcp } from '../packages/cli/src/mcp';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+import { createClariftMcpServer, startHttpMcp } from '../packages/cli/src/mcp';
 import { resolveEffectiveTokenScopes } from '../src/lib/server/api-key-service';
 import { getActiveHybridMemoryContext } from '../src/lib/server/hybrid-memory-service';
 import { AuthorizationError } from '../src/lib/server/user-access';
+
+async function closeHttpServer(server: ReturnType<typeof createServer>) {
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+function environmentWith(overrides: Record<string, string>) {
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')),
+    ...overrides,
+  };
+}
+
+async function rawHttpPost(url: URL, headers: Record<string, string>, body: string) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const request = httpRequest(url, { method: 'POST', headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => resolve({
+        status: response.statusCode ?? 0,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+}
 
 test('A-AUTH-13: resolveEffectiveTokenScopes restricts legacy tokens (no tenantId, no scopes array) to default scope triad on first call', () => {
   const legacyKeyData = { tenantId: null, scopes: null };
@@ -159,4 +192,136 @@ test('A-GATE-01: getActiveHybridMemoryContext returns 503 HybridMemoryDisabledEr
       return true;
     }
   );
+});
+
+test('A-TRN-06, A-TRN-08 & A-TRN-15: production HTTP bridge rejects method, malformed JSON, and invalid Host then recovers', async () => {
+  const mockClient = new ClariftClient({ apiKey: 'clf_live_test_123', baseUrl: 'http://127.0.0.1:9999/api/v1' });
+  const host = '127.0.0.1';
+  const port = 3233;
+  const server = await startHttpMcp(mockClient, { host, port });
+  const endpoint = `http://${host}:${port}/mcp`;
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Origin: endpoint.replace('/mcp', '') };
+
+  try {
+    const getResponse = await fetch(endpoint);
+    assert.equal(getResponse.status, 405);
+    assert.equal(getResponse.headers.get('allow'), 'POST');
+
+    const malformedResponse = await fetch(endpoint, { method: 'POST', headers, body: '{not-json' });
+    assert.equal(malformedResponse.status, 400);
+    const malformed = await malformedResponse.json();
+    assert.equal(malformed.error?.code, -32700);
+
+    const invalidHostResponse = await rawHttpPost(
+      new URL(endpoint),
+      { ...headers, Host: 'attacker.example' },
+      JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 8 })
+    );
+    assert.equal(invalidHostResponse.status, 403);
+
+    const recoveryResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 9 }),
+    });
+    assert.equal(recoveryResponse.status, 200);
+  } finally {
+    await closeHttpServer(server);
+  }
+});
+
+test('A-TRN-01, A-TRN-02 & A-TRN-11: stdio child process negotiates MCP and calls usage_get without stdout corruption', async () => {
+  const token = 'clf_live_stdio_phase_a_test';
+  const captured = { requestHeaders: null as Headers | null };
+  const upstream = createServer((request, response) => {
+    captured.requestHeaders = new Headers(request.headers as Record<string, string>);
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({
+      plan: 'Individual',
+      planStatus: 'active',
+      developer: { enabled: true, source: 'test', features: ['mcp'] },
+      credits: { balance: 0, reserved: 0, available: 0 },
+      allowance: {},
+    }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    upstream.once('error', reject);
+    upstream.listen(0, '127.0.0.1', resolve);
+  });
+  const address = upstream.address() as AddressInfo;
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ['--import', 'tsx', path.resolve('packages/cli/src/index.ts'), 'mcp', '--transport', 'stdio'],
+    cwd: process.cwd(),
+    env: environmentWith({
+      CLARIFT_API_TOKEN: token,
+      CLARIFT_BASE_URL: `http://127.0.0.1:${address.port}/api/v1`,
+      CLARIFT_AGENT_NAME: 'phase-a-stdio-test',
+    }),
+    stderr: 'pipe',
+  });
+  let stderr = '';
+  transport.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+  const client = new Client({ name: 'clarift-phase-a-test', version: '1.0.0' });
+
+  try {
+    await client.connect(transport, { timeout: 10_000 });
+    assert.equal(client.getServerVersion()?.name, 'clarift');
+    assert.equal((await client.listTools()).tools.length, 11);
+    const result = await client.callTool({ name: 'usage_get', arguments: {} });
+    assert.equal(result.isError, undefined);
+    const content = result.content as Array<{ type: string; text?: string }>;
+    const block = content[0];
+    assert.equal(block?.type, 'text');
+    if (block?.type !== 'text' || typeof block.text !== 'string') throw new Error('usage_get did not return text content.');
+    assert.equal(JSON.parse(block.text).plan, 'Individual');
+    assert.equal(captured.requestHeaders?.get('authorization'), `Bearer ${token}`);
+    assert.equal(captured.requestHeaders?.get('x-clarift-client'), 'mcp');
+  } finally {
+    await client.close().catch(() => undefined);
+    await closeHttpServer(upstream);
+  }
+  assert.doesNotMatch(stderr, /clf_live_/);
+});
+
+test('A-TRN-02 & A-VAL-01: in-memory MCP transport invokes production usage tool and rejects invalid memory consent', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const apiClient = new ClariftClient({
+    apiKey: 'clf_live_in_memory_test',
+    baseUrl: 'https://clarift.test/api/v1',
+    clientName: 'mcp',
+    fetch: async (input, init) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({
+        plan: 'Individual',
+        planStatus: 'active',
+        developer: { enabled: true, source: 'test', features: ['mcp'] },
+        credits: { balance: 0, reserved: 0, available: 0 },
+        allowance: {},
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const server = createClariftMcpServer(apiClient);
+  const client = new Client({ name: 'clarift-in-memory-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const usage = await client.callTool({ name: 'usage_get', arguments: {} });
+    assert.equal(usage.isError, undefined);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://clarift.test/api/v1/usage');
+
+    const denied = await client.callTool({
+      name: 'memory_write',
+      arguments: { projectId: 'project-1', title: 'Denied', content: 'Must not dispatch.', consent: false },
+    });
+    assert.equal(denied.isError, true);
+    assert.match(JSON.stringify(denied.content), /consent|invalid arguments/i);
+    assert.equal(calls.length, 1);
+  } finally {
+    await client.close().catch(() => undefined);
+    await server.close().catch(() => undefined);
+  }
 });

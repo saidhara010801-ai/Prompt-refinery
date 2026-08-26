@@ -7,6 +7,13 @@ import { z } from 'zod';
 
 import { ClariftClient } from '@clarift/sdk';
 
+class McpRequestBodyError extends Error {
+  constructor(message: string, readonly status: number, readonly code: number) {
+    super(message);
+    this.name = 'McpRequestBodyError';
+  }
+}
+
 function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
 }
@@ -139,7 +146,7 @@ function readJson(request: IncomingMessage): Promise<unknown> {
     request.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > 30 * 1024 * 1024) {
-        reject(new Error('MCP request exceeds 30 MB.'));
+        reject(new McpRequestBodyError('MCP request exceeds 30 MB.', 413, -32000));
         request.destroy();
         return;
       }
@@ -147,7 +154,7 @@ function readJson(request: IncomingMessage): Promise<unknown> {
     });
     request.on('end', () => {
       try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-      catch { reject(new Error('MCP request body must be valid JSON.')); }
+      catch { reject(new McpRequestBodyError('MCP request body must be valid JSON.', 400, -32700)); }
     });
     request.on('error', reject);
   });
@@ -194,8 +201,16 @@ export async function startHttpMcp(client: ClariftClient, options: { host: strin
       await transport.handleRequest(request, response, body);
     } catch (error) {
       if (!response.headersSent) {
-        response.writeHead(500, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: error instanceof Error ? error.message : 'MCP request failed.' }, id: null }));
+        const requestError = error instanceof McpRequestBodyError ? error : null;
+        response.writeHead(requestError?.status ?? 500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: {
+            code: requestError?.code ?? -32603,
+            message: error instanceof Error ? error.message : 'MCP request failed.',
+          },
+          id: null,
+        }));
       }
     }
   });
