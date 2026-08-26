@@ -3,7 +3,6 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
 import {
-  FREE_INPUT_TOKEN_LIMIT,
   chooseBasicModeStatus,
   estimateSerializedTokens,
   priceForMaximumAttempt,
@@ -57,6 +56,7 @@ interface FreeGatewayRequest<T> {
     outputSchema: z.ZodType<T>;
     repairMessage?: string;
     maxTokens: number;
+    inputTokenLimit: number;
   };
   fallback: () => Promise<T> | T;
 }
@@ -110,9 +110,9 @@ function calculateCost(provider: OpenModelProvider, usage: OpenModelUsage) {
   });
 }
 
-function estimateAttempt(provider: OpenModelProvider, maxTokens: number) {
+function estimateAttempt(provider: OpenModelProvider, inputTokenLimit: number, maxTokens: number) {
   return priceForMaximumAttempt({
-    inputTokens: FREE_INPUT_TOKEN_LIMIT,
+    inputTokens: inputTokenLimit,
     outputTokens: maxTokens,
     ...providerRates(provider),
   });
@@ -232,7 +232,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
 
   try {
     const serializedTokens = estimateSerializedTokens({ messages: request.prepared.messages, schema: request.prepared.schema.schema });
-    if (serializedTokens > FREE_INPUT_TOKEN_LIMIT) return await finishFallback(chooseBasicModeStatus({ requestTooLarge: true }));
+    if (serializedTokens > request.prepared.inputTokenLimit) return await finishFallback(chooseBasicModeStatus({ requestTooLarge: true }));
 
     quotaReservation = await reserveFreeQuota({ context: request.context, task: request.task, requestId, allowancePlan });
     if (quotaReservation.status === 'unavailable') return await finishFallback(quotaFallbackStatus(quotaReservation));
@@ -261,7 +261,12 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
         attempts.push({ provider: attemptProvider, model, status: 'skipped', inputTokens: null, outputTokens: null, costUsd: null, errorCode: errorCode(error) });
         return null;
       }
-      const budget = await reserveProviderBudget({ requestId, attempt: attemptNumber, provider: attemptProvider, estimatedCostUsd: estimateAttempt(attemptProvider, request.prepared.maxTokens) });
+      const budget = await reserveProviderBudget({
+        requestId,
+        attempt: attemptNumber,
+        provider: attemptProvider,
+        estimatedCostUsd: estimateAttempt(attemptProvider, request.prepared.inputTokenLimit, request.prepared.maxTokens),
+      });
       if (!budget) {
         budgetBlocked = true;
         attempts.push({ provider: attemptProvider, model, status: 'skipped', inputTokens: null, outputTokens: null, costUsd: null, errorCode: 'ProviderBudgetLimitError' });
@@ -280,7 +285,7 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
           timeoutMs: Math.max(1_000, Math.min(timeoutCap, remaining)),
           responseSchema: request.prepared.schema,
           providerSort: attemptProvider === 'openrouter' ? 'throughput' : undefined,
-          reasoningEffort: undefined,
+          reasoningEffort: attemptProvider === 'openrouter' ? 'none' : undefined,
           endpointUrl: config.endpointUrl,
           cloudRunAudience: config.cloudRunAudience,
         });
@@ -341,8 +346,8 @@ export async function executeFreeGatewayTask<T>(request: FreeGatewayRequest<T>):
       } catch (error) {
         finalError = error;
         const remaining = deadline - Date.now();
-        const repairTimeout = Math.min(10_000, remaining - 8_000);
-        if (error instanceof ProviderSchemaError && repairTimeout >= 4_000) {
+        const repairTimeout = Math.min(25_000, remaining - 8_000);
+        if (error instanceof ProviderSchemaError && repairTimeout >= 8_000) {
           try {
             result = await runAttempt(config, repairTimeout, true);
             finalError = null;

@@ -93,6 +93,7 @@ import { verifyRazorpayCheckoutSignature, verifyRazorpayWebhookSignature } from 
 import { captureProviderUsage, recordOpenRouterUsage } from '../src/lib/server/provider-usage-context';
 import {
   FREE_INPUT_TOKEN_LIMIT,
+  FREE_TASK_INPUT_TOKENS,
   PRO_REFINEMENT_DAILY_UNITS,
   PRO_REFINEMENT_MONTHLY_UNITS,
   FREE_TASK_OUTPUT_TOKENS,
@@ -452,16 +453,17 @@ test('format converter parses MarkItDown command with arguments', () => {
 test('free inference weights and maximum OpenRouter costs match the release budget', () => {
   assert.deepEqual(FREE_TASK_UNITS, { quick_refine: 1, guided_fix: 2, full_council: 3, evaluate: 1 });
   const maximum = (task: keyof typeof FREE_TASK_OUTPUT_TOKENS) => priceForMaximumAttempt({
-    inputTokens: FREE_INPUT_TOKEN_LIMIT,
+    inputTokens: FREE_TASK_INPUT_TOKENS[task],
     outputTokens: FREE_TASK_OUTPUT_TOKENS[task],
     inputUsdPerMillion: 0.05,
     outputUsdPerMillion: 0.1,
   });
-  assert.ok(Math.abs(maximum('quick_refine') - 0.0002048) < 1e-12);
-  assert.ok(Math.abs(maximum('evaluate') - 0.0002048) < 1e-12);
-  assert.ok(Math.abs(maximum('guided_fix') - 0.000256) < 1e-12);
-  assert.ok(Math.abs(maximum('full_council') - 0.0003072) < 1e-12);
-  assert.ok(Math.abs((10 + 5) * maximum('quick_refine') - 0.003072) < 1e-12);
+  assert.equal(FREE_INPUT_TOKEN_LIMIT, 16_384);
+  assert.ok(Math.abs(maximum('quick_refine') - 0.0009728) < 1e-12);
+  assert.ok(Math.abs(maximum('evaluate') - 0.0005632) < 1e-12);
+  assert.ok(Math.abs(maximum('guided_fix') - 0.0010752) < 1e-12);
+  assert.ok(Math.abs(maximum('full_council') - 0.0011264) < 1e-12);
+  assert.ok(10 * maximum('quick_refine') + 5 * maximum('evaluate') < 0.013);
 });
 
 test('free managed inference rollout automatically includes operators', () => {
@@ -553,13 +555,34 @@ test('serialized token estimates include instructions and schema rather than raw
   assert.ok(fullRequest > promptOnly);
   for (const task of ['quick_refine', 'guided_fix', 'full_council'] as const) {
     const prepared = buildFreeRefinementRequest(task, { prompt: 'Write a concise launch plan.', promptType: 'Zero-shot' });
-    assert.ok(estimateSerializedTokens({ messages: prepared.messages, schema: prepared.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
+    assert.ok(estimateSerializedTokens({ messages: prepared.messages, schema: prepared.schema.schema }) <= FREE_TASK_INPUT_TOKENS[task]);
+    assert.equal(prepared.inputTokenLimit, FREE_TASK_INPUT_TOKENS[task]);
     const refinements = (prepared.schema.schema.properties as { refinements: { minItems: number; maxItems: number } }).refinements;
     assert.equal(refinements.minItems, task === 'quick_refine' ? 1 : task === 'guided_fix' ? 3 : 5);
     assert.equal(refinements.maxItems, refinements.minItems);
   }
   const evaluation = buildFreeEvaluationRequest('Write a concise launch plan.', ['Clarity']);
-  assert.ok(estimateSerializedTokens({ messages: evaluation.messages, schema: evaluation.schema.schema }) <= FREE_INPUT_TOKEN_LIMIT);
+  assert.ok(estimateSerializedTokens({ messages: evaluation.messages, schema: evaluation.schema.schema }) <= FREE_TASK_INPUT_TOKENS.evaluate);
+  assert.equal(evaluation.inputTokenLimit, FREE_TASK_INPUT_TOKENS.evaluate);
+});
+
+test('six markdown references are represented and compacted into the managed Gemma budget', () => {
+  const attachments = Array.from({ length: 6 }, (_, index) => ({
+    name: `0${index + 1}_reference.md`,
+    mimeType: 'text/markdown',
+    content: `# Reference ${index + 1}\n\n${`Requirement ${index + 1}: preserve this context.\n`.repeat(320)}`.slice(0, 12_000),
+  }));
+  const prepared = buildFreeRefinementRequest('quick_refine', {
+    prompt: 'Turn these documents into one implementation prompt.',
+    promptType: 'Prompt chaining',
+    attachments,
+  });
+  const serializedTokens = estimateSerializedTokens({ messages: prepared.messages, schema: prepared.schema.schema });
+  const userMessage = prepared.messages.at(-1)?.content || '';
+
+  assert.ok(serializedTokens <= FREE_TASK_INPUT_TOKENS.quick_refine);
+  for (const attachment of attachments) assert.match(userMessage, new RegExp(attachment.name));
+  assert.match(userMessage, /context trimmed by Clarift/);
 });
 
 test('managed council output requires a clean synthesis after Guided Fix passes', () => {
@@ -573,8 +596,10 @@ test('managed council output requires a clean synthesis after Guided Fix passes'
     { councilMember: 'The Critic', thoughtProcess: 'Closed important gaps.', refinedText: 'Evaluate prompt engineering with evidence and caveats.' },
   ];
 
-  assert.equal(guided.outputSchema.safeParse({ refinedPrompt: 'The Specifier: "Act as a researcher and write a detailed blog.",', refinements: passes }).success, false);
-  assert.equal(guided.outputSchema.safeParse({ refinedPrompt: passes[0].refinedText, refinements: passes }).success, false);
+  const cleaned = guided.outputSchema.safeParse({ refinedPrompt: 'The Specifier: "Act as a researcher and write a detailed blog.",', refinements: passes });
+  assert.equal(cleaned.success, true);
+  if (cleaned.success) assert.equal(cleaned.data.refinedPrompt, 'Act as a researcher and write a detailed blog.');
+  assert.equal(guided.outputSchema.safeParse({ refinedPrompt: passes[0].refinedText, refinements: passes }).success, true);
   assert.equal(guided.outputSchema.safeParse({
     refinedPrompt: 'Act as an AI research writer. Produce a structured, evidence-based blog for technical readers that evaluates "prompt engineering," addresses counterarguments, and clearly labels uncertainty.',
     refinements: passes,
@@ -736,7 +761,8 @@ test('managed provider routing prefers Gemma 4 and preserves an extension fallba
   assert.deepEqual(getFreeProviderOrder(environment), ['openrouter', 'together']);
   assert.equal(getOpenModelProviderConfig('together', 'app', environment)?.model, 'google/gemma-4-31B-it');
   assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.model, 'google/gemma-4-26b-a4b-it');
-  assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.timeoutMs, 32_000);
+  assert.equal(getOpenModelProviderConfig('openrouter', 'app', environment)?.timeoutMs, 60_000);
+  assert.equal(freeRemoteDeadlineMs('app', environment), 95_000);
   assert.equal(freeRemoteDeadlineMs('extension', environment), 43_000);
 
   const gemmaEnvironment = {
