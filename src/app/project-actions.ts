@@ -16,6 +16,7 @@ import {
 } from '@/lib/server/account-service';
 import {
   MAX_FIREBASE_ID_TOKEN_CHARACTERS,
+  MAX_PROJECT_MEMORY_ENTRY_CHARACTERS,
   MAX_PROMPT_CHARACTERS,
   MAX_PROMPT_VERSIONS,
   MAX_REFINED_PROMPT_CHARACTERS,
@@ -141,15 +142,45 @@ export async function updateProjectSessionResponseAction(data: {
   projectId: string;
   sessionId: string;
   llmResponse: string;
-}) {
-  const parsed = authenticatedProjectSchema.extend({
+}): Promise<
+  | { ok: true }
+  | { ok: false; code: 'invalid_input' | 'save_failed'; message: string }
+> {
+  const result = authenticatedProjectSchema.extend({
     sessionId: z.string().min(1).max(200),
-    llmResponse: z.string().max(12000),
-  }).parse(data);
-  return updateProjectSessionResponseForUser(
-    parsed.firebaseIdToken,
-    parsed.projectId,
-    parsed.sessionId,
-    parsed.llmResponse
-  );
+    llmResponse: z.string().max(MAX_PROJECT_MEMORY_ENTRY_CHARACTERS),
+  }).safeParse(data);
+
+  if (!result.success) {
+    const responseIsTooLarge = result.error.issues.some(
+      (issue) => issue.path[0] === 'llmResponse' && issue.code === 'too_big'
+    );
+    return {
+      ok: false,
+      code: 'invalid_input',
+      message: responseIsTooLarge
+        ? `Response notes can contain up to ${MAX_PROJECT_MEMORY_ENTRY_CHARACTERS.toLocaleString()} characters.`
+        : 'The project memory update was invalid. Refresh the page and try again.',
+    };
+  }
+
+  try {
+    await updateProjectSessionResponseForUser(
+      result.data.firebaseIdToken,
+      result.data.projectId,
+      result.data.sessionId,
+      result.data.llmResponse
+    );
+    return { ok: true };
+  } catch (error) {
+    console.error('Project session response update failed.', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+      message: error instanceof Error ? error.message : 'Unknown project memory error',
+    });
+    return {
+      ok: false,
+      code: 'save_failed',
+      message: 'Project memory could not be saved. Refresh the project and try again.',
+    };
+  }
 }

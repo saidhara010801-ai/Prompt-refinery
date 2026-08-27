@@ -48,6 +48,7 @@ export function ProjectsTab({
   const [description, setDescription] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({});
+  const [savingResponseId, setSavingResponseId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -253,18 +254,25 @@ export function ProjectsTab({
   };
 
   const handleSaveResponse = async (session: ProjectSession) => {
-    if (!user || !firestore || !selectedProjectId) return;
+    if (!user || !firestore || !selectedProjectId || savingResponseId) return;
     const llmResponse = responseDrafts[session.id] ?? session.llmResponse ?? '';
+    setSavingResponseId(session.id);
     try {
-      await updateProjectSessionResponseAction({
+      const result = await updateProjectSessionResponseAction({
         firebaseIdToken: await user.getIdToken(),
         projectId: selectedProjectId,
         sessionId: session.id,
         llmResponse,
       });
+      if (!result.ok) {
+        toast({ variant: 'destructive', title: 'Could Not Update Project Memory', description: result.message });
+        return;
+      }
       toast({ title: 'Project Memory Updated', description: 'This response note will be available to future refinements.' });
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Could Not Update Project Memory', description: error instanceof Error ? error.message : 'Please try again.' });
+      toast({ variant: 'destructive', title: 'Could Not Update Project Memory', description: 'The save request could not be completed. Please try again.' });
+    } finally {
+      setSavingResponseId(null);
     }
   };
 
@@ -341,6 +349,7 @@ export function ProjectsTab({
         responseDrafts={responseDrafts}
         onResponseDraftChange={(sessionId, value) => setResponseDrafts((drafts) => ({ ...drafts, [sessionId]: value }))}
         onSaveResponse={handleSaveResponse}
+        savingResponseId={savingResponseId}
         noteTitle={noteTitle}
         onNoteTitleChange={setNoteTitle}
         noteContent={noteContent}

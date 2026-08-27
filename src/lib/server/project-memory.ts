@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
+import { MAX_PROJECT_MEMORY_ENTRY_CHARACTERS } from '@/lib/input-limits';
 import { estimateTokenCounts, normalizedSearchTerms } from '@/lib/stage2-utils';
 
 export const PROJECT_MEMORY_KINDS = [
@@ -54,7 +55,7 @@ export function createProjectMemoryDocument(input: {
 }) {
   const now = input.now ?? Timestamp.now();
   const title = input.title.trim().slice(0, 160);
-  const content = input.content.slice(0, 100000);
+  const content = input.content.slice(0, MAX_PROJECT_MEMORY_ENTRY_CHARACTERS);
   const provenance = projectMemoryProvenance(input.provenance, now);
   return {
     projectId: input.projectId,
@@ -95,7 +96,7 @@ export function updateProjectMemoryDocument(input: {
 }) {
   const now = input.now ?? Timestamp.now();
   const title = (input.title ?? String(input.current.title ?? '')).trim().slice(0, 160);
-  const content = (input.content ?? String(input.current.content ?? '')).slice(0, 100000);
+  const content = (input.content ?? String(input.current.content ?? '')).slice(0, MAX_PROJECT_MEMORY_ENTRY_CHARACTERS);
   const wasActive = input.current.active !== false;
   const active = input.active ?? wasActive;
   const lifecycleChanged = active !== wasActive;

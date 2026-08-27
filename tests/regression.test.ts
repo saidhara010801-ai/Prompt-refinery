@@ -1516,6 +1516,26 @@ test('workspace project controls remain accessible inside the master panel', () 
   assert.match(sidebar, /group flex min-w-0[\s\S]*overflow-hidden/);
 });
 
+test('project workspace keeps long memory updates usable and failures user-safe', () => {
+  const limits = readFileSync('src/lib/input-limits.ts', 'utf8');
+  const actions = readFileSync('src/app/project-actions.ts', 'utf8');
+  const projects = readFileSync('src/components/prompt-refinery/projects-tab.tsx', 'utf8');
+  const workspace = readFileSync('src/components/prompt-refinery/project-workspace-panel.tsx', 'utf8');
+
+  assert.match(limits, /MAX_PROJECT_MEMORY_ENTRY_CHARACTERS = 100000/);
+  assert.match(actions, /llmResponse: z\.string\(\)\.max\(MAX_PROJECT_MEMORY_ENTRY_CHARACTERS\)/);
+  assert.match(actions, /\.safeParse\(data\)/);
+  assert.match(actions, /return \{ ok: true \}/);
+  assert.match(actions, /code: 'save_failed'/);
+  assert.match(projects, /if \(!result\.ok\)/);
+  assert.match(projects, /savingResponseId/);
+  assert.match(workspace, /data-testid="project-workspace-scroll"/);
+  assert.match(workspace, /overflow-x-hidden overflow-y-auto overscroll-contain/);
+  assert.match(workspace, /workspaceScrollRef\.current\?\.scrollTo\(\{ top: 0/);
+  assert.match(workspace, /maxLength=\{MAX_PROJECT_MEMORY_ENTRY_CHARACTERS\}/);
+  assert.doesNotMatch(workspace, /<ScrollArea/);
+});
+
 test('production responses define strict security headers without blocking Firebase services', () => {
   const nextConfig = readFileSync('next.config.ts', 'utf8');
 
