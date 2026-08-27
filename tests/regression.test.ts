@@ -1495,7 +1495,7 @@ test('workspace V2 uses a production flag and preserves preview and legacy rollb
   assert.match(refinery, /bottom-\[calc\(4\.75rem\+env\(safe-area-inset-bottom\)\)\]/);
   assert.match(refinery, /data-testid="workspace-refine-bar"/);
   assert.match(refinery, />Create project<\/Button>/);
-  assert.match(projects, /variant === 'workspace-v2'[\s\S]*xl:grid-cols-\[320px_minmax\(0,1fr\)\]/);
+  assert.match(projects, /variant === 'workspace-v2'[\s\S]*xl:grid-cols-\[340px_minmax\(0,1fr\)\][\s\S]*2xl:grid-cols-\[360px_minmax\(0,1fr\)\]/);
   assert.match(analytics, /label: 'Plan'/);
   assert.match(analytics, /label: 'Refinement units'/);
   assert.match(analytics, /label: 'Managed credits'/);
@@ -1503,6 +1503,17 @@ test('workspace V2 uses a production flag and preserves preview and legacy rollb
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /:root:not\(\.dark\):not\(\.high-contrast\) \.workspace-v2/);
   assert.match(styles, /--background: 42 32% 94%/);
+});
+
+test('workspace project controls remain accessible inside the master panel', () => {
+  const sidebar = readFileSync('src/components/prompt-refinery/project-sidebar.tsx', 'utf8');
+  const scrollArea = readFileSync('src/components/ui/scroll-area.tsx', 'utf8');
+
+  assert.match(scrollArea, /viewportClassName\?: string/);
+  assert.match(sidebar, /viewportClassName=.*\[&>div\]:!block/);
+  assert.match(sidebar, /className="min-w-0 flex-1"[\s\S]*placeholder="Search all project memory"/);
+  assert.match(sidebar, /grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
+  assert.match(sidebar, /group flex min-w-0[\s\S]*overflow-hidden/);
 });
 
 test('production responses define strict security headers without blocking Firebase services', () => {

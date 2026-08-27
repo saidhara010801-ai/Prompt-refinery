@@ -278,7 +278,7 @@ export function ProjectsTab({
     <div className={cn(
       'grid min-h-[680px] gap-6 lg:grid-cols-[340px_minmax(0,1fr)]',
       isSidebarCollapsed && 'lg:grid-cols-[72px_minmax(0,1fr)]',
-      variant === 'workspace-v2' && 'gap-4 lg:grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]',
+      variant === 'workspace-v2' && 'gap-4 lg:grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)]',
       variant === 'workspace-v2' && isSidebarCollapsed && 'xl:grid-cols-[72px_minmax(0,1fr)]'
     )}>
       <ProjectSidebar
