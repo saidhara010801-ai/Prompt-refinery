@@ -42,7 +42,19 @@ export const PRO_REFINEMENT_DAILY_UNITS = 30;
 export const PRO_REFINEMENT_MONTHLY_UNITS = 600;
 export const FREE_EVALUATION_DAILY_UNITS = 5;
 export const FREE_EVALUATION_MONTHLY_UNITS = 100;
-export const FREE_INPUT_TOKEN_LIMIT = 2048;
+
+// Managed Gemma supports a much larger context window. These are Clarift cost
+// and latency guardrails, not model context limits.
+export const FREE_TASK_INPUT_TOKENS: Record<FreeInferenceTask, number> = {
+  quick_refine: 16_384,
+  guided_fix: 16_384,
+  full_council: 16_384,
+  evaluate: 8_192,
+};
+
+// Kept as the largest managed-input allowance for compatibility with callers
+// that report one aggregate ceiling.
+export const FREE_INPUT_TOKEN_LIMIT = Math.max(...Object.values(FREE_TASK_INPUT_TOKENS));
 
 export const FREE_TASK_UNITS: Record<FreeInferenceTask, number> = {
   quick_refine: 1,
@@ -52,10 +64,10 @@ export const FREE_TASK_UNITS: Record<FreeInferenceTask, number> = {
 };
 
 export const FREE_TASK_OUTPUT_TOKENS: Record<FreeInferenceTask, number> = {
-  quick_refine: 1024,
-  guided_fix: 1536,
-  full_council: 2048,
-  evaluate: 1024,
+  quick_refine: 1536,
+  guided_fix: 2560,
+  full_council: 3072,
+  evaluate: 1536,
 };
 
 export function freeTaskAvailability(task: FreeInferenceTask, allowance: FreeInferenceAllowance) {

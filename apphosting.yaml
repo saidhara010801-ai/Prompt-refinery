@@ -116,7 +116,7 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_REMOTE_DEADLINE_MS
-    value: "65000"
+    value: "95000"
     availability:
       - RUNTIME
   - variable: CLARIFT_FREE_EXTENSION_DEADLINE_MS
@@ -132,7 +132,7 @@ env:
     availability:
       - RUNTIME
   - variable: CLARIFT_OPENROUTER_TIMEOUT_MS
-    value: "32000"
+    value: "60000"
     availability:
       - RUNTIME
   - variable: CLARIFT_OPENROUTER_EXTENSION_TIMEOUT_MS

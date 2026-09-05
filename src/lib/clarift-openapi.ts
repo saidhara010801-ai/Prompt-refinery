@@ -206,7 +206,7 @@ export function buildClariftOpenApiDocument(origin: string) {
           description: 'Requires conversions:write.',
           requestBody: {
             required: true,
-            content: { 'multipart/form-data': { schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string', format: 'binary' } } } } } },
+            content: { 'multipart/form-data': { schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string', format: 'binary' } } } } } },
           },
           responses: { '200': jsonResponse('Converted Markdown documents', { type: 'object' }), default: ERROR_RESPONSE },
         },

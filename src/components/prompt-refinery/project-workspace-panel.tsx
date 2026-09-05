@@ -1,15 +1,16 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { Clock3, LogOut, MessageSquareText, Plus, Save, Send, StickyNote, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { MAX_PROJECT_MEMORY_ENTRY_CHARACTERS } from '@/lib/input-limits';
 import type { Project } from './project-types';
 import { formatProjectDate, type ProjectSession } from './project-session-types';
 import { RefineryTab } from './refinery-tab';
@@ -36,6 +37,7 @@ interface ProjectWorkspacePanelProps {
   responseDrafts: Record<string, string>;
   onResponseDraftChange: (sessionId: string, value: string) => void;
   onSaveResponse: (session: ProjectSession) => void;
+  savingResponseId: string | null;
   noteTitle: string;
   onNoteTitleChange: (value: string) => void;
   noteContent: string;
@@ -67,6 +69,7 @@ export function ProjectWorkspacePanel({
   responseDrafts,
   onResponseDraftChange,
   onSaveResponse,
+  savingResponseId,
   noteTitle,
   onNoteTitleChange,
   noteContent,
@@ -80,6 +83,12 @@ export function ProjectWorkspacePanel({
   onDeleteMemory,
   variant = 'legacy',
 }: ProjectWorkspacePanelProps) {
+  const workspaceScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    workspaceScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [selectedProjectId, selectedSession?.id, workspaceView, isComposing]);
+
   return (
     <section className={cn('min-w-0 rounded-lg border bg-background', variant === 'workspace-v2' && 'overflow-hidden')}>
       <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -124,8 +133,18 @@ export function ProjectWorkspacePanel({
         </div>
       </div>
 
-      <ScrollArea className={cn('h-[624px]', variant === 'workspace-v2' && 'h-[620px] xl:h-[calc(100vh-13rem)]')}>
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-4 md:p-6">
+      <div
+        ref={workspaceScrollRef}
+        data-testid="project-workspace-scroll"
+        aria-label="Project workspace content"
+        tabIndex={0}
+        className={cn(
+          'h-[624px] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain',
+          variant === 'workspace-v2' && 'h-[620px] xl:h-[calc(100vh-13rem)]'
+        )}
+        style={{ scrollbarGutter: 'stable' }}
+      >
+        <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-col items-stretch gap-5 p-4 md:p-6">
           {!selectedProject && (
             <div className="flex min-h-[440px] items-center justify-center text-center text-sm text-muted-foreground">Select or create a project.</div>
           )}
@@ -174,15 +193,28 @@ export function ProjectWorkspacePanel({
               )}
 
               <div className="space-y-2 rounded-md border p-3">
-                <Label htmlFor={`llmResponse-${selectedSession.id}`}>Response notes</Label>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor={`llmResponse-${selectedSession.id}`}>Response notes</Label>
+                  <span className="text-xs text-muted-foreground">
+                    {(responseDrafts[selectedSession.id] ?? selectedSession.llmResponse ?? '').length.toLocaleString()} / {MAX_PROJECT_MEMORY_ENTRY_CHARACTERS.toLocaleString()}
+                  </span>
+                </div>
                 <Textarea
                   id={`llmResponse-${selectedSession.id}`}
                   value={responseDrafts[selectedSession.id] ?? selectedSession.llmResponse ?? ''}
                   onChange={(event) => onResponseDraftChange(selectedSession.id, event.target.value)}
                   placeholder="Paste downstream response notes."
                   className="min-h-28"
+                  maxLength={MAX_PROJECT_MEMORY_ENTRY_CHARACTERS}
                 />
-                <Button variant="outline" size="sm" onClick={() => onSaveResponse(selectedSession)}>Save Memory Note</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSaveResponse(selectedSession)}
+                  disabled={savingResponseId === selectedSession.id}
+                >
+                  {savingResponseId === selectedSession.id ? 'Saving...' : 'Save Memory Note'}
+                </Button>
               </div>
             </>
           )}
@@ -223,7 +255,7 @@ export function ProjectWorkspacePanel({
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </section>
   );
 }

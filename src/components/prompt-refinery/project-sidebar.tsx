@@ -132,7 +132,7 @@ export function ProjectSidebar({
   );
 
   return (
-    <aside className={cn('rounded-lg border border-primary/20 bg-background', variant === 'workspace-v2' && 'overflow-hidden')}>
+    <aside className={cn('min-w-0 rounded-lg border border-primary/20 bg-background', variant === 'workspace-v2' && 'w-full overflow-hidden')}>
       <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
         {!isCollapsed && (
           <div className="flex min-w-0 items-center gap-2">
@@ -160,11 +160,15 @@ export function ProjectSidebar({
           )}
         </div>
       ) : (
-        <ScrollArea className={cn('h-[624px]', variant === 'workspace-v2' && 'h-auto max-h-[70vh] md:h-[560px] xl:h-[calc(100vh-13rem)] xl:max-h-none')}>
-          <div className="space-y-5 p-4">
+        <ScrollArea
+          className={cn('h-[624px] min-w-0', variant === 'workspace-v2' && 'h-auto w-full max-h-[70vh] md:h-[560px] xl:h-[calc(100vh-13rem)] xl:max-h-none')}
+          viewportClassName={variant === 'workspace-v2' ? '[&>div]:!block [&>div]:w-full [&>div]:min-w-0' : undefined}
+        >
+          <div className="w-full min-w-0 space-y-5 p-4">
             <div className="space-y-2">
-              <div className="flex gap-2">
+              <div className="flex min-w-0 gap-2">
                 <Input
+                  className="min-w-0 flex-1"
                   value={searchText}
                   onChange={(event) => onSearchTextChange(event.target.value)}
                   placeholder="Search all project memory"
@@ -175,7 +179,7 @@ export function ProjectSidebar({
                     }
                   }}
                 />
-                <Button type="button" variant="outline" size="icon" onClick={onSearch} disabled={isSearching || searchText.trim().length < 2}>
+                <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={onSearch} disabled={isSearching || searchText.trim().length < 2}>
                   <Search className="h-4 w-4" />
                   <span className="sr-only">Search projects</span>
                 </Button>
@@ -197,11 +201,11 @@ export function ProjectSidebar({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Button type="button" size="sm" variant={!showTrash ? 'default' : 'outline'} onClick={() => onShowTrashChange(false)}>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+              <Button type="button" size="sm" className="min-w-0 px-2" variant={!showTrash ? 'default' : 'outline'} onClick={() => onShowTrashChange(false)}>
                 <FolderKanban className="h-4 w-4" />Active
               </Button>
-              <Button type="button" size="sm" variant={showTrash ? 'default' : 'outline'} onClick={() => onShowTrashChange(true)}>
+              <Button type="button" size="sm" className="min-w-0 px-2" variant={showTrash ? 'default' : 'outline'} onClick={() => onShowTrashChange(true)}>
                 <FolderX className="h-4 w-4" />Trash
               </Button>
             </div>
@@ -227,19 +231,19 @@ export function ProjectSidebar({
               {!isLoadingProjects && visibleProjects.map((project) => (
                 <div
                   key={project.id}
-                  className={cn('group flex items-start justify-between gap-2 rounded-md border p-2', selectedProjectId === project.id && 'border-primary bg-primary/5')}
+                  className={cn('group flex min-w-0 items-start justify-between gap-2 overflow-hidden rounded-md border p-2', selectedProjectId === project.id && 'border-primary bg-primary/5')}
                 >
                   <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelectProject(project)}>
                     <p className="truncate text-sm font-semibold">{project.name}</p>
                     <p className="mt-1 text-xs text-muted-foreground">Updated {formatProjectDate(project.updatedAt)}</p>
                   </button>
                   {project.status === 'trashed' ? (
-                    <div className="flex">
+                    <div className="flex shrink-0">
                       <Button variant="ghost" size="icon" onClick={() => onRestoreProject(project)}><ArchiveRestore className="h-4 w-4" /><span className="sr-only">Restore project</span></Button>
                       <Button variant="ghost" size="icon" onClick={() => onPermanentDeleteProject(project)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Delete forever</span></Button>
                     </div>
                   ) : (
-                    <Button variant="ghost" size="icon" onClick={() => onDeleteProject(project)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Move project to trash</span></Button>
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => onDeleteProject(project)}><Trash2 className="h-4 w-4 text-red-500" /><span className="sr-only">Move project to trash</span></Button>
                   )}
                 </div>
               ))}

@@ -96,7 +96,7 @@ export function getOpenModelProviderConfig(
     apiKey,
     timeoutMs: positiveInteger(
       source === 'extension' ? environment.CLARIFT_OPENROUTER_EXTENSION_TIMEOUT_MS : environment.CLARIFT_OPENROUTER_TIMEOUT_MS,
-      source === 'extension' ? 20_000 : 32_000,
+      source === 'extension' ? 20_000 : 60_000,
     ),
   };
 }
@@ -107,7 +107,7 @@ export function freeRemoteDeadlineMs(
 ) {
   return positiveInteger(
     source === 'extension' ? environment.CLARIFT_FREE_EXTENSION_DEADLINE_MS : environment.CLARIFT_FREE_REMOTE_DEADLINE_MS,
-    source === 'extension' ? 43_000 : 65_000,
+    source === 'extension' ? 43_000 : 95_000,
   );
 }
 
