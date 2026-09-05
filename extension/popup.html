@@ -16,9 +16,19 @@
         </div>
       </header>
       <button id="enable-page" type="button">Enable on this page</button>
+      <button id="enable-all" type="button" class="secondary">Always enable on all websites</button>
+      <button id="context-pill" type="button" class="secondary">Create context pill</button>
+      <p>Automatically scroll and collect chat history, then review and copy a pill.</p>
+      <button id="refine-text" type="button" class="secondary">Refine text</button>
+      <button id="copy-handoff" type="button" class="secondary">Copy whole-chat handoff request</button>
+      <p>For Comet or restricted chats: paste the request once into the source chat so its chatbot can create the summary.</p>
       <button id="open-settings" type="button" class="secondary">Extension settings</button>
+      <p>Address bar: type <strong>clarift</strong>, press Tab or Space, then enter your prompt.</p>
       <p id="page-status" role="status"></p>
+      <p id="extension-version"></p>
     </main>
+    <script src="context-core.js"></script>
+    <script src="page-access.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

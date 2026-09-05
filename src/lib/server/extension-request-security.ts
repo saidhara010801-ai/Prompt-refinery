@@ -14,9 +14,9 @@ export class ExtensionRequestSecurityError extends Error {
   }
 }
 
-export async function readBoundedExtensionJson(request: Request): Promise<unknown> {
+export async function readBoundedExtensionJson(request: Request, maxBytes = MAX_EXTENSION_JSON_BYTES): Promise<unknown> {
   const contentLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > MAX_EXTENSION_JSON_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new ExtensionRequestSecurityError('The extension request is too large.', 413);
   }
 
@@ -28,7 +28,7 @@ export async function readBoundedExtensionJson(request: Request): Promise<unknow
     const { done, value } = await reader.read();
     if (done) break;
     totalBytes += value.byteLength;
-    if (totalBytes > MAX_EXTENSION_JSON_BYTES) {
+    if (totalBytes > maxBytes) {
       await reader.cancel().catch(() => undefined);
       throw new ExtensionRequestSecurityError('The extension request is too large.', 413);
     }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mira's story · Synthetic chat</title></head>
+<body>
+  <nav>PRIVATE SIDEBAR CHAT HISTORY</nav>
+  <main>
+    <div data-message-author-role="user">Write a mystery about Mira.<button>Copy secret UI label</button></div>
+    <div data-message-author-role="assistant"><div data-testid="assistant-message"><p>Mira arrives at the lighthouse.</p><pre>chapter = 1;
+keep_the_map();</pre></div></div>
+    <div data-message-author-role="user">Keep the ending ambiguous.</div>
+    <div data-message-author-role="assistant" hidden>HIDDEN BRANCH SECRET</div>
+    <div data-message-author-role="assistant"><span style="display:none">HIDDEN INLINE SECRET</span>Consider an unreliable narrator.</div>
+    <div data-message-author-role="user">Keep the ending ambiguous.</div>
+    <input id="implicit" value="Refine this search">
+    <input id="search" type="search" value="find story inspiration">
+    <textarea id="prompt">Continue Mira's story.</textarea>
+    <input id="password" type="password" value="PRIVATE PASSWORD">
+    <input id="email" type="email" value="private@example.org">
+    <input id="readonly" readonly value="Do not change">
+    <fieldset disabled><textarea id="disabled">Do not change either</textarea></fieldset>
+    <div id="plain" contenteditable="plaintext-only">Plan the second chapter.</div>
+    <div id="rich" contenteditable><p id="nested">Develop the narrator.</p><span contenteditable="false" id="noneditable">Read-only mention</span></div>
+    <div id="aria-only" role="textbox" tabindex="0">Not actually editable</div>
+    <div id="shadow-host"></div>
+    <iframe id="frame" srcdoc="<textarea>Frame prompt</textarea>"></iframe>
+  </main>
+  <script>
+    const shadow = document.querySelector('#shadow-host').attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<textarea id="shadow-editor">Inside open shadow root</textarea>';
+  </script>
+</body></html>

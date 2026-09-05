@@ -46,6 +46,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "npm run package:extension && tsx --test tests/*.test.ts",
+    "test:extension:browser": "node scripts/test-extension-browser.mjs",
     "test:firestore-emulator": "node scripts/run-firestore-emulator-tests.mjs",
     "check:production-env": "tsx scripts/check-production-env.ts",
     "migrate:project-memory": "tsx scripts/migrate-project-memory.ts",
