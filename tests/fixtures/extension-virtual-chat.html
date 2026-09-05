@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Virtualized synthetic conversation</title>
+<style>body { margin:0; } #chat-scroll { height:320px; overflow-y:scroll; width:600px; scroll-behavior:smooth; } #messages { position:relative; height:4800px; } article { position:absolute; height:80px; width:100%; } textarea { margin-top:20px; }</style></head>
+<body><main><div id="chat-scroll"><div id="messages"></div></div><textarea>Do not collect this unsent draft</textarea></main>
+<script>
+  const params = new URLSearchParams(location.search);
+  const scroller = document.querySelector('#chat-scroll');
+  const container = document.querySelector('#messages');
+  const total = params.has('smoke') ? 12 : 60;
+  let loadedStart = params.has('lazy') ? 30 : 0;
+  let loading = false;
+  container.style.height = `${(total - loadedStart) * 80}px`;
+  // Virtual render offsets include the lazy range's logical position.
+  function draw() {
+    const start = Math.max(loadedStart, loadedStart + Math.floor(scroller.scrollTop / 80) - 1);
+    const end = Math.min(total, start + 7);
+    container.replaceChildren();
+    for (let i = start; i < end; i += 1) {
+      const node = document.createElement('article'); node.style.top = `${(i - loadedStart) * 80}px`;
+      node.setAttribute('data-message-id', `message-${i}`); node.setAttribute('data-message-author-role', i % 2 ? 'assistant' : 'user');
+      node.textContent = i === 20 || i === 22 ? 'Keep the ending ambiguous.' : `Turn ${i}: ${i === 0 ? 'Original project goal' : i === 59 ? 'Latest next action' : 'Story detail'}`;
+      container.append(node);
+    }
+    if (params.has('lazy') && scroller.scrollTop <= 1 && loadedStart > 0 && !loading) {
+      loading = true; setTimeout(() => { loadedStart = 0; container.style.height = `${total * 80}px`; loading = false; draw(); }, 120);
+    }
+  }
+  scroller.style.scrollBehavior = 'auto';
+  scroller.scrollTop = scroller.scrollHeight;
+  scroller.style.scrollBehavior = 'smooth';
+  scroller.addEventListener('scroll', draw); draw();
+</script></body></html>

@@ -54,7 +54,7 @@ const nextConfig: NextConfig = {
         headers: [
           { key: 'Content-Disposition', value: 'attachment; filename="clarift-browser-extension.zip"' },
           { key: 'Content-Type', value: 'application/zip' },
-          { key: 'Cache-Control', value: 'public, max-age=300, must-revalidate' },
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
         ],
       },
       {

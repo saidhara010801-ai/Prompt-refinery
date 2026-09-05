@@ -18,6 +18,7 @@ Clarift helps AI enthusiasts, developers, creators, marketers, researchers, and 
 - Free and Pro segmentation with protected subscription tiers, daily managed-key limits, and server-enforced saved-prompt limits.
 - Stripe subscription Checkout and webhook fulfillment for Pro upgrades.
 - Provider-agnostic Developer API, typed SDK, CLI, and MCP bridge behind scoped Clarift tokens and the Developer entitlement.
+- Browser extension with prompt/search refinement, optional website activation, automatic chat-history collection, editable context pills, transcript import/export, and reviewed context for subsequent refinements. Download the latest test build in Settings → Extension; see the [v2.3.1 capabilities](docs/extension-release-2.3.1.md).
 - Managed provider routing with server-owned provider order, model selection, quotas, budgets, and circuit breakers.
 - Deterministic token count estimates for Gemini, OpenAI, DeepSeek, and Qwen families.
 - Optional max-character target for refined output.

@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "119",
   "name": "Clarift Prompt Refinery",
-  "version": "2.2.0",
-  "description": "Refine prompts inline on ChatGPT, Claude, Gemini, and other chatbot interfaces.",
-  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "version": "2.3.1",
+  "description": "Refine web prompts and searches, and carry conversations between chatbots with a portable context pill.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "clipboardWrite"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "omnibox": { "keyword": "clarift" },
   "host_permissions": [
     "https://clarift--clarift-e4f6f.us-east4.hosted.app/*",
     "http://localhost:9002/*"
@@ -30,9 +33,11 @@
         "https://grok.com/*",
         "https://aistudio.google.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["context-core.js", "context-capture.js", "context-history.js", "content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
     }
   ]
 }

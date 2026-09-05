@@ -46,6 +46,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "npm run package:extension && tsx --test tests/*.test.ts",
+    "test:extension:browser": "node scripts/test-extension-browser.mjs",
     "check:production-env": "tsx scripts/check-production-env.ts",
     "migrate:project-memory": "tsx scripts/migrate-project-memory.ts",
     "migrate:personal-tenants": "tsx scripts/migrate-personal-tenants.ts",

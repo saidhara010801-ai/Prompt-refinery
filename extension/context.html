@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clarift · Context pill</title>
+    <link rel="stylesheet" href="context.css">
+  </head>
+  <body>
+    <main>
+      <header><span class="mark" aria-hidden="true">C</span><div><p class="eyebrow">CLARIFT · CONTINUE ANYWHERE</p><h1>Carry the conversation forward.</h1><p>Review a context pill, then paste it into your next chat. Capture and export stay on this device.</p></div></header>
+      <section id="search-section" hidden>
+        <h2>Refine text from any browser field</h2>
+        <p>Refinement sends this prompt to your connected Clarift account. Copy the result into your preferred AI search or chatbot.</p>
+        <label for="search-prompt">Your prompt</label><textarea id="search-prompt" rows="5" maxlength="50000"></textarea>
+        <div class="actions"><button id="refine-search">Refine prompt</button><button id="copy-search" class="secondary">Copy prompt</button></div>
+      </section>
+      <section id="handoff-section">
+        <h2>Make a whole-chat handoff without scrolling</h2>
+        <p>For Comet’s built-in chat, or when a page blocks capture: copy this request and submit it once in the source conversation. Its chatbot can summarize the earlier turns available to it. Then copy the resulting pill into your next chat. No transcript is sent to Clarift by this action.</p>
+        <button id="copy-handoff" class="secondary">Copy whole-chat handoff request</button>
+        <details><summary>Review the request / save it as a Comet shortcut</summary><p>In Comet, type /, choose Create a shortcut, and save this request as a reusable context-pill shortcut.</p><label for="handoff-request">Request to paste into the source chatbot</label><textarea id="handoff-request" rows="9" readonly></textarea></details>
+      </section>
+      <div class="columns">
+        <section>
+          <p class="eyebrow">01 · SOURCE</p><h2>Capture the open conversation</h2>
+          <p id="source-status">Inspecting the source tab…</p>
+          <p class="notice">History collection scrolls the source chat automatically, retains messages across scrolls, and returns to your starting position. You can stop at any time. Sites may still withhold earlier turns, attachments, or hidden branches.</p>
+          <div class="row"><div><label for="capture-mode">Capture</label><select id="capture-mode"><option value="chat">Chat messages</option><option value="page">Page text</option></select></div><div><label for="source-frame">Source frame</label><select id="source-frame"><option value="0">Main page</option></select></div></div>
+          <label class="check"><input id="auto-history" type="checkbox" checked> Collect chat history automatically after capture</label>
+          <div class="actions"><button id="capture" class="secondary">Capture / collect chat</button><button id="collect-history" class="secondary" disabled>Collect chat history</button><button id="stop-history" class="secondary" hidden>Stop collection</button><button id="download-transcript" class="secondary" disabled>Download captured transcript</button></div>
+          <p id="history-status" role="status" aria-live="polite"></p>
+          <label for="source-preview">Captured text · review before sharing</label><textarea id="source-preview" rows="11" readonly></textarea>
+          <details><summary>Paste or import a transcript instead</summary><p>Use an exported or copied chat when capture cannot reach it. Preserve speaker names and order.</p><label for="transcript-file">Import a text or Markdown export</label><input id="transcript-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"><label for="manual-transcript">Transcript (up to 500,000 characters)</label><textarea id="manual-transcript" rows="7" maxlength="500000"></textarea><button id="use-transcript" class="secondary">Use pasted transcript</button></details>
+        </section>
+        <section>
+          <p class="eyebrow">02 · WHAT MATTERS</p><h2>Set up the next chat</h2>
+          <p>These notes are your confirmed context. Compact mode uses excerpts, so add decisions and details you cannot afford to lose.</p>
+          <label for="goal">Project / goal</label><textarea id="goal" rows="2" maxlength="5000" placeholder="Finish the outline of my mystery story…"></textarea>
+          <label for="decisions">Confirmed decisions and current state</label><textarea id="decisions" rows="3" maxlength="10000" placeholder="What did you settle on? What is complete?"></textarea>
+          <label for="constraints">Constraints / facts to preserve</label><textarea id="constraints" rows="3" maxlength="10000" placeholder="Characters, timeline, tone, requirements, facts…"></textarea>
+          <label for="next">Open questions / next action</label><textarea id="next" rows="2" maxlength="5000" placeholder="Continue from here…"></textarea>
+          <div class="row"><div><label for="pill-mode">Conversation detail</label><select id="pill-mode"><option value="compact">Compact excerpts</option><option value="full">All captured text</option></select></div><div><label for="budget">Excerpt budget</label><select id="budget"><option value="4000">4,000 characters</option><option value="10000" selected>10,000 characters</option><option value="24000">24,000 characters</option></select></div></div>
+          <label class="check"><input id="include-url" type="checkbox"> Include source page URL (query and fragment removed)</label>
+          <button id="build-pill" disabled>Build / replace draft pill</button>
+          <p>Building again replaces the draft below. Nothing is saved automatically.</p>
+        </section>
+      </div>
+      <section>
+        <p class="eyebrow">03 · REVIEW & TRANSFER</p><h2>Your portable context pill</h2>
+        <label for="pill-output">Editable draft · check for missing details and private information</label><textarea id="pill-output" rows="15" spellcheck="false"></textarea>
+        <p id="pill-size">Build a pill to begin.</p>
+        <div class="actions"><button id="copy-pill" disabled>Copy context pill</button><button id="download-pill" class="secondary" disabled>Download Markdown</button></div>
+        <details><summary>Use reviewed context for refinements on the source page</summary>
+          <p>Paste or write up to 5,600 characters here. Clicking Attach authorizes sending this text to Clarift with each later refinement in this source frame. It stays in that page's memory until you clear it, reload, or change conversations. Recapture and reattach when your context changes.</p>
+          <label for="refinement-context">Context to send with refinements</label><textarea id="refinement-context" rows="6" maxlength="5600"></textarea>
+          <div class="actions"><button id="attach-context" class="secondary" disabled>Attach reviewed context</button><button id="clear-context" class="secondary" disabled>Clear attached context</button></div>
+        </details>
+      </section>
+      <p id="status" role="status" aria-live="polite"></p>
+      <footer>Paste the pill into ChatGPT, Claude, Grok, Gemini, Perplexity, or another chatbot. A compact pill cannot preserve every detail; keep the captured transcript for reference.</footer>
+    </main>
+    <script src="context-core.js"></script><script src="page-access.js"></script><script src="context.js"></script>
+  </body>
+</html>
